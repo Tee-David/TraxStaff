@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import LightRays from "./LightRays";
 import {
   api,
@@ -68,8 +69,15 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [todo, setTodo] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [idleMin, setIdleMin] = useState<number | null>(null);
   const deviceId = useRef<string | null>(null);
   const heartbeat = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Idle prompt from the native capture engine.
+  useEffect(() => {
+    const un = listen<number>("trax:idle", (e) => setIdleMin(e.payload));
+    return () => { un.then((f) => f()); };
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -102,10 +110,10 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       const s = await api<Session>("/sessions/start", { method: "POST", body: JSON.stringify({ projectId, taskId: taskId || undefined, deviceId: deviceId.current ?? undefined, platform: "windows", appVersion: "0.1.0" }) });
       setActive(s); beginHeartbeat(s.id);
       // Kick off native capture (activity sampling + screenshots + sync) in Rust.
-      let perBlock = 1, blur = false;
+      let perBlock = 1, blur = false, idleMinutes = 5;
       try {
-        const o = await api<{ screenshotsPerBlock: number; blurScreenshots: boolean }>("/orgs/settings");
-        perBlock = o.screenshotsPerBlock; blur = o.blurScreenshots;
+        const o = await api<{ screenshotsPerBlock: number; blurScreenshots: boolean; idleTimeoutMinutes: number }>("/orgs/settings");
+        perBlock = o.screenshotsPerBlock; blur = o.blurScreenshots; idleMinutes = o.idleTimeoutMinutes;
       } catch { /* use defaults */ }
       invoke("begin_capture", {
         token: getToken() ?? "",
@@ -113,6 +121,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         sessionId: s.id,
         screenshotsPerBlock: perBlock,
         blur,
+        idleMinutes,
       }).catch(() => {});
     } catch (e) { setError(e instanceof Error ? e.message : "Could not start"); }
   }
@@ -131,6 +140,15 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
 
   return (
     <div className="app-shell">
+      {idleMin !== null && active && (
+        <div className="idle-banner">
+          <span>You&rsquo;ve been idle for ~{idleMin} min. Keep tracking this time?</span>
+          <div className="idle-actions">
+            <button className="idle-keep" onClick={() => setIdleMin(null)}>Keep</button>
+            <button className="idle-stop" onClick={() => { setIdleMin(null); stop(); }}>Stop</button>
+          </div>
+        </div>
+      )}
       <aside className="widget-pane">
         <TrackingWidget
           projects={projects} selectedProject={selectedProject}

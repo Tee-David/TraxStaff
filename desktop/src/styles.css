@@ -83,3 +83,14 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .status.active { background: rgba(31,157,99,0.14); color: #1f9d63; }
 .status.idle { background: #eef0f7; color: var(--muted); }
 .pad { padding: 14px 0; }
+
+/* ---- idle banner ---- */
+.idle-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--accent); color: #fff; padding: 10px 16px; font-size: 13px; font-weight: 600;
+}
+.idle-actions { display: flex; gap: 8px; }
+.idle-keep, .idle-stop { padding: 6px 14px; border-radius: 8px; font-size: 13px; }
+.idle-keep { background: rgba(255,255,255,0.25); color: #fff; }
+.idle-stop { background: #fff; color: var(--accent); }

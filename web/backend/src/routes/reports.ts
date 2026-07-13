@@ -93,6 +93,21 @@ export default async function reportRoutes(fastify: FastifyInstance) {
     return reply.send(out);
   });
 
+  // App usage: total foreground seconds per application across the caller's
+  // visible sessions in range.
+  fastify.get("/reports/app-usage", async (req, reply) => {
+    const sessions = await loadSessions(req);
+    const ids = sessions.map((s) => s.id);
+    if (ids.length === 0) return reply.send([]);
+    const usages = await prisma.appUsage.findMany({ where: { sessionId: { in: ids } } });
+    const byApp = new Map<string, number>();
+    for (const u of usages) byApp.set(u.appName, (byApp.get(u.appName) ?? 0) + u.seconds);
+    const out = [...byApp.entries()]
+      .map(([appName, seconds]) => ({ appName, seconds }))
+      .sort((a, b) => b.seconds - a.seconds);
+    return reply.send(out);
+  });
+
   // Headline summary: total hours, avg activity %, session count, flags.
   fastify.get("/reports/summary", async (req, reply) => {
     const sessions = await loadSessions(req);

@@ -5,11 +5,11 @@
 //
 // Verified via the Windows CI build (this Linux sandbox can't build the GUI).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -17,6 +17,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use once_cell::sync::Lazy;
 use rand::Rng;
 use sha2::{Digest, Sha256};
+use tauri::{AppHandle, Emitter};
 
 const GENESIS: &str = "GENESIS";
 const JIGGLER_BLOCKLIST: &[&str] = &[
@@ -25,7 +26,10 @@ const JIGGLER_BLOCKLIST: &[&str] = &[
 ];
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+static LAST_INPUT: AtomicI64 = AtomicI64::new(0);
+static IDLE_NOTIFIED: AtomicBool = AtomicBool::new(false);
 static CAPTURE: Lazy<Mutex<Option<Capture>>> = Lazy::new(|| Mutex::new(None));
+static APP_HANDLE: Lazy<Mutex<Option<AppHandle>>> = Lazy::new(|| Mutex::new(None));
 
 struct PendingShot {
     monitor_index: u32,
@@ -48,16 +52,20 @@ struct Capture {
     shot_offsets: Vec<i64>,
     shots_taken: HashSet<i64>,
     pending_shots: Vec<PendingShot>,
+    app_secs: HashMap<String, i64>,
+    idle_threshold: i64,
     queue_dir: PathBuf,
 }
 
 impl Capture {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         token: String,
         backend: String,
         session_id: String,
         screenshots_per_block: u32,
         blur: bool,
+        idle_threshold: i64,
         queue_dir: PathBuf,
         block_secs: i64,
     ) -> Self {
@@ -76,6 +84,8 @@ impl Capture {
             shot_offsets: Vec::new(),
             shots_taken: HashSet::new(),
             pending_shots: Vec::new(),
+            app_secs: HashMap::new(),
+            idle_threshold,
             queue_dir,
         };
         c.plan_shots();
@@ -112,6 +122,8 @@ pub fn on_input(is_keyboard: bool) {
     if !ACTIVE.load(Ordering::Relaxed) {
         return;
     }
+    LAST_INPUT.store(Utc::now().timestamp(), Ordering::Relaxed);
+    IDLE_NOTIFIED.store(false, Ordering::Relaxed);
     if let Ok(mut guard) = CAPTURE.lock() {
         if let Some(c) = guard.as_mut() {
             let sec = Utc::now().timestamp();
@@ -125,12 +137,14 @@ pub fn on_input(is_keyboard: bool) {
 }
 
 /// Start capturing for a session.
+#[allow(clippy::too_many_arguments)]
 pub fn begin(
     token: String,
     backend: String,
     session_id: String,
     screenshots_per_block: u32,
     blur: bool,
+    idle_minutes: i64,
     queue_dir: PathBuf,
 ) {
     let block_secs = std::env::var("TRAX_BLOCK_SECS")
@@ -139,8 +153,19 @@ pub fn begin(
         .unwrap_or(600)
         .clamp(30, 3600);
     let _ = fs::create_dir_all(&queue_dir);
+    LAST_INPUT.store(Utc::now().timestamp(), Ordering::Relaxed);
+    IDLE_NOTIFIED.store(false, Ordering::Relaxed);
     if let Ok(mut guard) = CAPTURE.lock() {
-        *guard = Some(Capture::new(token, backend, session_id, screenshots_per_block, blur, queue_dir, block_secs));
+        *guard = Some(Capture::new(
+            token,
+            backend,
+            session_id,
+            screenshots_per_block,
+            blur,
+            idle_minutes.clamp(1, 60) * 60,
+            queue_dir,
+            block_secs,
+        ));
     }
     ACTIVE.store(true, Ordering::Relaxed);
 }
@@ -159,6 +184,26 @@ pub fn tick() {
     if !ACTIVE.load(Ordering::Relaxed) {
         return;
     }
+    // Sample the foreground app for this second (outside the lock; it can be slow).
+    let active_app = active_win_pos_rs::get_active_window().ok().map(|w| {
+        let mut name = w.app_name;
+        if name.trim().is_empty() {
+            name = w.title;
+        }
+        name.trim().to_string()
+    });
+
+    // Idle detection: notify the UI once per idle stretch.
+    let idle_threshold = CAPTURE.lock().ok().and_then(|g| g.as_ref().map(|c| c.idle_threshold)).unwrap_or(300);
+    let idle_for = Utc::now().timestamp() - LAST_INPUT.load(Ordering::Relaxed);
+    if idle_for >= idle_threshold && !IDLE_NOTIFIED.swap(true, Ordering::Relaxed) {
+        if let Ok(guard) = APP_HANDLE.lock() {
+            if let Some(app) = guard.as_ref() {
+                let _ = app.emit("trax:idle", idle_for / 60);
+            }
+        }
+    }
+
     // Determine due screenshots + whether the block is complete (under lock, briefly).
     let (due, backend, token, session_id, blur, seq, complete) = {
         let mut guard = match CAPTURE.lock() {
@@ -169,6 +214,11 @@ pub fn tick() {
             Some(c) => c,
             None => return,
         };
+        if let Some(app) = &active_app {
+            if !app.is_empty() {
+                *c.app_secs.entry(app.clone()).or_insert(0) += 1;
+            }
+        }
         let elapsed = (Utc::now() - c.block_start).num_seconds();
         let mut due = Vec::new();
         for &off in &c.shot_offsets {
@@ -270,7 +320,7 @@ fn round2(v: f64) -> f64 {
 /// sync it, upload its screenshots. Then advance the chain (unless stopping).
 fn finalize_block(stopping: bool) {
     // Build payload + drain shots under the lock.
-    let (payload, session_id, backend, token, blur, seq, shots, prev_for_next, hash_for_next, next_start) = {
+    let (payload, session_id, backend, token, blur, seq, shots, app_usage, block_start_iso) = {
         let mut guard = match CAPTURE.lock() {
             Ok(g) => g,
             Err(_) => return,
@@ -318,6 +368,8 @@ fn finalize_block(stopping: bool) {
             jiggler_process: jiggler,
         };
         let shots = std::mem::take(&mut c.pending_shots);
+        let app_usage: Vec<(String, i64)> = c.app_secs.drain().collect();
+        let block_start_iso = payload.block_start.clone();
         let seq = c.seq;
         let sid = c.session_id.clone();
         let backend = c.backend.clone();
@@ -333,15 +385,17 @@ fn finalize_block(stopping: bool) {
             c.mouse_secs.clear();
             c.plan_shots();
         }
-        (payload, sid, backend, token, blur, seq, shots, hash.clone(), hash, end)
+        (payload, sid, backend, token, blur, seq, shots, app_usage, block_start_iso)
     };
-    let _ = (prev_for_next, hash_for_next, next_start);
 
     // Network I/O outside the lock.
     let synced = sync_block(&backend, &token, &session_id, &payload);
     if synced {
         for shot in &shots {
             upload_shot(&backend, &token, &session_id, seq, shot, blur);
+        }
+        if !app_usage.is_empty() {
+            sync_app_usage(&backend, &token, &session_id, &block_start_iso, &app_usage);
         }
         flush_queue(&backend, &token);
     } else {
@@ -359,6 +413,16 @@ fn sync_block(backend: &str, token: &str, session_id: &str, block: &BlockPayload
         Ok(r) => r.status().is_success(),
         Err(_) => false,
     }
+}
+
+fn sync_app_usage(backend: &str, token: &str, session_id: &str, block_start: &str, apps: &[(String, i64)]) {
+    let client = match reqwest::blocking::Client::builder().timeout(Duration::from_secs(20)).build() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let apps_json: Vec<_> = apps.iter().map(|(n, s)| serde_json::json!({ "appName": n, "seconds": s })).collect();
+    let body = serde_json::json!({ "sessionId": session_id, "blockStart": block_start, "apps": apps_json });
+    let _ = client.post(format!("{backend}/sync/app-usage")).bearer_auth(token).json(&body).send();
 }
 
 fn upload_shot(backend: &str, token: &str, session_id: &str, seq: u32, shot: &PendingShot, blur: bool) -> bool {
@@ -454,7 +518,10 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// Spawn the rdev input listener + the 1-second worker loop. Call once at startup.
-pub fn spawn_workers() {
+pub fn spawn_workers(app: AppHandle) {
+    if let Ok(mut guard) = APP_HANDLE.lock() {
+        *guard = Some(app);
+    }
     // input listener
     std::thread::spawn(|| {
         let _ = rdev::listen(|event| match event.event_type {
@@ -482,10 +549,11 @@ pub fn begin_capture(
     session_id: String,
     screenshots_per_block: u32,
     blur: bool,
+    idle_minutes: i64,
 ) -> Result<(), String> {
     use tauri::Manager;
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("queue");
-    begin(token, backend, session_id, screenshots_per_block, blur, dir);
+    begin(token, backend, session_id, screenshots_per_block, blur, idle_minutes, dir);
     Ok(())
 }
 

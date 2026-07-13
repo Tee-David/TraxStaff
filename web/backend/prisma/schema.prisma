@@ -142,10 +142,23 @@ model TrackingSession {
   activityBlocks  ActivityBlock[]
   screenshots     Screenshot[]
   flags           UnusualActivityFlag[]
+  appUsages       AppUsage[]
 
   @@index([userId])
   @@index([projectId])
   @@index([deviceId])
+}
+
+model AppUsage {
+  id         String          @id @default(uuid()) @db.Uuid
+  sessionId  String          @db.Uuid
+  session    TrackingSession @relation(fields: [sessionId], references: [id])
+  appName    String
+  seconds    Int
+  blockStart DateTime
+  createdAt  DateTime        @default(now())
+
+  @@index([sessionId])
 }
 
 model ActivityBlock {

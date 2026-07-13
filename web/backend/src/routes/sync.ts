@@ -23,6 +23,12 @@ const syncSchema = z.object({
   blocks: z.array(blockSchema).min(1),
 });
 
+const appUsageSchema = z.object({
+  sessionId: z.string().uuid(),
+  blockStart: z.string().datetime({ offset: true }),
+  apps: z.array(z.object({ appName: z.string().min(1), seconds: z.number().int().min(1) })).min(1),
+});
+
 export default async function syncRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
 
@@ -118,6 +124,24 @@ export default async function syncRoutes(fastify: FastifyInstance) {
       reasons,
       flags: anomalies.map((a) => a.type),
     });
+  });
+
+  // Ingest per-app foreground seconds for a block (active-window sampling).
+  fastify.post("/sync/app-usage", async (req, reply) => {
+    const body = appUsageSchema.parse(req.body);
+    const session = await prisma.trackingSession.findUnique({ where: { id: body.sessionId } });
+    if (!session || session.userId !== req.user.userId) {
+      return reply.code(404).send({ error: "Session not found" });
+    }
+    await prisma.appUsage.createMany({
+      data: body.apps.map((a) => ({
+        sessionId: body.sessionId,
+        appName: a.appName,
+        seconds: a.seconds,
+        blockStart: new Date(body.blockStart),
+      })),
+    });
+    return reply.send({ ingested: body.apps.length });
   });
 }
 

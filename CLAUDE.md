@@ -42,6 +42,15 @@ trax/
   (no third-party email service). In-process `node-cron` for nightly 30-day
   screenshot retention cleanup — do not add a separate Render Cron/Worker
   service for this.
+- **CockroachDB cert (ALWAYS use it):** the connection uses
+  `sslmode=verify-full`, which requires the cluster CA cert at
+  `web/backend/root.crt`. The runtime Prisma client auto-appends
+  `sslrootcert=…/root.crt` (see `src/lib/prisma.ts`). For any Prisma **CLI**
+  command (`db push`, `migrate`, `seed`) always ensure the cert is used — e.g.
+  export `PGSSLROOTCERT=$PWD/root.crt` (run from `web/backend`) or append
+  `&sslrootcert=./root.crt` to `DATABASE_URL`. Never switch to
+  `sslmode=require`/`disable` to dodge the cert. (Transient P1001 "can't reach"
+  errors from a dev box are usually network flakiness — retry.)
 - **Frontend stack:** Next.js App Router, TypeScript, Tailwind, shadcn/ui,
   recharts for activity/timeline charts. **Brand:** primary deep royal blue
   `#000065`, secondary orange `#FF6600` (same palette as the `wdc` project).

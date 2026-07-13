@@ -12,9 +12,22 @@ import sessionRoutes from "./routes/sessions";
 import syncRoutes from "./routes/sync";
 import reportRoutes from "./routes/reports";
 import insightsRoutes from "./routes/insights";
+import screenshotRoutes from "./routes/screenshots";
+import orgRoutes from "./routes/orgs";
 
 async function main() {
   const fastify = Fastify({ logger: true });
+
+  // Accept empty bodies on requests that still send `Content-Type: application/json`
+  // (e.g. DELETE / stop calls with no payload) instead of 400-ing on empty JSON.
+  fastify.addContentTypeParser("application/json", { parseAs: "string" }, (_req, body, done) => {
+    if (!body || (typeof body === "string" && body.trim() === "")) return done(null, undefined);
+    try {
+      done(null, JSON.parse(body as string));
+    } catch (err) {
+      done(err as Error);
+    }
+  });
 
   // Turn schema-validation failures into clean 400s instead of 500s.
   fastify.setErrorHandler((error: Error & { statusCode?: number }, _req, reply) => {
@@ -41,6 +54,8 @@ async function main() {
   await fastify.register(syncRoutes);
   await fastify.register(reportRoutes);
   await fastify.register(insightsRoutes);
+  await fastify.register(screenshotRoutes);
+  await fastify.register(orgRoutes);
 
   await fastify.listen({ port: env.PORT, host: "0.0.0.0" });
 }

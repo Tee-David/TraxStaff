@@ -42,6 +42,10 @@ model Organization {
   id            String         @id @default(uuid()) @db.Uuid
   name          String
   createdAt     DateTime       @default(now())
+  // Screenshot capture policy (admin-configurable, org-wide)
+  screenshotsPerBlock Int      @default(1) // 0 = off, 1/2/3 per 10-min block
+  blurScreenshots     Boolean  @default(false)
+  idleTimeoutMinutes  Int      @default(5)
   users         User[]
   projects      Project[]
   invites       InviteToken[]

@@ -45,6 +45,11 @@ export default function InsightsPage() {
     load();
   }, [load]);
 
+  async function acknowledge(id: string) {
+    await api(`/insights/unusual-activity/${id}/acknowledge`, { method: "POST" }).catch(() => {});
+    setFlags((fs) => fs.map((f) => (f.id === id ? { ...f, acknowledgedAt: new Date().toISOString() } : f)));
+  }
+
   return (
     <div>
       <div className="mb-5">
@@ -114,17 +119,27 @@ export default function InsightsPage() {
                     <th className="pb-2 font-medium">Project</th>
                     <th className="pb-2 font-medium">Signal</th>
                     <th className="pb-2 font-medium">Detected</th>
+                    <th className="pb-2 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {flags.map((f) => (
-                    <tr key={f.id} className="border-b border-border/60 last:border-0">
+                    <tr key={f.id} className={`border-b border-border/60 last:border-0 ${f.acknowledgedAt ? "opacity-50" : ""}`}>
                       <td className="py-2.5 font-medium">{f.session.user.email}</td>
                       <td className="py-2.5 text-muted">{f.session.project.name}</td>
                       <td className="py-2.5">
                         <Badge tone="red">{FLAG_LABELS[f.type] ?? f.type}</Badge>
                       </td>
                       <td className="py-2.5 text-muted">{new Date(f.detectedAt).toLocaleString()}</td>
+                      <td className="py-2.5 text-right">
+                        {f.acknowledgedAt ? (
+                          <span className="text-xs text-muted">Acknowledged</span>
+                        ) : (
+                          <button onClick={() => acknowledge(f.id)} className="text-xs text-brand hover:underline">
+                            Acknowledge
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

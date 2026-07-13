@@ -113,6 +113,21 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
     return reply.send(board);
   });
 
+  // Acknowledge (dismiss) an unusual-activity flag — admins only.
+  fastify.post("/insights/unusual-activity/:id/acknowledge", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return;
+    const { id } = req.params as { id: string };
+    const flag = await prisma.unusualActivityFlag.findUnique({
+      where: { id },
+      include: { session: { select: { user: { select: { orgId: true } } } } },
+    });
+    if (!flag || flag.session.user.orgId !== req.user.orgId) {
+      return reply.code(404).send({ error: "Not found" });
+    }
+    await prisma.unusualActivityFlag.update({ where: { id }, data: { acknowledgedAt: new Date() } });
+    return reply.send({ ok: true });
+  });
+
   // Notifications for the current user's org (admins) or the user themself.
   fastify.get("/notifications", async (req, reply) => {
     const privileged = req.user.role === "owner" || req.user.role === "admin";

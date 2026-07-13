@@ -40,6 +40,7 @@ export interface UnusualFlag {
   id: string;
   type: string;
   detectedAt: string;
+  acknowledgedAt: string | null;
   details: Record<string, unknown> | null;
   session: {
     id: string;

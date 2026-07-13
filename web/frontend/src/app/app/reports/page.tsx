@@ -48,11 +48,40 @@ export default function ReportsPage() {
 
   const maxProj = Math.max(1, ...projects.map((p) => p.totalSeconds));
 
+  function exportCsv() {
+    const rows = [
+      ["Project", "Client", "Hours", "Avg activity %"],
+      ...projects.map((p) => [
+        p.project,
+        p.clientTag ?? "",
+        (p.totalSeconds / 3600).toFixed(2),
+        p.avgActivityPct != null ? String(p.avgActivityPct) : "",
+      ]),
+    ];
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `trax-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-2xl">Reports</h1>
-        <p className="text-sm text-muted">Hours, activity, and time by project</p>
+      <div className="mb-5 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl">Reports</h1>
+          <p className="text-sm text-muted">Hours, activity, and time by project</p>
+        </div>
+        <button
+          onClick={exportCsv}
+          disabled={projects.length === 0}
+          className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-canvas disabled:opacity-40"
+        >
+          ↓ Export CSV
+        </button>
       </div>
 
       <FilterBar>

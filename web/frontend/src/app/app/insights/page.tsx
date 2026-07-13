@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { LeaderRow, PresenceRow, UnusualFlag } from "@/lib/reports";
 import { Badge, Card } from "@/components/ui";
+import { DateRange, FilterBar, rangeToParams, type RangeKey } from "@/components/filters";
 import { formatDurationShort } from "@/lib/format";
 
 const FLAG_LABELS: Record<string, string> = {
@@ -18,12 +19,18 @@ export default function InsightsPage() {
   const [flags, setFlags] = useState<UnusualFlag[]>([]);
   const [board, setBoard] = useState<LeaderRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState<RangeKey>("week");
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
+    const { from, to } = rangeToParams(range);
+    const qs = new URLSearchParams();
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
     Promise.all([
       api<PresenceRow[]>("/insights/presence"),
       api<UnusualFlag[]>("/insights/unusual-activity"),
-      api<LeaderRow[]>("/insights/leaderboard"),
+      api<LeaderRow[]>(`/insights/leaderboard?${qs.toString()}`),
     ])
       .then(([p, f, b]) => {
         setPresence(p);
@@ -32,14 +39,22 @@ export default function InsightsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [range]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
     <div>
-      <div className="mb-6">
+      <div className="mb-5">
         <h1 className="text-2xl">Insights</h1>
         <p className="text-sm text-muted">Presence, unusual activity, and team ranking</p>
       </div>
+
+      <FilterBar>
+        <DateRange value={range} onChange={setRange} />
+      </FilterBar>
 
       {loading ? (
         <p className="text-sm text-muted">Loading…</p>

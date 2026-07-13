@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Member } from "@/lib/types";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
+import { FilterBar, SearchInput } from "@/components/filters";
 
 export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([]);
@@ -12,6 +13,8 @@ export default function MembersPage() {
   const [role, setRole] = useState<"admin" | "member">("member");
   const [inviting, setInviting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
 
   async function load() {
     const data = await api<Member[]>("/members");
@@ -83,6 +86,20 @@ export default function MembersPage() {
         {notice && <p className="mt-3 text-sm text-muted">{notice}</p>}
       </Card>
 
+      <FilterBar>
+        <SearchInput value={search} onChange={setSearch} placeholder="Search members…" />
+        <select
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+          className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs outline-none focus:border-brand"
+        >
+          <option value="">All roles</option>
+          <option value="owner">Owner</option>
+          <option value="admin">Admin</option>
+          <option value="member">Member</option>
+        </select>
+      </FilterBar>
+
       {loading ? (
         <p className="text-sm text-muted">Loading…</p>
       ) : (
@@ -97,7 +114,10 @@ export default function MembersPage() {
               </tr>
             </thead>
             <tbody>
-              {members.map((m) => (
+              {members
+                .filter((m) => m.email.toLowerCase().includes(search.toLowerCase()))
+                .filter((m) => !roleFilter || m.role === roleFilter)
+                .map((m) => (
                 <tr key={m.id} className="border-b border-border/60 last:border-0">
                   <td className="py-2.5 font-medium">{m.email}</td>
                   <td className="py-2.5">

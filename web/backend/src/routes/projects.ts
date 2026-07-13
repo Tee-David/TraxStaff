@@ -17,8 +17,9 @@ export default async function projectRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
 
   fastify.get("/projects", async (req, reply) => {
+    const { archived } = req.query as { archived?: string };
     const projects = await prisma.project.findMany({
-      where: { orgId: req.user.orgId, archivedAt: null },
+      where: { orgId: req.user.orgId, archivedAt: archived === "1" || archived === "true" ? { not: null } : null },
       include: { tasks: true },
       orderBy: { createdAt: "asc" },
     });

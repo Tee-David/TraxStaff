@@ -1,24 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import type { ByProjectRow, ReportSummary, TimesheetDay } from "@/lib/reports";
 import { Card } from "@/components/ui";
 import CountUp from "@/components/CountUp";
+import { DateRange, MemberFilter, FilterBar, rangeToParams, type RangeKey } from "@/components/filters";
 import { formatDurationShort } from "@/lib/format";
 
 export default function ReportsPage() {
+  const { user } = useAuth();
+  const isPrivileged = user?.role === "owner" || user?.role === "admin";
   const [summary, setSummary] = useState<ReportSummary | null>(null);
   const [days, setDays] = useState<TimesheetDay[]>([]);
   const [projects, setProjects] = useState<ByProjectRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState<RangeKey>("week");
+  const [member, setMember] = useState("");
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
+    const { from, to } = rangeToParams(range);
+    const qs = new URLSearchParams();
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
+    if (member) qs.set("userId", member);
+    const q = qs.toString() ? `?${qs.toString()}` : "";
     Promise.all([
-      api<ReportSummary>("/reports/summary"),
-      api<TimesheetDay[]>("/reports/timesheet"),
-      api<ByProjectRow[]>("/reports/by-project"),
+      api<ReportSummary>(`/reports/summary${q}`),
+      api<TimesheetDay[]>(`/reports/timesheet${q}`),
+      api<ByProjectRow[]>(`/reports/by-project${q}`),
     ])
       .then(([s, d, p]) => {
         setSummary(s);
@@ -27,16 +40,25 @@ export default function ReportsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [range, member]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const maxProj = Math.max(1, ...projects.map((p) => p.totalSeconds));
 
   return (
     <div>
-      <div className="mb-6">
+      <div className="mb-5">
         <h1 className="text-2xl">Reports</h1>
         <p className="text-sm text-muted">Hours, activity, and time by project</p>
       </div>
+
+      <FilterBar>
+        <DateRange value={range} onChange={setRange} />
+        <MemberFilter value={member} onChange={setMember} enabled={isPrivileged} />
+      </FilterBar>
 
       {loading ? (
         <p className="text-sm text-muted">Loading…</p>

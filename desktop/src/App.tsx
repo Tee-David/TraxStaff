@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import LightRays from "./LightRays";
 import {
   api,
+  API_BASE,
   clearToken,
   getToken,
   setToken,
@@ -100,10 +101,24 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     try {
       const s = await api<Session>("/sessions/start", { method: "POST", body: JSON.stringify({ projectId, taskId: taskId || undefined, deviceId: deviceId.current ?? undefined, platform: "windows", appVersion: "0.1.0" }) });
       setActive(s); beginHeartbeat(s.id);
+      // Kick off native capture (activity sampling + screenshots + sync) in Rust.
+      let perBlock = 1, blur = false;
+      try {
+        const o = await api<{ screenshotsPerBlock: number; blurScreenshots: boolean }>("/orgs/settings");
+        perBlock = o.screenshotsPerBlock; blur = o.blurScreenshots;
+      } catch { /* use defaults */ }
+      invoke("begin_capture", {
+        token: getToken() ?? "",
+        backend: API_BASE,
+        sessionId: s.id,
+        screenshotsPerBlock: perBlock,
+        blur,
+      }).catch(() => {});
     } catch (e) { setError(e instanceof Error ? e.message : "Could not start"); }
   }
   async function stop() {
     if (!active) return;
+    invoke("end_capture").catch(() => {});
     try { await api(`/sessions/${active.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }); } catch { /* reconcile later */ }
     stopHeartbeat(); setActive(null); setElapsed(0); load();
   }

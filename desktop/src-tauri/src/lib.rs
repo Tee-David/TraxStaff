@@ -1,3 +1,5 @@
+mod capture;
+
 use std::fs;
 use std::path::PathBuf;
 
@@ -31,7 +33,15 @@ fn get_device_id(app: tauri::AppHandle) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![get_device_id])
+        .setup(|_app| {
+            capture::spawn_workers();
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_device_id,
+            capture::begin_capture,
+            capture::end_capture
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Trax");
 }

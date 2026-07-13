@@ -1,4 +1,8 @@
-import "dotenv/config";
+import { config } from "dotenv";
+import { resolve } from "node:path";
+// Load from repo root .env in dev. On Render, env vars are injected directly
+// so a missing file here is a silent no-op — which is exactly what we want.
+config({ path: resolve(__dirname, "../../../.env") });
 import { z } from "zod";
 
 const envSchema = z.object({

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import CircularTimer from "./CircularTimer";
+import LightRays from "./LightRays";
 import {
   api,
   clearToken,
@@ -71,16 +72,23 @@ function Login({ onLogin }: { onLogin: () => void }) {
   }
 
   return (
-    <div className="screen login">
-      <img src="/brand/logo-color.svg" alt="Trax" className="login-logo" />
-      <form onSubmit={submit} className="stack">
-        <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        {error && <div className="error">{error}</div>}
-        <button type="submit" disabled={loading}>
-          {loading ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+    <div className="login-screen">
+      <div className="login-bg">
+        <LightRays raysOrigin="top-center" raysColor="#ffffff" raysSpeed={1} lightSpread={0.5} rayLength={3} followMouse mouseInfluence={0.1} distortion={0.4} saturation={1} />
+      </div>
+      <div className="login-card">
+        <img src="/brand/icon-badge.svg" alt="Trax" className="login-badge" />
+        <h1 className="login-title">Welcome back</h1>
+        <p className="login-sub">Sign in to start tracking.</p>
+        <form onSubmit={submit} className="stack">
+          <input type="email" placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          {error && <div className="error">{error}</div>}
+          <button type="submit" disabled={loading}>
+            {loading ? "Signing in…" : "Log in"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
@@ -193,7 +201,10 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="screen">
       <header className="topbar">
-        <img src="/brand/icon-color.svg" alt="Trax" className="topbar-mark" />
+        <span className="topbar-brand">
+          <img src="/brand/icon-badge.svg" alt="" className="topbar-mark" />
+          Trax
+        </span>
         <button className="link" onClick={() => { clearToken(); onLogout(); }}>Sign out</button>
       </header>
 

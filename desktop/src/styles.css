@@ -21,9 +21,22 @@ body { margin: 0; background: var(--canvas); color: var(--ink); }
 }
 
 /* ---- login ---- */
-.login { align-items: center; justify-content: center; gap: 20px; }
-.login-logo { height: 84px; width: auto; }
-.stack { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 320px; }
+.login-screen {
+  min-height: 100vh; position: relative; display: flex; align-items: center; justify-content: center;
+  padding: 20px; overflow: hidden;
+  background: linear-gradient(150deg, #000065 0%, #12126b 45%, #05052e 100%);
+}
+.login-bg { position: absolute; inset: 0; z-index: 1; }
+.login-card {
+  position: relative; z-index: 2; width: 100%; max-width: 320px;
+  background: rgba(255,255,255,0.97); border-radius: 20px; padding: 28px 24px;
+  box-shadow: 0 24px 60px -20px rgba(0,0,0,0.6); text-align: center;
+}
+.login-badge { width: 56px; height: 56px; }
+.login-title { font-family: "Space Grotesk", system-ui; font-size: 24px; font-weight: 700; margin: 12px 0 4px; }
+.login-sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+.stack { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.topbar-brand { display: flex; align-items: center; gap: 8px; font-family: "Space Grotesk"; font-weight: 700; font-size: 18px; color: var(--brand); }
 input {
   width: 100%; padding: 12px 14px; border: 1px solid var(--border);
   border-radius: 12px; font-size: 14px; background: #fff; outline: none;
@@ -41,7 +54,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ---- topbar ---- */
 .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.topbar-mark { height: 30px; width: auto; }
+.topbar-mark { height: 26px; width: 26px; }
 .link { background: transparent; color: var(--muted); font-size: 13px; font-weight: 500; padding: 4px; }
 
 /* ---- home / task list ---- */

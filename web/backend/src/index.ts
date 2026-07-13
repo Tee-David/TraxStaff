@@ -9,6 +9,9 @@ import memberRoutes from "./routes/members";
 import projectRoutes from "./routes/projects";
 import taskRoutes from "./routes/tasks";
 import sessionRoutes from "./routes/sessions";
+import syncRoutes from "./routes/sync";
+import reportRoutes from "./routes/reports";
+import insightsRoutes from "./routes/insights";
 
 async function main() {
   const fastify = Fastify({ logger: true });
@@ -35,6 +38,9 @@ async function main() {
   await fastify.register(projectRoutes);
   await fastify.register(taskRoutes);
   await fastify.register(sessionRoutes);
+  await fastify.register(syncRoutes);
+  await fastify.register(reportRoutes);
+  await fastify.register(insightsRoutes);
 
   await fastify.listen({ port: env.PORT, host: "0.0.0.0" });
 }

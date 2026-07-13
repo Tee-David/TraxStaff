@@ -36,7 +36,10 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-60 flex-col border-r border-border bg-surface">
-        <div className="px-6 py-5 font-heading text-xl font-bold text-brand">Trax</div>
+        <div className="px-6 py-5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/logo-horizontal-color.svg" alt="Trax" className="h-7 w-auto" />
+        </div>
         <nav className="flex-1 space-y-1 px-3">
           {nav.map((item) => {
             const active =

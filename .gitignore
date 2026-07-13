@@ -35,3 +35,6 @@ build/
 # misc
 .cache/
 coverage/
+
+# TS incremental build info
+*.tsbuildinfo

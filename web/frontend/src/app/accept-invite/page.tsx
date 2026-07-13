@@ -35,7 +35,8 @@ function AcceptInviteForm() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm p-8">
         <div className="mb-6 text-center">
-          <div className="mb-1 font-heading text-2xl font-bold text-brand">Trax</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/logo-color.svg" alt="Trax" className="mx-auto mb-3 h-20 w-auto" />
           <p className="text-sm text-muted">Set your password to join</p>
         </div>
         {!token ? (

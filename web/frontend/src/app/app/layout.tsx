@@ -11,9 +11,11 @@ const NAV: { href: string; label: string; roles: Role[] }[] = [
   { href: "/app", label: "Dashboard", roles: ["owner", "admin", "member"] },
   { href: "/app/timesheets", label: "Timesheets", roles: ["owner", "admin", "member"] },
   { href: "/app/reports", label: "Reports", roles: ["owner", "admin", "member"] },
+  { href: "/app/screenshots", label: "Screenshots", roles: ["owner", "admin", "member"] },
   { href: "/app/insights", label: "Insights", roles: ["owner", "admin"] },
   { href: "/app/projects", label: "Projects", roles: ["owner", "admin"] },
   { href: "/app/members", label: "Members", roles: ["owner", "admin"] },
+  { href: "/app/settings", label: "Settings", roles: ["owner", "admin"] },
 ];
 
 function Shell({ children }: { children: React.ReactNode }) {

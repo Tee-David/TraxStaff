@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import CircularTimer from "./CircularTimer";
 import LightRays from "./LightRays";
 import {
   api,
@@ -11,35 +10,14 @@ import {
   type Session,
 } from "./api";
 
-type View = "home" | "timer" | "productivity";
+const WEEK_TARGET_SECONDS = 40 * 3600; // 40h/week target
+const DAY_TARGET_SECONDS = 8 * 3600;
 
-const TILE_COLORS = ["#000065", "#FF6600", "#1f9d63", "#7a34c9", "#c9346b", "#2a7fd4"];
-function tileColor(id: string): string {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return TILE_COLORS[h % TILE_COLORS.length];
-}
-
-function startOfToday(): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
-
-function fmtShort(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
-function fmtClock(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s
-    .toString()
-    .padStart(2, "0")}`;
-}
+function startOfToday(): Date { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+function startOfWeek(): Date { const d = startOfToday(); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return d; }
+function secs(s: Session): number { const e = s.endedAt ? new Date(s.endedAt).getTime() : Date.now(); return (e - new Date(s.startedAt).getTime()) / 1000; }
+function fmtClock(sec: number): string { const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60); return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`; }
+function fmtShort(sec: number): string { const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; }
 
 export default function App() {
   const [authed, setAuthed] = useState(Boolean(getToken()));
@@ -52,25 +30,14 @@ function Login({ onLogin }: { onLogin: () => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
   async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
+    e.preventDefault(); setLoading(true); setError(null);
     try {
-      const res = await api<{ token: string }>("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      setToken(res.token);
-      onLogin();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
-    } finally {
-      setLoading(false);
-    }
+      const res = await api<{ token: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+      setToken(res.token); onLogin();
+    } catch (err) { setError(err instanceof Error ? err.message : "Login failed"); }
+    finally { setLoading(false); }
   }
-
   return (
     <div className="login-screen">
       <div className="login-bg">
@@ -84,9 +51,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
           <input type="email" placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
           <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           {error && <div className="error">{error}</div>}
-          <button type="submit" disabled={loading}>
-            {loading ? "Signing in…" : "Log in"}
-          </button>
+          <button type="submit" disabled={loading}>{loading ? "Signing in…" : "Log in"}</button>
         </form>
       </div>
     </div>
@@ -94,11 +59,12 @@ function Login({ onLogin }: { onLogin: () => void }) {
 }
 
 function Tracker({ onLogout }: { onLogout: () => void }) {
-  const [view, setView] = useState<View>("home");
   const [projects, setProjects] = useState<Project[]>([]);
-  const [today, setToday] = useState<Session[]>([]);
+  const [week, setWeek] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
-  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [projectId, setProjectId] = useState("");
+  const [taskId, setTaskId] = useState("");
+  const [todo, setTodo] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const deviceId = useRef<string | null>(null);
@@ -108,194 +74,202 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     try {
       const [p, s] = await Promise.all([
         api<Project[]>("/projects"),
-        api<Session[]>(`/sessions?from=${startOfToday()}`),
+        api<Session[]>(`/sessions?from=${startOfWeek().toISOString()}`),
       ]);
-      setProjects(p);
-      setToday(s);
+      setProjects(p); setWeek(s);
+      if (p[0] && !projectId) setProjectId(p[0].id);
       const open = s.find((x) => !x.endedAt);
-      if (open) {
-        setActive(open);
-        setActiveProject(p.find((pr) => pr.id === open.projectId) ?? null);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-    }
-  }, []);
+      if (open) { setActive(open); setProjectId(open.projectId); if (open.taskId) setTaskId(open.taskId); }
+    } catch (e) { setError(e instanceof Error ? e.message : "Failed to load"); }
+  }, [projectId]);
 
-  useEffect(() => {
-    invoke<string>("get_device_id").then((id) => (deviceId.current = id)).catch(() => {});
-    load();
-  }, [load]);
+  useEffect(() => { invoke<string>("get_device_id").then((id) => (deviceId.current = id)).catch(() => {}); load(); /* eslint-disable-next-line */ }, []);
 
-  // Tick elapsed while a session is active.
   useEffect(() => {
     if (!active) return;
     const start = new Date(active.startedAt).getTime();
     const tick = () => setElapsed((Date.now() - start) / 1000);
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
+    tick(); const id = setInterval(tick, 1000); return () => clearInterval(id);
   }, [active]);
 
-  function beginHeartbeat(sessionId: string) {
-    stopHeartbeat();
-    heartbeat.current = setInterval(() => {
-      api(`/sessions/${sessionId}/heartbeat`, { method: "POST" }).catch(() => {});
-    }, 60_000);
-  }
-  function stopHeartbeat() {
-    if (heartbeat.current) clearInterval(heartbeat.current);
-    heartbeat.current = null;
-  }
+  function beginHeartbeat(id: string) { stopHeartbeat(); heartbeat.current = setInterval(() => { api(`/sessions/${id}/heartbeat`, { method: "POST" }).catch(() => {}); }, 60_000); }
+  function stopHeartbeat() { if (heartbeat.current) clearInterval(heartbeat.current); heartbeat.current = null; }
 
-  async function start(project: Project) {
-    setError(null);
+  async function start() {
+    if (!projectId) return; setError(null);
     try {
-      const s = await api<Session>("/sessions/start", {
-        method: "POST",
-        body: JSON.stringify({
-          projectId: project.id,
-          taskId: project.tasks?.find((t) => t.status !== "done")?.id,
-          deviceId: deviceId.current ?? undefined,
-          platform: "windows",
-          appVersion: "0.1.0",
-        }),
-      });
-      setActive(s);
-      setActiveProject(project);
-      beginHeartbeat(s.id);
-      setView("timer");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start");
-    }
+      const s = await api<Session>("/sessions/start", { method: "POST", body: JSON.stringify({ projectId, taskId: taskId || undefined, deviceId: deviceId.current ?? undefined, platform: "windows", appVersion: "0.1.0" }) });
+      setActive(s); beginHeartbeat(s.id);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not start"); }
   }
-
   async function stop() {
     if (!active) return;
-    try {
-      await api(`/sessions/${active.id}/stop`, {
-        method: "POST",
-        body: JSON.stringify({ endReason: "stopped" }),
-      });
-    } catch {
-      /* ignore — will reconcile on next load */
-    }
-    stopHeartbeat();
-    setActive(null);
-    setActiveProject(null);
-    setElapsed(0);
-    setView("home");
-    load();
+    try { await api(`/sessions/${active.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }); } catch { /* reconcile later */ }
+    stopHeartbeat(); setActive(null); setElapsed(0); load();
   }
 
-  // Per-project seconds tracked today (closed + the live one).
-  function projectSecondsToday(projectId: string): number {
-    return today
-      .filter((s) => s.projectId === projectId)
-      .reduce((acc, s) => {
-        const end = s.endedAt ? new Date(s.endedAt).getTime() : Date.now();
-        return acc + (end - new Date(s.startedAt).getTime()) / 1000;
-      }, 0);
-  }
+  const today = useMemo(() => week.filter((s) => new Date(s.startedAt) >= startOfToday()), [week]);
+  const workedToday = today.reduce((a, s) => a + secs(s), 0) + (active ? 0 : 0);
+  const liveToday = workedToday + (active ? elapsed - secs(active) : 0);
+  const workedWeek = week.reduce((a, s) => a + secs(s), 0);
+  const selectedProject = projects.find((p) => p.id === projectId);
 
   return (
-    <div className="screen">
-      <header className="topbar">
-        <span className="topbar-brand">
-          <img src="/brand/icon-badge.svg" alt="" className="topbar-mark" />
-          Trax
-        </span>
-        <button className="link" onClick={() => { clearToken(); onLogout(); }}>Sign out</button>
-      </header>
-
-      {error && <div className="error">{error}</div>}
-
-      {view === "home" && (
-        <Home
-          projects={projects}
-          active={active}
-          activeProject={activeProject}
-          elapsed={elapsed}
-          onOpenTimer={() => setView("timer")}
-          onStart={start}
-          secondsToday={projectSecondsToday}
+    <div className="app-shell">
+      <aside className="widget-pane">
+        <TrackingWidget
+          projects={projects} selectedProject={selectedProject}
+          projectId={projectId} setProjectId={(v) => { setProjectId(v); setTaskId(""); }}
+          taskId={taskId} setTaskId={setTaskId} todo={todo} setTodo={setTodo}
+          active={active} elapsed={elapsed} workedToday={liveToday} workedWeek={workedWeek}
+          today={today} onStart={start} onStop={stop} error={error}
+          onSignOut={() => { clearToken(); onLogout(); }}
         />
-      )}
-
-      {view === "timer" && (
-        <TimerView
-          active={active}
-          project={activeProject}
-          elapsed={elapsed}
-          onStop={stop}
-          onBack={() => setView("home")}
-        />
-      )}
-
-      {view === "productivity" && <Productivity today={today} />}
-
-      <nav className="tabbar">
-        <button className={view === "home" ? "tab active" : "tab"} onClick={() => setView("home")} aria-label="Home">🏠</button>
-        <button className="tab fab" onClick={() => setView(active ? "timer" : "home")} aria-label="Timer">⏱</button>
-        <button className={view === "productivity" ? "tab active" : "tab"} onClick={() => setView("productivity")} aria-label="Productivity">📊</button>
-      </nav>
+      </aside>
+      <main className="dash-pane">
+        <DesktopDashboard projects={projects} week={week} workedWeek={workedWeek} />
+      </main>
     </div>
   );
 }
 
-function Home({
-  projects, active, activeProject, elapsed, onOpenTimer, onStart, secondsToday,
-}: {
-  projects: Project[];
-  active: Session | null;
-  activeProject: Project | null;
-  elapsed: number;
-  onOpenTimer: () => void;
-  onStart: (p: Project) => void;
-  secondsToday: (id: string) => number;
-}) {
+function Sparkline({ points, color = "#00c2b8" }: { points: number[]; color?: string }) {
+  const w = 220, h = 48; const max = Math.max(1, ...points);
+  const step = points.length > 1 ? w / (points.length - 1) : w;
+  const path = points.map((v, i) => `${i === 0 ? "M" : "L"} ${(i * step).toFixed(1)} ${(h - (v / max) * (h - 6) - 3).toFixed(1)}`).join(" ");
   return (
-    <div className="home">
-      {active && activeProject && (
-        <button className="running-card" onClick={onOpenTimer}>
-          <div>
-            <div className="running-time">{fmtClock(elapsed)}</div>
-            <div className="running-proj"><span className="dot" /> {activeProject.name}</div>
-          </div>
-          <span className="chip work">Tracking</span>
-        </button>
-      )}
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
-      <div className="section-head">
-        <h2>Today</h2>
+function TrackingWidget(props: {
+  projects: Project[]; selectedProject?: Project; projectId: string; setProjectId: (v: string) => void;
+  taskId: string; setTaskId: (v: string) => void; todo: string; setTodo: (v: string) => void;
+  active: Session | null; elapsed: number; workedToday: number; workedWeek: number; today: Session[];
+  onStart: () => void; onStop: () => void; error: string | null; onSignOut: () => void;
+}) {
+  const { projects, selectedProject, projectId, setProjectId, taskId, setTaskId, todo, setTodo, active, elapsed, workedToday, workedWeek, today, onStart, onStop, error, onSignOut } = props;
+  // hourly focus sparkline for today
+  const hourly = useMemo(() => {
+    const arr = new Array(12).fill(0); // 8..19
+    for (const s of today) {
+      const st = new Date(s.startedAt), en = s.endedAt ? new Date(s.endedAt) : new Date();
+      let cur = new Date(st);
+      while (cur < en) { const h = cur.getHours(); const nxt = new Date(cur); nxt.setMinutes(60, 0, 0); const slice = (Math.min(en.getTime(), nxt.getTime()) - cur.getTime()) / 60000; if (h >= 8 && h < 20) arr[h - 8] += slice; cur = nxt; }
+    }
+    return arr;
+  }, [today]);
+  const focusPct = Math.min(100, Math.round((workedToday / DAY_TARGET_SECONDS) * 100));
+
+  return (
+    <div className="widget">
+      <div className="widget-brand"><img src="/brand/icon-badge.svg" alt="" /> Trax</div>
+
+      <div className="widget-metrics">
+        <div>
+          <div className="wm-label">Progress Today</div>
+          <div className="wm-timer">{fmtClock(active ? elapsed + (workedToday - elapsed) : workedToday)}</div>
+        </div>
+        <div className="wm-side">
+          <div className="wm-label">This week</div>
+          <div className="wm-val">{fmtClock(workedWeek)}</div>
+        </div>
       </div>
 
-      <div className="task-list">
-        {projects.length === 0 && <div className="muted">No projects yet. Ask your admin to add one.</div>}
-        {projects.map((p) => {
-          const isActive = active?.projectId === p.id;
+      <div className="widget-spark">
+        <Sparkline points={hourly} />
+        <span className="focus-badge">Focus {focusPct}%</span>
+      </div>
+      <div className="wm-target">
+        <span className="wm-label">Target time</span>
+        <span className="wm-val small">{fmtClock(DAY_TARGET_SECONDS)}</span>
+      </div>
+
+      <label className="field-label">Project</label>
+      <select className="field" value={projectId} onChange={(e) => setProjectId(e.target.value)} disabled={Boolean(active)}>
+        {projects.length === 0 && <option value="">No projects</option>}
+        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+
+      <label className="field-label">Main Task</label>
+      <select className="field" value={taskId} onChange={(e) => setTaskId(e.target.value)} disabled={Boolean(active)}>
+        <option value="">No task</option>
+        {selectedProject?.tasks?.filter((t) => t.status !== "done").map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+      </select>
+
+      <label className="field-label">To do</label>
+      <textarea className="field todo" placeholder="Working on…" value={todo} onChange={(e) => setTodo(e.target.value)} rows={2} />
+
+      {error && <div className="error">{error}</div>}
+
+      {active ? (
+        <button className="start-btn stop" onClick={onStop}>◼ Stop</button>
+      ) : (
+        <button className="start-btn" onClick={onStart} disabled={!projectId}>▶ Start Now</button>
+      )}
+
+      <div className="widget-foot">
+        <span className="muted small">Trax Desktop</span>
+        <button className="link" onClick={onSignOut}>Sign out</button>
+      </div>
+    </div>
+  );
+}
+
+function DesktopDashboard({ projects, week, workedWeek }: { projects: Project[]; week: Session[]; workedWeek: number }) {
+  const progress = Math.min(100, Math.round((workedWeek / WEEK_TARGET_SECONDS) * 100));
+  // daily hours for last 7 days
+  const daily = useMemo(() => {
+    const days = new Array(7).fill(0);
+    const base = startOfWeek().getTime();
+    for (const s of week) {
+      const idx = Math.floor((new Date(s.startedAt).getTime() - base) / 86400000);
+      if (idx >= 0 && idx < 7) days[idx] += secs(s) / 3600;
+    }
+    return days;
+  }, [week]);
+
+  const perProject = useMemo(() => {
+    const by = new Map<string, { name: string; secs: number; last: number }>();
+    for (const s of week) {
+      const e = by.get(s.projectId) ?? { name: s.project.name, secs: 0, last: 0 };
+      e.secs += secs(s); e.last = Math.max(e.last, new Date(s.endedAt ?? s.startedAt).getTime());
+      by.set(s.projectId, e);
+    }
+    return [...by.values()].sort((a, b) => b.secs - a.secs);
+  }, [week]);
+
+  return (
+    <div className="dash">
+      <div className="dash-head">
+        <h1>Performance</h1>
+        <span className="muted small">This week</span>
+      </div>
+
+      <div className="dash-stats">
+        <div className="dash-card"><div className="dc-label">Total working hours</div><div className="dc-value">{fmtShort(workedWeek)}</div></div>
+        <div className="dash-card"><div className="dc-label">Active projects</div><div className="dc-value">{projects.filter((p) => !p.archivedAt).length}</div></div>
+        <div className="dash-card"><div className="dc-label">Working progress</div><div className="dc-value">{progress}<span className="pct">%</span></div><div className="dc-sub">of 40h target</div></div>
+      </div>
+
+      <div className="dash-chart">
+        <div className="dc-label mb">Your performance</div>
+        <PerformanceChart daily={daily} />
+        <div className="chart-x">{["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => <span key={d}>{d}</span>)}</div>
+      </div>
+
+      <div className="dash-table">
+        <div className="dt-head"><span>Project</span><span>Total time</span><span>Status</span></div>
+        {perProject.length === 0 && <div className="muted small pad">No tracked time this week.</div>}
+        {perProject.map((p) => {
+          const active = Date.now() - p.last < 6 * 60 * 1000;
           return (
-            <div key={p.id} className="task-card">
-              <span className="task-icon" style={{ background: tileColor(p.id) }}>
-                {p.name.slice(0, 1).toUpperCase()}
-              </span>
-              <div className="task-meta">
-                <div className="task-name">{p.name}</div>
-                <div className="task-chips">
-                  {p.clientTag && <span className="chip">{p.clientTag}</span>}
-                  {p.tasks?.some((t) => t.status !== "done") && <span className="chip alt">In progress</span>}
-                </div>
-              </div>
-              <div className="task-right">
-                <div className="task-time">{fmtShort(secondsToday(p.id))}</div>
-                <button
-                  className={isActive ? "play playing" : "play"}
-                  disabled={Boolean(active) && !isActive}
-                  onClick={() => (isActive ? onOpenTimer() : onStart(p))}
-                >
-                  {isActive ? "▮▮" : "▶"}
-                </button>
-              </div>
+            <div className="dt-row" key={p.name}>
+              <span className="dt-name">{p.name}</span>
+              <span>{fmtShort(p.secs)}</span>
+              <span className={active ? "status active" : "status idle"}>{active ? "Active" : "Idle"}</span>
             </div>
           );
         })}
@@ -304,66 +278,22 @@ function Home({
   );
 }
 
-function TimerView({
-  active, project, elapsed, onStop, onBack,
-}: {
-  active: Session | null;
-  project: Project | null;
-  elapsed: number;
-  onStop: () => void;
-  onBack: () => void;
-}) {
-  if (!active || !project) {
-    return (
-      <div className="timer-view">
-        <p className="muted">No active session.</p>
-        <button className="ghost" onClick={onBack}>Back</button>
-      </div>
-    );
-  }
-  const task = project.tasks?.find((t) => t.id === active.taskId);
+function PerformanceChart({ daily }: { daily: number[] }) {
+  const w = 640, h = 160; const max = Math.max(1, ...daily);
+  const step = w / (daily.length - 1);
+  const pts = daily.map((v, i) => [i * step, h - (v / max) * (h - 20) - 10]);
+  const line = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
+  const area = `${line} L ${w} ${h} L 0 ${h} Z`;
   return (
-    <div className="timer-view">
-      <div className="timer-head">
-        <button className="link" onClick={onBack}>←</button>
-        <span className="timer-title">{project.name}</span>
-        <span className="chip work">Work</span>
-      </div>
-      {task && <div className="timer-task"><span className="dot" /> {task.title}</div>}
-      <CircularTimer seconds={elapsed} label={task?.title ?? ""} />
-      <div className="timer-controls">
-        <button className="control stop" onClick={onStop}>
-          <span>◼</span>
-          <small>Stop</small>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function Productivity({ today }: { today: Session[] }) {
-  const totalSeconds = today.reduce((acc, s) => {
-    const end = s.endedAt ? new Date(s.endedAt).getTime() : Date.now();
-    return acc + (end - new Date(s.startedAt).getTime()) / 1000;
-  }, 0);
-  const completed = today.filter((s) => s.endedAt).length;
-
-  return (
-    <div className="productivity">
-      <h2>My Productivity</h2>
-      <div className="stat-row">
-        <div className="stat-tile">
-          <div className="stat-ico green">✓</div>
-          <div className="stat-label">Sessions</div>
-          <div className="stat-value">{completed}</div>
-        </div>
-        <div className="stat-tile">
-          <div className="stat-ico">◷</div>
-          <div className="stat-label">Time Duration</div>
-          <div className="stat-value">{fmtShort(totalSeconds)}</div>
-        </div>
-      </div>
-      <p className="muted small">Detailed daily/weekly charts appear in the web dashboard.</p>
-    </div>
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="perf" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#000065" stopOpacity="0.25" />
+          <stop offset="1" stopColor="#000065" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill="url(#perf)" />
+      <path d={line} fill="none" stroke="#000065" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }

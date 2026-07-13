@@ -38,6 +38,7 @@ export interface Project {
   id: string;
   name: string;
   clientTag: string | null;
+  archivedAt?: string | null;
   tasks?: { id: string; title: string; status: string }[];
 }
 
@@ -48,4 +49,6 @@ export interface Session {
   startedAt: string;
   endedAt: string | null;
   deviceId?: string;
+  project: { id: string; name: string; clientTag: string | null };
+  task?: { id: string; title: string } | null;
 }

@@ -73,6 +73,19 @@ trax/
   hours). Watch CockroachDB Serverless's free Request Unit budget and R2's
   free storage/egress tier as the other places usage could accrue cost.
 
+## Seeded test accounts (dev DB only)
+
+Org **"Trax Test Org"**, all password `password123`. Re-seed anytime with
+`cd web/backend && npm run seed` (idempotent upsert). These are throwaway dev
+credentials on the CockroachDB dev cluster — rotate/remove before any real
+production use.
+
+| Role   | Email             | Password      |
+| ------ | ----------------- | ------------- |
+| owner  | admin@trax.test   | password123   |
+| member | staff1@trax.test  | password123   |
+| member | staff2@trax.test  | password123   |
+
 ## Branching & deployment workflow (MANDATORY — check before every push)
 
 ```

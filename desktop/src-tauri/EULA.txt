@@ -1,0 +1,83 @@
+TRAX — END USER LICENSE AGREEMENT
+
+Version 1.0 — Effective 2026
+
+IMPORTANT — READ CAREFULLY. This End User License Agreement ("Agreement") is a
+legal agreement between you ("User") and Wendiloveee Media ("Licensor") for the
+Trax time-tracking and productivity software, including the desktop application,
+associated services, and documentation (collectively, the "Software").
+
+The Software is owned by Wendiloveee Media and was designed and developed by
+WDC Solutions on its behalf. By installing, copying, or using the Software, you
+acknowledge that you have read, understood, and agree to be bound by the terms
+of this Agreement. If you do not agree, do not install or use the Software.
+
+1. LICENSE GRANT
+   Licensor grants you a limited, non-exclusive, non-transferable, revocable
+   license to install and use the Software solely for the internal business
+   purposes of the organization that provisioned your account, and only for the
+   duration of your authorized access.
+
+2. WORKPLACE MONITORING — NOTICE AND CONSENT
+   Trax is a workplace time-tracking tool. While tracking is active, the Software
+   collects and transmits the following to your organization's Trax workspace:
+     (a) time-tracking records (start/stop, duration, project and task);
+     (b) activity-intensity metrics derived from keyboard and mouse usage
+         (aggregate counts and timing only — the Software does NOT record
+         keystroke content and is NOT a keylogger);
+     (c) periodic screenshots of all connected displays, captured at an
+         administrator-configured frequency;
+     (d) active application and website usage during tracked time.
+   Tracking runs only while you start it, and the Software always displays a
+   visible timer and tray presence — there is no hidden or stealth mode. By
+   installing and using the Software you acknowledge this monitoring and consent
+   to the collection and processing of the above data by your organization and
+   Licensor for time-tracking and productivity purposes. Your administrator
+   controls capture settings and data retention (screenshots are retained for
+   30 days by default and then deleted).
+
+3. DATA AND PRIVACY
+   Collected data is transmitted securely to your organization's workspace and
+   is accessible to authorized administrators of that organization. Licensor
+   processes data as a provider to your organization. Contact your administrator
+   regarding your organization's data-handling and privacy practices.
+
+4. RESTRICTIONS
+   You shall not, and shall not permit any third party to: (a) copy, modify, or
+   create derivative works of the Software; (b) reverse engineer, decompile, or
+   disassemble the Software except to the extent permitted by law; (c) rent,
+   lease, sublicense, sell, or distribute the Software; (d) remove or alter any
+   proprietary notices; or (e) circumvent, disable, or tamper with the tracking,
+   anti-tamper, or integrity mechanisms of the Software.
+
+5. INTELLECTUAL PROPERTY
+   The Software is licensed, not sold. All right, title, and interest in and to
+   the Software, including all intellectual property rights, are and remain the
+   exclusive property of Wendiloveee Media. WDC Solutions is credited as the
+   developer. All rights not expressly granted are reserved.
+
+6. DISCLAIMER OF WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY
+   KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING WITHOUT LIMITATION
+   THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE,
+   AND NON-INFRINGEMENT.
+
+7. LIMITATION OF LIABILITY
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL WENDILOVEEE MEDIA OR
+   WDC SOLUTIONS BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL,
+   OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR DATA, ARISING FROM OR RELATED
+   TO YOUR USE OF THE SOFTWARE.
+
+8. TERMINATION
+   This Agreement is effective until terminated. Your rights under this Agreement
+   terminate automatically without notice if you fail to comply with any of its
+   terms, or upon revocation of your authorized access. Upon termination you must
+   cease all use and remove the Software.
+
+9. GENERAL
+   This Agreement constitutes the entire agreement regarding the Software and
+   supersedes all prior understandings. If any provision is held unenforceable,
+   the remaining provisions remain in full force.
+
+© 2026 Wendiloveee Media. All rights reserved.
+Developed by WDC Solutions on behalf of Wendiloveee Media.

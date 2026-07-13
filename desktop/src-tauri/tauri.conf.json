@@ -27,9 +27,25 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "publisher": "WDC Solutions",
+    "copyright": "© 2026 Wendiloveee Media. All rights reserved. Developed by WDC Solutions.",
+    "licenseFile": "EULA.txt",
+    "homepage": "https://deo-trax.vercel.app",
+    "shortDescription": "Trax — time tracking & productivity",
+    "longDescription": "Trax is an internal time-tracking and productivity tool: time tracking, activity metrics, periodic screenshots, projects and tasks, and team reporting. Owned by Wendiloveee Media; developed by WDC Solutions.",
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "installer/header.bmp",
+        "sidebarImage": "installer/sidebar.bmp",
+        "installMode": "both",
+        "displayLanguageSelector": true,
+        "languages": ["English"]
+      }
+    }
   }
 }

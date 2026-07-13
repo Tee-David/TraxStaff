@@ -73,6 +73,34 @@ trax/
   hours). Watch CockroachDB Serverless's free Request Unit budget and R2's
   free storage/egress tier as the other places usage could accrue cost.
 
+## Working principles (from installed skills — apply on every change)
+
+Distilled from the `karpathy-guidelines`, `rust-best-practices`, `tauri`/`tauri-v2`,
+and `frontend-design` skills in `.claude/skills/`. Invoke the full skill when a task
+lands squarely in its domain; these are the always-on essentials.
+
+- **Simplicity first.** Minimum code that solves the problem — no speculative
+  abstractions, config, or error handling for impossible cases. If 200 lines
+  could be 50, rewrite it.
+- **Surgical changes.** Touch only what the request needs; match existing style;
+  don't refactor or reformat adjacent code. Remove only the orphans *your* change
+  created; flag pre-existing dead code rather than deleting it.
+- **Think before coding.** State assumptions; if multiple interpretations exist,
+  surface them instead of silently picking; push back when a simpler path exists.
+- **Goal-driven.** Turn each task into a verifiable success criterion and loop
+  until it's met ("add validation" → "write tests for bad input, make them pass").
+- **Rust (desktop core):** prefer borrowing over cloning; `Result` + `thiserror`
+  for library errors, `anyhow` at the app edge; no `.unwrap()`/`.expect()` on
+  paths that can fail at runtime; keep `cargo clippy` clean.
+- **Tauri (HIGH-RISK surface):** scope capabilities/permissions as narrowly as
+  possible in `capabilities/*.json`; every `#[tauri::command]` must be registered
+  in `generate_handler!`; validate all IPC input; strict CSP; never expose the
+  full filesystem/shell. The input sampler captures intensity/timings only —
+  never keystroke content.
+- **Frontend design:** deliberate, non-templated UI — the timer is the hero;
+  typography (Space Grotesk / Outfit) and structure should carry meaning, not
+  decorate. Animate only transform/opacity; respect `prefers-reduced-motion`.
+
 ## Seeded test accounts (dev DB only)
 
 Org **"Trax Test Org"**, all password `password123`. Re-seed anytime with

@@ -1,0 +1,119 @@
+:root {
+  --brand: #000065;
+  --accent: #ff6600;
+  --ink: #1a1f36;
+  --muted: #6d7d93;
+  --border: #e6e8f0;
+  font-family: "Outfit", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f6f7fb;
+  color: var(--ink);
+}
+
+.screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--brand);
+  letter-spacing: -0.01em;
+}
+
+.clock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  margin-top: 12px;
+  color: var(--brand);
+}
+
+.clock-sep {
+  font-size: 44px;
+  font-weight: 700;
+  color: var(--brand);
+  line-height: 1;
+}
+
+.status {
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: -8px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+input,
+select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+  outline: none;
+}
+
+input:focus,
+select:focus {
+  border-color: var(--brand);
+}
+
+button {
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #fff;
+  background: var(--brand);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.start {
+  background: var(--brand);
+}
+button.stop {
+  background: var(--accent);
+}
+button.link {
+  background: transparent;
+  color: var(--muted);
+  padding: 4px;
+  font-weight: 400;
+  font-size: 13px;
+}
+
+.error {
+  color: #dc2626;
+  font-size: 13px;
+}

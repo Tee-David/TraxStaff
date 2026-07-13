@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "cockroachdb"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  owner
+  admin
+  member
+}
+
+enum UserStatus {
+  invited
+  active
+  disabled
+}
+
+enum TaskStatus {
+  todo
+  in_progress
+  done
+}
+
+enum SessionEndReason {
+  stopped
+  idle_timeout
+  abrupt_exit
+}
+
+enum FlagType {
+  sustained_high_activity
+  low_variance_robotic
+  input_channel_imbalance
+  jiggler_process_detected
+}
+
+model Organization {
+  id            String         @id @default(uuid()) @db.Uuid
+  name          String
+  createdAt     DateTime       @default(now())
+  users         User[]
+  projects      Project[]
+  invites       InviteToken[]
+  notifications Notification[]
+}
+
+model User {
+  id                 String            @id @default(uuid()) @db.Uuid
+  orgId              String            @db.Uuid
+  org                Organization      @relation(fields: [orgId], references: [id])
+  email              String            @unique
+  passwordHash       String?
+  role               Role              @default(member)
+  status             UserStatus        @default(invited)
+  createdAt          DateTime          @default(now())
+  devices            Device[]
+  sessions           TrackingSession[]
+  notifications      Notification[]
+  deletedScreenshots Screenshot[]      @relation("ScreenshotDeletedBy")
+
+  @@index([orgId])
+}
+
+model InviteToken {
+  id         String       @id @default(uuid()) @db.Uuid
+  orgId      String       @db.Uuid
+  org        Organization @relation(fields: [orgId], references: [id])
+  email      String
+  role       Role
+  token      String       @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime     @default(now())
+
+  @@index([orgId])
+}
+
+model Project {
+  id         String            @id @default(uuid()) @db.Uuid
+  orgId      String            @db.Uuid
+  org        Organization      @relation(fields: [orgId], references: [id])
+  name       String
+  clientTag  String?
+  archivedAt DateTime?
+  createdAt  DateTime          @default(now())
+  tasks      Task[]
+  sessions   TrackingSession[]
+
+  @@index([orgId])
+}
+
+model Task {
+  id        String            @id @default(uuid()) @db.Uuid
+  projectId String            @db.Uuid
+  project   Project           @relation(fields: [projectId], references: [id])
+  title     String
+  status    TaskStatus        @default(todo)
+  createdAt DateTime          @default(now())
+  sessions  TrackingSession[]
+
+  @@index([projectId])
+}
+
+model Device {
+  id         String            @id @default(uuid()) @db.Uuid
+  userId     String            @db.Uuid
+  user       User              @relation(fields: [userId], references: [id])
+  platform   String
+  appVersion String
+  lastSeenAt DateTime          @default(now())
+  createdAt  DateTime          @default(now())
+  sessions   TrackingSession[]
+
+  @@index([userId])
+}
+
+model TrackingSession {
+  id              String            @id @default(uuid()) @db.Uuid
+  userId          String            @db.Uuid
+  user            User              @relation(fields: [userId], references: [id])
+  projectId       String            @db.Uuid
+  project         Project           @relation(fields: [projectId], references: [id])
+  taskId          String?           @db.Uuid
+  task            Task?             @relation(fields: [taskId], references: [id])
+  deviceId        String            @db.Uuid
+  device          Device            @relation(fields: [deviceId], references: [id])
+  startedAt       DateTime
+  endedAt         DateTime?
+  endReason       SessionEndReason?
+  isManual        Boolean           @default(false)
+  manualReason    String?
+  tamperSuspected Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+  activityBlocks  ActivityBlock[]
+  screenshots     Screenshot[]
+  flags           UnusualActivityFlag[]
+
+  @@index([userId])
+  @@index([projectId])
+  @@index([deviceId])
+}
+
+model ActivityBlock {
+  id          String          @id @default(uuid()) @db.Uuid
+  sessionId   String          @db.Uuid
+  session     TrackingSession @relation(fields: [sessionId], references: [id])
+  blockStart  DateTime
+  blockEnd    DateTime
+  keyboardPct Float
+  mousePct    Float
+  activityPct Float
+  idleSeconds Int             @default(0)
+  sequenceNo  Int
+  prevHash    String
+  hash        String
+  createdAt   DateTime        @default(now())
+  screenshots Screenshot[]
+
+  @@unique([sessionId, sequenceNo])
+  @@index([sessionId])
+}
+
+model Screenshot {
+  id              String        @id @default(uuid()) @db.Uuid
+  sessionId       String        @db.Uuid
+  session         TrackingSession @relation(fields: [sessionId], references: [id])
+  activityBlockId String        @db.Uuid
+  activityBlock   ActivityBlock @relation(fields: [activityBlockId], references: [id])
+  takenAt         DateTime
+  monitorIndex    Int
+  r2Key           String
+  blurred         Boolean       @default(false)
+  deletedAt       DateTime?
+  deletedById     String?       @db.Uuid
+  deletedBy       User?         @relation("ScreenshotDeletedBy", fields: [deletedById], references: [id])
+  createdAt       DateTime      @default(now())
+
+  @@index([sessionId])
+  @@index([activityBlockId])
+}
+
+model UnusualActivityFlag {
+  id             String          @id @default(uuid()) @db.Uuid
+  sessionId      String          @db.Uuid
+  session        TrackingSession @relation(fields: [sessionId], references: [id])
+  type           FlagType
+  detectedAt     DateTime        @default(now())
+  details        Json?
+  acknowledgedAt DateTime?
+
+  @@index([sessionId])
+}
+
+model Notification {
+  id        String       @id @default(uuid()) @db.Uuid
+  orgId     String       @db.Uuid
+  org       Organization @relation(fields: [orgId], references: [id])
+  userId    String?      @db.Uuid
+  user      User?        @relation(fields: [userId], references: [id])
+  type      String
+  payload   Json?
+  readAt    DateTime?
+  createdAt DateTime     @default(now())
+
+  @@index([orgId])
+  @@index([userId])
+}

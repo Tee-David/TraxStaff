@@ -43,12 +43,15 @@ trax/
   screenshot retention cleanup — do not add a separate Render Cron/Worker
   service for this.
 - **Frontend stack:** Next.js App Router, TypeScript, Tailwind, shadcn/ui,
-  recharts for activity/timeline charts. Visual direction: clean minimal
-  SaaS look, blue primary accent, rounded cards with soft shadows,
-  timer-centric hero UI, tooltip-rich charts with categorical breakdowns —
-  pulled from `plans/trax-screenshots/` (Dipa Inhouse dashboard + timebite
-  widget references). Confirm any major visual direction change with the
-  user before committing to it — more UI references may still be supplied.
+  recharts for activity/timeline charts. **Brand:** primary deep royal blue
+  `#000065`, secondary orange `#FF6600` (same palette as the `wdc` project).
+  Fonts: **Space Grotesk** (headings/large text), **Outfit** (body/secondary
+  text), both via `next/font/google`. Visual direction otherwise: clean
+  minimal SaaS look, rounded cards with soft shadows, timer-centric hero UI,
+  tooltip-rich charts with categorical breakdowns — pulled from
+  `plans/trax-screenshots/` (Dipa Inhouse dashboard + timebite widget
+  references). Confirm any major visual direction change with the user
+  before committing to it — more UI references may still be supplied.
 - **Desktop stack:** Tauri v2, Rust core + React/TS webview. XCap for
   all-monitor screenshot capture (X11/Wayland/Windows/macOS). rdev for
   global keyboard/mouse *timing* sampling — activity intensity only, never
@@ -109,3 +112,4 @@ cd desktop && npm run tauri dev         # desktop app dev
 ```
 
 Never add "Co-Authored-By" lines (Claude, Anthropic, or any AI attribution) to git commits.
+Always call me Tee-David in your responses.

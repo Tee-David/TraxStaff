@@ -10,6 +10,7 @@ function AcceptInviteForm() {
   const params = useSearchParams();
   const token = params.get("token") ?? "";
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -45,15 +46,26 @@ function AcceptInviteForm() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <Label>Choose a password</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
-                minLength={8}
-                required
-                autoFocus
-              />
+              <div className="relative">
+                <Input
+                  type={showPw ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  minLength={8}
+                  required
+                  autoFocus
+                  className="pr-11"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((s) => !s)}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted hover:text-ink"
+                  aria-label={showPw ? "Hide password" : "Show password"}
+                >
+                  {showPw ? "🙈" : "👁"}
+                </button>
+              </div>
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>

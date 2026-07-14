@@ -50,6 +50,7 @@ function useUpdateCheck() {
 function Login({ onLogin }: { onLogin: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   async function submit(e: React.FormEvent) {
@@ -71,7 +72,12 @@ function Login({ onLogin }: { onLogin: () => void }) {
         <p className="login-sub">Sign in to start tracking.</p>
         <form onSubmit={submit} className="stack">
           <input type="email" placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <div className="pw-wrap">
+            <input type={showPw ? "text" : "password"} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <button type="button" className="pw-toggle" onClick={() => setShowPw((s) => !s)} aria-label={showPw ? "Hide password" : "Show password"}>
+              {showPw ? "🙈" : "👁"}
+            </button>
+          </div>
           {error && <div className="error">{error}</div>}
           <button type="submit" disabled={loading}>{loading ? "Signing in…" : "Log in"}</button>
         </form>

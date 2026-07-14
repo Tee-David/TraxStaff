@@ -10,6 +10,7 @@ function LoginForm() {
   const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -57,14 +58,24 @@ function LoginForm() {
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  className="w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/10"
-                />
+                <div className="relative">
+                  <input
+                    type={showPw ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    className="w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 pr-11 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw((s) => !s)}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted hover:text-ink"
+                    aria-label={showPw ? "Hide password" : "Show password"}
+                  >
+                    {showPw ? "🙈" : "👁"}
+                  </button>
+                </div>
               </div>
               <label className="flex items-center gap-2 text-sm text-muted">
                 <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="accent-brand" />

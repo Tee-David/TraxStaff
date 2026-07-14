@@ -4,11 +4,15 @@ import { prisma } from "../lib/prisma";
 
 const createTaskSchema = z.object({
   title: z.string().min(1),
+  priority: z.enum(["lowest", "normal", "urgent"]).optional(),
+  dueDate: z.string().datetime({ offset: true }).nullable().optional(),
 });
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).optional(),
   status: z.enum(["todo", "in_progress", "done"]).optional(),
+  priority: z.enum(["lowest", "normal", "urgent"]).optional(),
+  dueDate: z.string().datetime({ offset: true }).nullable().optional(),
 });
 
 async function assertProjectInOrg(projectId: string, orgId: string) {
@@ -37,7 +41,14 @@ export default async function taskRoutes(fastify: FastifyInstance) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
 
     const body = createTaskSchema.parse(req.body);
-    const task = await prisma.task.create({ data: { projectId, title: body.title } });
+    const task = await prisma.task.create({
+      data: {
+        projectId,
+        title: body.title,
+        priority: body.priority,
+        dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+      },
+    });
     return reply.code(201).send(task);
   });
 
@@ -50,7 +61,15 @@ export default async function taskRoutes(fastify: FastifyInstance) {
       return reply.code(404).send({ error: "Task not found" });
     }
 
-    const updated = await prisma.task.update({ where: { id }, data: body });
+    const updated = await prisma.task.update({
+      where: { id },
+      data: {
+        title: body.title,
+        status: body.status,
+        priority: body.priority,
+        dueDate: body.dueDate === undefined ? undefined : body.dueDate ? new Date(body.dueDate) : null,
+      },
+    });
     return reply.send(updated);
   });
 

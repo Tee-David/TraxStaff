@@ -24,6 +24,11 @@ enum TaskStatus {
   in_progress
   done
 }
+enum TaskPriority {
+  lowest
+  normal
+  urgent
+}
 
 enum SessionEndReason {
   stopped
@@ -103,6 +108,8 @@ model Task {
   project   Project           @relation(fields: [projectId], references: [id])
   title     String
   status    TaskStatus        @default(todo)
+  priority  TaskPriority      @default(normal)
+  dueDate   DateTime?
   createdAt DateTime          @default(now())
   sessions  TrackingSession[]
 

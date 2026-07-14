@@ -6,6 +6,13 @@ import { api } from "@/lib/api";
 import type { Project, Task } from "@/lib/types";
 import { Badge, Button, Card, EmptyState, Input, Label, PageHeader, Skeleton } from "@/components/ui";
 import { FilterBar, SearchInput } from "@/components/filters";
+import { formatDate } from "@/lib/format";
+
+const PRIORITY = {
+  urgent: { label: "Urgent", tone: "red" as const },
+  normal: { label: "Normal", tone: "muted" as const },
+  lowest: { label: "Lowest", tone: "green" as const },
+};
 
 type Tab = "active" | "archived";
 const COLUMNS: { key: Task["status"]; label: string; tone: "muted" | "brand" | "green" }[] = [
@@ -132,6 +139,12 @@ function ProjectBoard({ project, onChange, archived }: { project: Project; onCha
     await api(`/tasks/${t.id}`, { method: "PATCH", body: JSON.stringify({ status: next }) });
     await onChange();
   }
+  async function cyclePriority(t: Task) {
+    const order: Task["priority"][] = ["lowest", "normal", "urgent"];
+    const next = order[(order.indexOf(t.priority) + 1) % order.length];
+    await api(`/tasks/${t.id}`, { method: "PATCH", body: JSON.stringify({ priority: next }) });
+    await onChange();
+  }
   async function archiveToggle() {
     await api(`/projects/${project.id}`, { method: "PATCH", body: JSON.stringify({ archived: !archived }) });
     setMenu(false);
@@ -189,21 +202,23 @@ function ProjectBoard({ project, onChange, archived }: { project: Project; onCha
                       initial={{ opacity: 0, scale: 0.96 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.96 }}
-                      className="group rounded-lg border border-border bg-surface px-3 py-2 text-sm shadow-sm"
+                      className="group rounded-xl border border-border bg-surface px-3 py-2.5 text-sm shadow-[var(--shadow-soft)]"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span className={t.status === "done" ? "text-muted line-through" : ""}>{t.title}</span>
-                        <button onClick={() => delTask(t)} className="opacity-0 transition group-hover:opacity-100 text-muted hover:text-red-600" aria-label="Delete">
+                        <span className={t.status === "done" ? "text-muted line-through" : "font-medium"}>{t.title}</span>
+                        <button onClick={() => delTask(t)} className="text-muted opacity-0 transition hover:text-[var(--color-negative)] group-hover:opacity-100" aria-label="Delete">
                           ×
                         </button>
                       </div>
-                      <div className="mt-1.5 flex gap-1">
-                        <button onClick={() => move(t, -1)} disabled={col.key === "todo"} className="rounded px-1.5 text-xs text-muted hover:bg-canvas disabled:opacity-30">
-                          ←
+                      <div className="mt-2 flex items-center justify-between">
+                        <button onClick={() => cyclePriority(t)} title="Change priority">
+                          <Badge tone={PRIORITY[t.priority].tone} dot>{PRIORITY[t.priority].label}</Badge>
                         </button>
-                        <button onClick={() => move(t, 1)} disabled={col.key === "done"} className="rounded px-1.5 text-xs text-muted hover:bg-canvas disabled:opacity-30">
-                          →
-                        </button>
+                        {t.dueDate && <span className="text-[11px] text-muted">⚑ {formatDate(t.dueDate)}</span>}
+                      </div>
+                      <div className="mt-2 flex gap-1 border-t border-border/60 pt-2">
+                        <button onClick={() => move(t, -1)} disabled={col.key === "todo"} className="rounded px-1.5 text-xs text-muted hover:bg-canvas disabled:opacity-30" aria-label="Move left">←</button>
+                        <button onClick={() => move(t, 1)} disabled={col.key === "done"} className="rounded px-1.5 text-xs text-muted hover:bg-canvas disabled:opacity-30" aria-label="Move right">→</button>
                       </div>
                     </motion.div>
                   ))}

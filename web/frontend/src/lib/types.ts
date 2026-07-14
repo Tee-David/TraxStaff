@@ -12,6 +12,8 @@ export interface Task {
   projectId: string;
   title: string;
   status: "todo" | "in_progress" | "done";
+  priority: "lowest" | "normal" | "urgent";
+  dueDate: string | null;
   createdAt: string;
 }
 

@@ -147,6 +147,23 @@ export default function DashboardPage() {
   const weekGoalPct = Math.min(100, Math.round((workedWeek / WEEK_TARGET_SECONDS) * 100));
   const timelineData = WORKDAY.map((h) => ({ hour: `${h}:00`, mins: Math.round(hourly[h]) }));
 
+  // Today's sessions as positioned segments across a 7:00–21:00 window (the strip under the graph).
+  const DAY_START = 7;
+  const DAY_END = 21;
+  const todaySegments = useMemo(() => {
+    const toH = (d: Date) => d.getHours() + d.getMinutes() / 60;
+    const span = DAY_END - DAY_START;
+    return today
+      .map((s) => {
+        const st = new Date(s.startedAt);
+        const en = s.endedAt ? new Date(s.endedAt) : new Date();
+        const a = Math.max(DAY_START, toH(st));
+        const b = Math.min(DAY_END, toH(en));
+        return { id: s.id, name: s.project.name, start: st, end: s.endedAt ? en : null, running: !s.endedAt, left: ((a - DAY_START) / span) * 100, width: ((b - a) / span) * 100 };
+      })
+      .filter((g) => g.width > 0);
+  }, [today]);
+
   const resizeAction = (id: WidgetId) =>
     customize ? (
       <button
@@ -169,27 +186,70 @@ export default function DashboardPage() {
               <Metric label="Top project" value={topToday[0]?.name ?? "—"} />
               <Metric label="First start" value={firstStart ? formatTime(firstStart) : "—"} />
             </div>
-            <div className="h-44">
+            <div className="h-52">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={timelineData} margin={{ top: 8, right: 6, bottom: 0, left: -22 }}>
+                <AreaChart data={timelineData} margin={{ top: 10, right: 8, bottom: 0, left: -22 }}>
                   <defs>
                     <linearGradient id="tlfill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--color-brand)" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="var(--color-brand)" stopOpacity={0} />
+                      <stop offset="0%" stopColor="var(--color-brand)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="var(--color-brand)" stopOpacity={0.02} />
+                    </linearGradient>
+                    <linearGradient id="tlstroke" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#3b5bff" />
+                      <stop offset="100%" stopColor="var(--color-brand)" />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
                   <XAxis dataKey="hour" tickLine={false} axisLine={false} interval={1} tick={{ fontSize: 11, fill: "var(--color-faint)" }} />
-                  <YAxis hide />
+                  <YAxis hide domain={[0, "dataMax"]} />
                   <Tooltip
                     cursor={{ stroke: "var(--color-brand)", strokeWidth: 1, strokeDasharray: "3 3" }}
                     contentStyle={{ borderRadius: 12, border: "1px solid var(--color-border)", background: "var(--color-surface)", fontSize: 12, boxShadow: "var(--shadow-soft)" }}
                     labelStyle={{ color: "var(--color-muted)" }}
                     formatter={(v: number) => [`${v} min`, "Worked"]}
                   />
-                  <Area type="monotone" dataKey="mins" stroke="var(--color-brand)" strokeWidth={2} fill="url(#tlfill)" />
+                  <Area
+                    type="monotone"
+                    dataKey="mins"
+                    stroke="url(#tlstroke)"
+                    strokeWidth={2.5}
+                    fill="url(#tlfill)"
+                    dot={false}
+                    activeDot={{ r: 4, fill: "var(--color-brand)", stroke: "var(--color-surface)", strokeWidth: 2 }}
+                  />
                 </AreaChart>
               </ResponsiveContainer>
+            </div>
+
+            {/* Session timeline strip — when today's work actually happened */}
+            <div className="mt-4">
+              <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium text-faint">
+                <span>Today&rsquo;s sessions</span>
+                {running && (
+                  <span className="flex items-center gap-1 text-[var(--color-positive)]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-positive)]" /> Live
+                  </span>
+                )}
+              </div>
+              <div className="relative h-8 overflow-hidden rounded-lg bg-canvas">
+                {todaySegments.length === 0 ? (
+                  <div className="flex h-full items-center justify-center text-[11px] text-faint">No sessions yet today</div>
+                ) : (
+                  todaySegments.map((g, i) => (
+                    <div
+                      key={g.id}
+                      title={`${g.name} · ${formatTime(g.start.toISOString())}${g.end ? `–${formatTime(g.end.toISOString())}` : " · running"}`}
+                      className={`absolute bottom-1 top-1 rounded-md ${g.running ? "animate-pulse" : ""}`}
+                      style={{ left: `${g.left}%`, width: `${Math.max(1.5, g.width)}%`, background: CAT[i % CAT.length] }}
+                    />
+                  ))
+                )}
+              </div>
+              <div className="mt-1 flex justify-between text-[10px] text-faint">
+                {[7, 10, 13, 16, 19, 21].map((h) => (
+                  <span key={h}>{h === 12 ? "12p" : h > 12 ? `${h - 12}p` : `${h}a`}</span>
+                ))}
+              </div>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
               {topToday.length === 0 ? (

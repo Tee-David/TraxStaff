@@ -108,6 +108,14 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     return () => { un.then((f) => f()); };
   }, []);
 
+  // System-tray menu actions → app handlers (via a ref so listeners register once).
+  const trayHandlers = useRef<Record<string, () => void>>({});
+  useEffect(() => {
+    const events = ["start", "stop", "signout", "dashboard", "updates"];
+    const uns = events.map((e) => listen(`tray:${e}`, () => trayHandlers.current[e]?.()));
+    return () => { uns.forEach((u) => u.then((f) => f())); };
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const [p, s] = await Promise.all([
@@ -182,6 +190,21 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       /* browser preview — CSS handles it */
     }
   }
+
+  trayHandlers.current = {
+    start: () => start(),
+    stop: () => stop(),
+    signout: () => { clearToken(); onLogout(); },
+    dashboard: () => { if (!expanded) toggleExpand(); },
+    updates: async () => {
+      try {
+        const { check } = await import("@tauri-apps/plugin-updater");
+        const u = await check();
+        if (u?.available) { await u.downloadAndInstall(); const { relaunch } = await import("@tauri-apps/plugin-process"); await relaunch(); }
+        else setError("You're on the latest version.");
+      } catch { /* ignore */ }
+    },
+  };
 
   return (
     <div className={`app-shell ${expanded ? "is-expanded" : "is-collapsed"}`}>

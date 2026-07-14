@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { motion } from "motion/react";
+import CircularTimer from "./CircularTimer";
 import LightRays from "./LightRays";
 import {
   api,
@@ -92,8 +94,9 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [active, setActive] = useState<Session | null>(null);
   const [projectId, setProjectId] = useState("");
   const [taskId, setTaskId] = useState("");
-  const [todo, setTodo] = useState("");
   const [elapsed, setElapsed] = useState(0);
+  const [expanded, setExpanded] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [idleMin, setIdleMin] = useState<number | null>(null);
   const deviceId = useRef<string | null>(null);
@@ -112,6 +115,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         api<Session[]>(`/sessions?from=${startOfWeek().toISOString()}`),
       ]);
       setProjects(p); setWeek(s);
+      setLastUpdated(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
       if (p[0] && !projectId) setProjectId(p[0].id);
       const open = s.find((x) => !x.endedAt);
       if (open) { setActive(open); setProjectId(open.projectId); if (open.taskId) setTaskId(open.taskId); }
@@ -130,10 +134,14 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   function beginHeartbeat(id: string) { stopHeartbeat(); heartbeat.current = setInterval(() => { api(`/sessions/${id}/heartbeat`, { method: "POST" }).catch(() => {}); }, 60_000); }
   function stopHeartbeat() { if (heartbeat.current) clearInterval(heartbeat.current); heartbeat.current = null; }
 
-  async function start() {
-    if (!projectId) return; setError(null);
+  async function start(pid?: string) {
+    const useProject = pid ?? projectId;
+    if (!useProject) return;
+    setError(null);
+    setProjectId(useProject);
+    const firstTask = projects.find((p) => p.id === useProject)?.tasks?.find((t) => t.status !== "done")?.id;
     try {
-      const s = await api<Session>("/sessions/start", { method: "POST", body: JSON.stringify({ projectId, taskId: taskId || undefined, deviceId: deviceId.current ?? undefined, platform: "windows", appVersion: "0.1.0" }) });
+      const s = await api<Session>("/sessions/start", { method: "POST", body: JSON.stringify({ projectId: useProject, taskId: (pid ? firstTask : taskId) || undefined, deviceId: deviceId.current ?? undefined, platform: "windows", appVersion: "0.1.0" }) });
       setActive(s); beginHeartbeat(s.id);
       // Kick off native capture (activity sampling + screenshots + sync) in Rust.
       let perBlock = 1, blur = false, idleMinutes = 5;
@@ -162,10 +170,21 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const workedToday = today.reduce((a, s) => a + secs(s), 0) + (active ? 0 : 0);
   const liveToday = workedToday + (active ? elapsed - secs(active) : 0);
   const workedWeek = week.reduce((a, s) => a + secs(s), 0);
-  const selectedProject = projects.find((p) => p.id === projectId);
+
+  async function toggleExpand() {
+    const next = !expanded;
+    setExpanded(next);
+    try {
+      const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
+      const win = getCurrentWindow();
+      await win.setSize(new LogicalSize(next ? 1120 : 400, next ? 720 : 680));
+    } catch {
+      /* browser preview — CSS handles it */
+    }
+  }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${expanded ? "is-expanded" : "is-collapsed"}`}>
       {idleMin !== null && active && (
         <div className="idle-banner">
           <span>You&rsquo;ve been idle for ~{idleMin} min. Keep tracking this time?</span>
@@ -177,103 +196,108 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       )}
       <aside className="widget-pane">
         <TrackingWidget
-          projects={projects} selectedProject={selectedProject}
-          projectId={projectId} setProjectId={(v) => { setProjectId(v); setTaskId(""); }}
-          taskId={taskId} setTaskId={setTaskId} todo={todo} setTodo={setTodo}
-          active={active} elapsed={elapsed} workedToday={liveToday} workedWeek={workedWeek}
+          projects={projects} projectId={projectId}
+          active={active} workedToday={liveToday} workedWeek={workedWeek}
           today={today} onStart={start} onStop={stop} error={error}
           onSignOut={() => { clearToken(); onLogout(); }}
+          onRefresh={load} lastUpdated={lastUpdated} expanded={expanded} onToggleExpand={toggleExpand}
         />
       </aside>
-      <main className="dash-pane">
-        <DesktopDashboard projects={projects} week={week} workedWeek={workedWeek} />
-      </main>
+      {expanded && (
+        <main className="dash-pane">
+          <DesktopDashboard projects={projects} week={week} workedWeek={workedWeek} />
+        </main>
+      )}
     </div>
   );
 }
 
-function Sparkline({ points, color = "#00c2b8" }: { points: number[]; color?: string }) {
-  const w = 220, h = 48; const max = Math.max(1, ...points);
-  const step = points.length > 1 ? w / (points.length - 1) : w;
-  const path = points.map((v, i) => `${i === 0 ? "M" : "L"} ${(i * step).toFixed(1)} ${(h - (v / max) * (h - 6) - 3).toFixed(1)}`).join(" ");
-  return (
-    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 function TrackingWidget(props: {
-  projects: Project[]; selectedProject?: Project; projectId: string; setProjectId: (v: string) => void;
-  taskId: string; setTaskId: (v: string) => void; todo: string; setTodo: (v: string) => void;
-  active: Session | null; elapsed: number; workedToday: number; workedWeek: number; today: Session[];
-  onStart: () => void; onStop: () => void; error: string | null; onSignOut: () => void;
+  projects: Project[]; projectId: string;
+  active: Session | null; workedToday: number; workedWeek: number; today: Session[];
+  onStart: (pid?: string) => void; onStop: () => void; error: string | null; onSignOut: () => void;
+  onRefresh: () => void; lastUpdated: string | null; expanded: boolean; onToggleExpand: () => void;
 }) {
-  const { projects, selectedProject, projectId, setProjectId, taskId, setTaskId, todo, setTodo, active, elapsed, workedToday, workedWeek, today, onStart, onStop, error, onSignOut } = props;
-  // hourly focus sparkline for today
-  const hourly = useMemo(() => {
-    const arr = new Array(12).fill(0); // 8..19
-    for (const s of today) {
-      const st = new Date(s.startedAt), en = s.endedAt ? new Date(s.endedAt) : new Date();
-      let cur = new Date(st);
-      while (cur < en) { const h = cur.getHours(); const nxt = new Date(cur); nxt.setMinutes(60, 0, 0); const slice = (Math.min(en.getTime(), nxt.getTime()) - cur.getTime()) / 60000; if (h >= 8 && h < 20) arr[h - 8] += slice; cur = nxt; }
-    }
-    return arr;
-  }, [today]);
-  const focusPct = Math.min(100, Math.round((workedToday / DAY_TARGET_SECONDS) * 100));
+  const { projects, active, workedToday, workedWeek, today, onStart, onStop, error, onSignOut, onRefresh, lastUpdated, expanded, onToggleExpand } = props;
+  const [q, setQ] = useState("");
+
+  const secsToday = (pid: string) =>
+    today.filter((s) => s.projectId === pid).reduce((a, s) => a + secs(s), 0);
+
+  const list = projects
+    .filter((p) => !p.archivedAt && p.name.toLowerCase().includes(q.toLowerCase()))
+    // active project first, then by today's time
+    .sort((a, b) => (a.id === active?.projectId ? -1 : b.id === active?.projectId ? 1 : secsToday(b.id) - secsToday(a.id)));
 
   return (
     <div className="widget">
       <div className="widget-brand"><img src="/brand/icon-badge.svg" alt="" /> Trax</div>
 
-      <div className="widget-metrics">
-        <div>
-          <div className="wm-label">Progress Today</div>
-          <div className="wm-timer">{fmtClock(active ? elapsed + (workedToday - elapsed) : workedToday)}</div>
-        </div>
-        <div className="wm-side">
-          <div className="wm-label">This week</div>
-          <div className="wm-val">{fmtClock(workedWeek)}</div>
-        </div>
+      <CircularTimer seconds={workedToday} targetSeconds={DAY_TARGET_SECONDS} active={Boolean(active)} />
+
+      <div className="widget-stats">
+        <div className="ws-item"><span className="wm-label">This week</span><span className="wm-val">{fmtClock(workedWeek)}</span></div>
+        <div className="ws-item"><span className="wm-label">Daily target</span><span className="wm-val">{fmtClock(DAY_TARGET_SECONDS)}</span></div>
       </div>
 
-      <div className="widget-spark">
-        <Sparkline points={hourly} />
-        <span className="focus-badge">Focus {focusPct}%</span>
+      <div className="proj-search">
+        <span className="proj-search-ico">⌕</span>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects" />
       </div>
-      <div className="wm-target">
-        <span className="wm-label">Target time</span>
-        <span className="wm-val small">{fmtClock(DAY_TARGET_SECONDS)}</span>
-      </div>
-
-      <label className="field-label">Project</label>
-      <select className="field" value={projectId} onChange={(e) => setProjectId(e.target.value)} disabled={Boolean(active)}>
-        {projects.length === 0 && <option value="">No projects</option>}
-        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
-
-      <label className="field-label">Main Task</label>
-      <select className="field" value={taskId} onChange={(e) => setTaskId(e.target.value)} disabled={Boolean(active)}>
-        <option value="">No task</option>
-        {selectedProject?.tasks?.filter((t) => t.status !== "done").map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
-      </select>
-
-      <label className="field-label">To do</label>
-      <textarea className="field todo" placeholder="Working on…" value={todo} onChange={(e) => setTodo(e.target.value)} rows={2} />
 
       {error && <div className="error">{error}</div>}
 
-      {active ? (
-        <button className="start-btn stop" onClick={onStop}>◼ Stop</button>
-      ) : (
-        <button className="start-btn" onClick={onStart} disabled={!projectId}>▶ Start Now</button>
-      )}
+      <div className="proj-list">
+        {list.length === 0 && <div className="muted small proj-empty">No projects</div>}
+        {list.map((p) => {
+          const isActive = active?.projectId === p.id;
+          return (
+            <motion.div
+              key={p.id}
+              layout
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              whileHover={{ x: isActive ? 0 : 2 }}
+              className={`proj-row ${isActive ? "active" : ""}`}
+              onClick={() => (isActive ? onStop() : onStart(p.id))}
+            >
+              <PlayStop active={isActive} />
+              <span className="proj-name">{p.name}</span>
+              <span className="proj-time tnum">{isActive ? fmtClock(workedToday) : fmtShort(secsToday(p.id)) || "0m"}</span>
+            </motion.div>
+          );
+        })}
+      </div>
 
       <div className="widget-foot">
-        <span className="muted small">Trax Desktop</span>
-        <button className="link" onClick={onSignOut}>Sign out</button>
+        <button className="foot-refresh" onClick={onRefresh} title="Refresh">
+          <span className="foot-refresh-ico">↻</span>
+          {lastUpdated ? `Updated ${lastUpdated}` : "Refresh"}
+        </button>
+        <div className="foot-actions">
+          <button className="link" onClick={onSignOut}>Sign out</button>
+          <button className="foot-icon" onClick={onToggleExpand} title={expanded ? "Collapse" : "Expand"} aria-label={expanded ? "Collapse" : "Expand"}>
+            {expanded ? "»" : "«"}
+          </button>
+        </div>
       </div>
     </div>
+  );
+}
+
+// Morphing play ⇄ stop control with a soft pulse while active.
+function PlayStop({ active }: { active: boolean }) {
+  return (
+    <span className={`playstop ${active ? "on" : ""}`}>
+      {active && <motion.span className="playstop-pulse" animate={{ scale: [1, 1.6], opacity: [0.5, 0] }} transition={{ duration: 1.6, repeat: Infinity, ease: "easeOut" }} />}
+      <motion.svg width="14" height="14" viewBox="0 0 14 14" initial={false}>
+        {active ? (
+          <motion.rect key="stop" x="3" y="3" width="8" height="8" rx="2" fill="currentColor" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} />
+        ) : (
+          <motion.path key="play" d="M4 2.5v9l7-4.5z" fill="currentColor" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} />
+        )}
+      </motion.svg>
+    </span>
   );
 }
 

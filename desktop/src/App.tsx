@@ -107,6 +107,9 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [closing, setClosing] = useState<number | null>(null); // remaining records while flushing on exit
   const deviceId = useRef<string | null>(null);
   const heartbeat = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Latest active session, readable from event listeners that register once.
+  const activeRef = useRef<Session | null>(null);
+  activeRef.current = active;
 
   // Idle prompt from the native capture engine.
   useEffect(() => {
@@ -114,19 +117,26 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     return () => { un.then((f) => f()); };
   }, []);
 
-  // Exit flow: Rust holds the window open when the sync queue isn't empty and
-  // emits "app-closing". We flush the queue (finalizing any live session), show
-  // an "Uploading data" dialog, then close the window for real.
+  // Exit flow: Rust holds the window open while a session is live or the sync
+  // queue isn't empty, and emits "app-closing". Like Hubstaff, closing the app
+  // stops tracking: we stop the session server-side, flush the local queue
+  // (finalizing the last block), show an "Uploading data" dialog, then close.
+  const onClosingRef = useRef<() => Promise<void>>(async () => {});
+  onClosingRef.current = async () => {
+    setClosing(await invoke<number>("queue_count").catch(() => 0));
+    try {
+      // Anchor the stop on the server so the timer doesn't resume on next launch.
+      if (activeRef.current) {
+        await api(`/sessions/${activeRef.current.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }).catch(() => {});
+      }
+      const remaining = await invoke<number>("flush_now", { token: getToken() ?? "", backend: API_BASE });
+      setClosing(remaining);
+    } catch { /* offline — close anyway; queue persists on disk for next launch */ }
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().destroy();
+  };
   useEffect(() => {
-    const un = listen("app-closing", async () => {
-      setClosing(await invoke<number>("queue_count").catch(() => 0));
-      try {
-        const remaining = await invoke<number>("flush_now", { token: getToken() ?? "", backend: API_BASE });
-        setClosing(remaining);
-      } catch { /* offline — close anyway; queue persists on disk for next launch */ }
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().destroy();
-    });
+    const un = listen("app-closing", () => onClosingRef.current());
     return () => { un.then((f) => f()); };
   }, []);
 
@@ -206,6 +216,13 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     try { await api(`/sessions/${active.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }); } catch { /* reconcile later */ }
     stopHeartbeat(); setActive(null); setElapsed(0); load();
   }
+  // Signing out stops tracking first — otherwise the session stays open on the
+  // server and the timer would resume the next time you sign in.
+  async function signOut() {
+    if (activeRef.current) { try { await stop(); } catch { /* stop best-effort */ } }
+    clearToken();
+    onLogout();
+  }
 
   const today = useMemo(() => week.filter((s) => new Date(s.startedAt) >= startOfToday()), [week]);
   const workedToday = today.reduce((a, s) => a + secs(s), 0) + (active ? 0 : 0);
@@ -227,7 +244,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   trayHandlers.current = {
     start: () => start(),
     stop: () => stop(),
-    signout: () => { clearToken(); onLogout(); },
+    signout: () => { signOut(); },
     dashboard: () => { if (!expanded) toggleExpand(); },
     updates: async () => {
       try {
@@ -271,7 +288,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       </aside>
       {expanded && (
         <main className="dash-pane">
-          <DashNav tab={tab} setTab={setTab} onSignOut={() => { clearToken(); onLogout(); }} />
+          <DashNav tab={tab} setTab={setTab} onSignOut={signOut} />
           <div className="dash-scroll">
             {tab === "dashboard" && <DesktopDashboard projects={projects} week={week} workedWeek={workedWeek} onViewActivity={() => setTab("activity")} />}
             {tab === "timesheets" && <TimesheetsPage week={week} />}

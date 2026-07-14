@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { AuthProvider, useAuth } from "@/lib/auth";
@@ -11,6 +11,22 @@ function Shell({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
   const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [hovered, setHovered] = useState(false);
+
+  // Persist the collapsed preference across sessions.
+  useEffect(() => {
+    setCollapsed(localStorage.getItem("trax_sidebar_collapsed") === "1");
+  }, []);
+  function toggleCollapsed() {
+    setCollapsed((c) => {
+      const next = !c;
+      try { localStorage.setItem("trax_sidebar_collapsed", next ? "1" : "0"); } catch {}
+      return next;
+    });
+  }
+  // Expanded whenever not collapsed, or while hovering a collapsed rail.
+  const expandedNow = !collapsed || hovered;
 
   if (loading) {
     return <div className="flex min-h-screen items-center justify-center text-muted">Loading…</div>;
@@ -22,12 +38,18 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 border-r border-border lg:block">
-        <div className="sticky top-0 h-screen">
-          <Sidebar user={user} onLogout={logout} />
-        </div>
-      </aside>
+      {/* Desktop sidebar: spacer reserves width so content reflows; the panel
+          is fixed so a collapsed rail can expand over the content on hover. */}
+      <div className={`hidden shrink-0 transition-[width] duration-200 lg:block ${collapsed ? "w-[76px]" : "w-64"}`} />
+      <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        className={`fixed inset-y-0 left-0 z-40 hidden h-screen border-r border-border bg-surface transition-[width] duration-200 lg:block ${
+          expandedNow ? "w-64" : "w-[76px]"
+        } ${collapsed && hovered ? "shadow-lift" : ""}`}
+      >
+        <Sidebar user={user} onLogout={logout} collapsed={!expandedNow} onToggleCollapse={toggleCollapsed} />
+      </div>
 
       {/* Mobile drawer */}
       <AnimatePresence>

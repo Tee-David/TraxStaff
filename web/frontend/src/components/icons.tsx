@@ -13,6 +13,9 @@ const base = (props: SVGProps<SVGSVGElement>) => ({
   ...props,
 });
 
+export const IconSidebar = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg>
+);
 export const IconDashboard = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></svg>
 );

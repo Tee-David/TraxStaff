@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "motion/react";
+import { Reorder } from "motion/react";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Project, Session } from "@/lib/types";
 import type { ReportSummary } from "@/lib/reports";
-import { Badge, Card, EmptyState, PageHeader, Section, Skeleton, StatTile } from "@/components/ui";
+import { Badge, EmptyState, PageHeader, Section, Skeleton, StatTile } from "@/components/ui";
 import { Donut } from "@/components/Donut";
 import { WorkHeatmap } from "@/components/WorkHeatmap";
 import CountUp from "@/components/CountUp";
@@ -25,6 +26,19 @@ function startOfWeek(): Date {
 
 const CAT = ["var(--color-cat-focus)", "var(--color-cat-meeting)", "var(--color-cat-other)", "var(--color-cat-break)"];
 const WORKDAY = Array.from({ length: 11 }, (_, i) => 8 + i);
+const WEEK_TARGET_SECONDS = 40 * 3600;
+const PROJ_DOTS = ["#000065", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b"];
+
+// Customizable dashboard widgets — order + column span are user-editable and
+// persisted. Keep the id list in sync with renderWidget()'s switch.
+const WIDGET_IDS = ["timeline", "projects", "heatmap", "weekly", "topweek", "history"] as const;
+type WidgetId = (typeof WIDGET_IDS)[number];
+const DEFAULT_ORDER: WidgetId[] = ["timeline", "projects", "heatmap", "weekly", "topweek", "history"];
+const DEFAULT_SPANS: Record<WidgetId, number> = { timeline: 2, projects: 1, heatmap: 2, weekly: 1, topweek: 1, history: 3 };
+const LAYOUT_KEY = "trax_dash_layout";
+function spanClass(n: number) {
+  return n >= 3 ? "lg:col-span-3" : n === 2 ? "lg:col-span-2" : "lg:col-span-1";
+}
 const CHIP = ["brand", "accent", "teal", "green", "red"] as const;
 function chipTone(email: string) {
   let h = 0;
@@ -38,6 +52,37 @@ export default function DashboardPage() {
   const [week, setWeek] = useState<Session[]>([]);
   const [summary, setSummary] = useState<ReportSummary | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Dashboard layout (drag-to-reorder + resize), persisted per browser.
+  const [customize, setCustomize] = useState(false);
+  const [order, setOrder] = useState<WidgetId[]>(DEFAULT_ORDER);
+  const [spans, setSpans] = useState<Record<WidgetId, number>>(DEFAULT_SPANS);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LAYOUT_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { order?: WidgetId[]; spans?: Record<WidgetId, number> };
+      // Keep only known ids, then append any newly-added widgets.
+      const valid = (saved.order ?? []).filter((id): id is WidgetId => WIDGET_IDS.includes(id as WidgetId));
+      const merged = [...valid, ...DEFAULT_ORDER.filter((id) => !valid.includes(id))];
+      setOrder(merged);
+      if (saved.spans) setSpans({ ...DEFAULT_SPANS, ...saved.spans });
+    } catch {}
+  }, []);
+
+  function persist(nextOrder: WidgetId[], nextSpans: Record<WidgetId, number>) {
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify({ order: nextOrder, spans: nextSpans })); } catch {}
+  }
+  function reorder(next: WidgetId[]) { setOrder(next); persist(next, spans); }
+  function cycleSpan(id: WidgetId) {
+    const next = { ...spans, [id]: (spans[id] % 3) + 1 };
+    setSpans(next); persist(order, next);
+  }
+  function resetLayout() {
+    setOrder(DEFAULT_ORDER); setSpans(DEFAULT_SPANS);
+    try { localStorage.removeItem(LAYOUT_KEY); } catch {}
+  }
 
   useEffect(() => {
     Promise.all([
@@ -77,7 +122,6 @@ export default function DashboardPage() {
     }
     return mins;
   }, [today]);
-  const maxHour = Math.max(1, ...WORKDAY.map((h) => hourly[h]));
 
   const topToday = useMemo(() => {
     const by = new Map<string, { name: string; secs: number }>();
@@ -89,65 +133,67 @@ export default function DashboardPage() {
     return [...by.values()].sort((a, b) => b.secs - a.secs).slice(0, 4);
   }, [today]);
 
-  return (
-    <div>
-      <PageHeader
-        title={new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}
-        subtitle={`Welcome back, ${user?.email ?? ""}`}
-        actions={
-          <Badge tone={running ? "green" : "muted"} dot>
-            {running ? `Tracking · ${running.project.name}` : "Not tracking"}
-          </Badge>
-        }
-      />
+  const topWeek = useMemo(() => {
+    const by = new Map<string, { name: string; secs: number }>();
+    for (const s of week) {
+      const e = by.get(s.projectId) ?? { name: s.project.name, secs: 0 };
+      e.secs += sessionSeconds(s.startedAt, s.endedAt);
+      by.set(s.projectId, e);
+    }
+    return [...by.values()].sort((a, b) => b.secs - a.secs).slice(0, 5);
+  }, [week]);
 
-      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatTile icon="📁" tone="brand" label="Active projects" value={<CountUp to={activeProjects} duration={1} />} />
-        <StatTile icon="⏳" tone="accent" label="Ongoing tasks" value={<CountUp to={ongoingTasks} duration={1} />} />
-        <StatTile icon="✅" tone="teal" label="Completed tasks" value={<CountUp to={completedTasks} duration={1} />} />
-        <StatTile icon="⏱" tone="muted" label="Worked this week" value={<span className="text-[22px]">{formatDurationShort(workedWeek)}</span>} />
-      </div>
+  const daysActive = useMemo(() => new Set(week.map((s) => new Date(s.startedAt).toDateString())).size, [week]);
+  const weekGoalPct = Math.min(100, Math.round((workedWeek / WEEK_TARGET_SECONDS) * 100));
+  const timelineData = WORKDAY.map((h) => ({ hour: `${h}:00`, mins: Math.round(hourly[h]) }));
 
-      {loading ? (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-          <Skeleton className="h-80 lg:col-span-2" />
-          <Skeleton className="h-80" />
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-          {/* Timeline */}
-          <Section title="Timeline" icon="🕐" className="lg:col-span-2" bodyClassName="p-5">
-            <div className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Metric label="Work of day" value={summary?.avgActivityPct != null ? `${summary.avgActivityPct}%` : "—"} />
+  const resizeAction = (id: WidgetId) =>
+    customize ? (
+      <button
+        onClick={() => cycleSpan(id)}
+        title="Resize (columns)"
+        className="rounded-lg border border-border px-2 py-1 text-[11px] font-semibold text-muted transition hover:bg-canvas"
+      >
+        ⤢ {spans[id]}/3
+      </button>
+    ) : undefined;
+
+  function renderWidget(id: WidgetId) {
+    switch (id) {
+      case "timeline":
+        return (
+          <Section title="Timeline" icon="🕐" bodyClassName="p-5" action={resizeAction("timeline")}>
+            <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Metric label="Activity today" value={summary?.avgActivityPct != null ? `${summary.avgActivityPct}%` : "—"} />
               <Metric label="Total worked" value={formatDurationShort(workedToday)} />
               <Metric label="Top project" value={topToday[0]?.name ?? "—"} />
               <Metric label="First start" value={firstStart ? formatTime(firstStart) : "—"} />
             </div>
-
-            <div className="flex h-40 items-end gap-1.5">
-              {WORKDAY.map((h) => (
-                <div key={h} className="group relative flex flex-1 flex-col items-center gap-1">
-                  <div className="flex w-full flex-1 items-end">
-                    <motion.div
-                      className="w-full rounded-md bg-brand/85 group-hover:bg-brand"
-                      initial={{ height: 0 }}
-                      animate={{ height: `${(hourly[h] / maxHour) * 100}%` }}
-                      transition={{ duration: 0.5, delay: 0.03 * (h - 8) }}
-                    />
-                  </div>
-                  <span className="text-[10px] text-faint">{h}</span>
-                  {hourly[h] > 0 && (
-                    <div className="pointer-events-none absolute -top-9 z-10 whitespace-nowrap rounded-lg bg-ink px-2.5 py-1.5 text-[11px] font-medium text-white opacity-0 shadow-lg transition group-hover:opacity-100">
-                      {h}:00 · {formatDurationShort(hourly[h] * 60)}
-                    </div>
-                  )}
-                </div>
-              ))}
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={timelineData} margin={{ top: 8, right: 6, bottom: 0, left: -22 }}>
+                  <defs>
+                    <linearGradient id="tlfill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--color-brand)" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="var(--color-brand)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
+                  <XAxis dataKey="hour" tickLine={false} axisLine={false} interval={1} tick={{ fontSize: 11, fill: "var(--color-faint)" }} />
+                  <YAxis hide />
+                  <Tooltip
+                    cursor={{ stroke: "var(--color-brand)", strokeWidth: 1, strokeDasharray: "3 3" }}
+                    contentStyle={{ borderRadius: 12, border: "1px solid var(--color-border)", background: "var(--color-surface)", fontSize: 12, boxShadow: "var(--shadow-soft)" }}
+                    labelStyle={{ color: "var(--color-muted)" }}
+                    formatter={(v: number) => [`${v} min`, "Worked"]}
+                  />
+                  <Area type="monotone" dataKey="mins" stroke="var(--color-brand)" strokeWidth={2} fill="url(#tlfill)" />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
-
-            <div className="mt-5 grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
+            <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
               {topToday.length === 0 ? (
-                <p className="col-span-4 text-sm text-muted">No time tracked today yet.</p>
+                <p className="col-span-2 text-sm text-muted sm:col-span-4">No time tracked today yet.</p>
               ) : (
                 topToday.map((p, i) => (
                   <Donut
@@ -161,9 +207,10 @@ export default function DashboardPage() {
               )}
             </div>
           </Section>
-
-          {/* Projects & Tasks */}
-          <Section title="Projects & Tasks" icon="🗂" bodyClassName="p-5">
+        );
+      case "projects":
+        return (
+          <Section title="Projects & Tasks" icon="🗂" bodyClassName="p-5" action={resizeAction("projects")}>
             <div className="space-y-5">
               {projects.slice(0, 5).map((p) => {
                 const total = p.tasks?.length ?? 0;
@@ -192,26 +239,70 @@ export default function DashboardPage() {
               {projects.length === 0 && <p className="text-sm text-muted">No projects yet.</p>}
             </div>
           </Section>
-        </div>
-      )}
-
-      {/* Work by hours */}
-      {!loading && week.length > 0 && (
-        <div className="mt-5">
-          <Section title="Work by hours" icon="▦" bodyClassName="p-5">
-            <WorkHeatmap sessions={week} />
+        );
+      case "heatmap":
+        return (
+          <Section title="Work by hours" icon="▦" bodyClassName="p-5" action={resizeAction("heatmap")}>
+            {week.length === 0 ? (
+              <p className="text-sm text-muted">No sessions this week yet.</p>
+            ) : (
+              <>
+                <WorkHeatmap sessions={week} />
+                <div className="mt-4 flex items-center justify-end gap-1.5 text-[11px] text-faint">
+                  Less
+                  {[0.15, 0.4, 0.65, 0.9].map((a) => (
+                    <span key={a} className="h-3 w-3 rounded" style={{ background: `color-mix(in srgb, var(--color-brand) ${a * 100}%, transparent)` }} />
+                  ))}
+                  More
+                </div>
+              </>
+            )}
           </Section>
-        </div>
-      )}
-
-      {/* Project History */}
-      <div className="mt-5">
-        {loading ? (
-          <Skeleton className="h-48" />
-        ) : week.length === 0 ? (
+        );
+      case "weekly":
+        return (
+          <Section title="Weekly goal" icon="🎯" bodyClassName="p-5" action={resizeAction("weekly")}>
+            <div className="flex flex-col items-center gap-4 py-1">
+              <Donut value={weekGoalPct} size={148} stroke={13} color="var(--color-brand)" label={`${weekGoalPct}%`} sublabel={`${formatDurationShort(workedWeek)} of 40h`} />
+              <div className="grid w-full grid-cols-2 gap-3 border-t border-border pt-4 text-center">
+                <div>
+                  <div className="font-heading text-lg font-semibold">{daysActive}</div>
+                  <div className="text-xs text-muted">Days active</div>
+                </div>
+                <div>
+                  <div className="font-heading text-lg font-semibold">{summary?.avgActivityPct != null ? `${summary.avgActivityPct}%` : "—"}</div>
+                  <div className="text-xs text-muted">Activity today</div>
+                </div>
+              </div>
+            </div>
+          </Section>
+        );
+      case "topweek":
+        return (
+          <Section title="Top projects · this week" icon="🏆" bodyClassName="p-5" action={resizeAction("topweek")}>
+            {topWeek.length === 0 ? (
+              <p className="text-sm text-muted">No time tracked this week.</p>
+            ) : (
+              <div className="space-y-3.5">
+                {topWeek.map((p, i) => (
+                  <div key={p.name} className="flex items-center gap-3 text-sm">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: PROJ_DOTS[i % PROJ_DOTS.length] }} />
+                    <span className="w-24 shrink-0 truncate font-medium">{p.name}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-canvas">
+                      <div className="h-full rounded-full" style={{ width: `${(p.secs / (topWeek[0].secs || 1)) * 100}%`, background: PROJ_DOTS[i % PROJ_DOTS.length] }} />
+                    </div>
+                    <span className="tnum w-14 shrink-0 text-right text-muted">{formatDurationShort(p.secs)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+        );
+      case "history":
+        return week.length === 0 ? (
           <EmptyState icon="🗓" title="No sessions yet" hint="Start tracking from the Trax desktop app and your activity will appear here." />
         ) : (
-          <Section title="Project History" icon="📜" bodyClassName="p-0">
+          <Section title="Project History" icon="📜" bodyClassName="p-0" action={resizeAction("history")}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -247,8 +338,82 @@ export default function DashboardPage() {
               </table>
             </div>
           </Section>
-        )}
+        );
+    }
+  }
+
+  return (
+    <div>
+      <PageHeader
+        title={new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}
+        subtitle={`Welcome back, ${user?.email ?? ""}`}
+        actions={
+          <Badge tone={running ? "green" : "muted"} dot>
+            {running ? `Tracking · ${running.project.name}` : "Not tracking"}
+          </Badge>
+        }
+      />
+
+      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatTile icon="📁" tone="brand" label="Active projects" value={<CountUp to={activeProjects} duration={1} />} />
+        <StatTile icon="⏳" tone="accent" label="Ongoing tasks" value={<CountUp to={ongoingTasks} duration={1} />} />
+        <StatTile icon="✅" tone="teal" label="Completed tasks" value={<CountUp to={completedTasks} duration={1} />} />
+        <div className="relative">
+          <StatTile icon="⏱" tone="muted" label="Worked this week" value={<span className="text-[22px]">{formatDurationShort(workedWeek)}</span>} />
+        </div>
       </div>
+
+      {/* Customize toolbar */}
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="text-sm text-muted">
+          {customize ? "Drag cards to rearrange · use ⤢ to resize" : ""}
+        </div>
+        <div className="flex items-center gap-2">
+          {customize && (
+            <button onClick={resetLayout} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted transition hover:bg-canvas">
+              Reset
+            </button>
+          )}
+          <button
+            onClick={() => setCustomize((c) => !c)}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              customize ? "bg-brand text-brand-fg" : "border border-border text-muted hover:bg-canvas"
+            }`}
+          >
+            {customize ? "✓ Done" : "⚙ Customize"}
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+          <Skeleton className="h-80 lg:col-span-2" />
+          <Skeleton className="h-80" />
+          <Skeleton className="h-64 lg:col-span-2" />
+          <Skeleton className="h-64" />
+        </div>
+      ) : (
+        <Reorder.Group
+          as="div"
+          axis="y"
+          values={order}
+          onReorder={(v) => reorder(v as WidgetId[])}
+          className="grid grid-cols-1 gap-5 lg:grid-cols-3"
+        >
+          {order.map((id) => (
+            <Reorder.Item
+              key={id}
+              value={id}
+              drag={customize}
+              dragListener={customize}
+              whileDrag={{ scale: 1.02, zIndex: 30, cursor: "grabbing" }}
+              className={`${spanClass(spans[id])} ${customize ? "cursor-grab rounded-2xl ring-2 ring-brand/30 ring-offset-2 ring-offset-canvas" : ""}`}
+            >
+              {renderWidget(id)}
+            </Reorder.Item>
+          ))}
+        </Reorder.Group>
+      )}
     </div>
   );
 }

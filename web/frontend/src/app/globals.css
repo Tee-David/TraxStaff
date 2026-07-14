@@ -103,3 +103,50 @@ h1, h2, h3, h4, h5, h6 {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border-strong) transparent;
 }
+
+/* ---------- First-load preloader ----------
+   Pure HTML+CSS so it paints on the first frame, before the JS bundle
+   downloads or React hydrates. The white Trax mark pulses for 700ms on a
+   navy brand field, then expands + fades over 600ms to reveal the app.
+   A session guard in the root layout sets [data-preloaded] on repeat loads
+   so the intro only plays the first time you load the site this session. */
+#trax-preloader {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: radial-gradient(120% 120% at 50% 30%, #12126b 0%, #000065 45%, #05052e 100%);
+  animation: trax-preloader-out 0.15s ease-out 1.3s forwards;
+}
+.trax-preloader-mark {
+  width: 84px;
+  height: 84px;
+  background-image: url('/brand/icon-white.svg');
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  transform-origin: center center;
+  animation:
+    trax-preloader-pulse 1s ease-in-out infinite,
+    trax-preloader-expand 0.6s cubic-bezier(0.6, 0, 0.4, 1) 0.7s forwards;
+}
+:root[data-preloaded] #trax-preloader { display: none !important; }
+@keyframes trax-preloader-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.09); }
+}
+@keyframes trax-preloader-expand {
+  0%   { transform: scale(1);  opacity: 1; }
+  70%  { transform: scale(16); opacity: 1; }
+  100% { transform: scale(24); opacity: 0; }
+}
+@keyframes trax-preloader-out {
+  to { opacity: 0; visibility: hidden; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #trax-preloader { animation: trax-preloader-out 0.2s ease-out 0.5s forwards; }
+  .trax-preloader-mark { animation: none; opacity: 1; }
+}

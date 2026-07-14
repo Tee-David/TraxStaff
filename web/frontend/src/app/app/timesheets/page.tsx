@@ -4,15 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Session } from "@/lib/types";
-import { Badge, Card, EmptyState, PageHeader, Skeleton } from "@/components/ui";
-import { DateRange, MemberFilter, FilterBar, Pagination, paginate, rangeToParams, type RangeKey } from "@/components/filters";
-import { formatDurationShort, formatTime, sessionSeconds } from "@/lib/format";
-
-function dayKey(iso: string): string {
-  return new Date(iso).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
-}
-
-const DAYS_PER_PAGE = 7;
+import { Badge, EmptyState, PageHeader, Skeleton, StatTile } from "@/components/ui";
+import { DataTable, type Column } from "@/components/DataTable";
+import { DateRange, MemberFilter, FilterBar, rangeToParams, type RangeKey } from "@/components/filters";
+import { formatDurationShort, formatDate, formatTime, sessionSeconds } from "@/lib/format";
 
 export default function TimesheetsPage() {
   const { user } = useAuth();
@@ -21,7 +16,6 @@ export default function TimesheetsPage() {
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<RangeKey>("week");
   const [member, setMember] = useState("");
-  const [page, setPage] = useState(0);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -38,24 +32,50 @@ export default function TimesheetsPage() {
 
   useEffect(() => {
     load();
-    setPage(0);
   }, [load]);
 
-  const byDay = useMemo(() => {
-    const groups = new Map<string, Session[]>();
-    for (const s of sessions) {
-      const key = dayKey(s.startedAt);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(s);
-    }
-    return [...groups.entries()];
-  }, [sessions]);
+  const totalSecs = useMemo(() => sessions.reduce((a, s) => a + sessionSeconds(s.startedAt, s.endedAt), 0), [sessions]);
+  const manualSecs = useMemo(
+    () => sessions.filter((s) => s.isManual).reduce((a, s) => a + sessionSeconds(s.startedAt, s.endedAt), 0),
+    [sessions]
+  );
+  const flagged = sessions.filter((s) => s.tamperSuspected).length;
 
-  const pageDays = paginate(byDay, page, DAYS_PER_PAGE);
+  const columns: Column<Session>[] = [
+    ...(isPrivileged
+      ? [{ key: "member", header: "Member", sortValue: (s: Session) => s.user.email, render: (s: Session) => <span className="text-muted">{s.user.email}</span> }]
+      : []),
+    { key: "project", header: "Project", sortValue: (s) => s.project.name, render: (s) => (
+      <div>
+        <div className="font-medium">{s.project.name}</div>
+        {s.task && <div className="text-xs text-muted">{s.task.title}</div>}
+      </div>
+    ) },
+    { key: "date", header: "Date", sortValue: (s) => s.startedAt, render: (s) => <span className="text-muted">{formatDate(s.startedAt)}</span> },
+    { key: "time", header: "Work hour", render: (s) => (
+      <span className="tnum text-muted">{formatTime(s.startedAt)}{s.endedAt ? ` – ${formatTime(s.endedAt)}` : ""}</span>
+    ) },
+    { key: "duration", header: "Duration", sortValue: (s) => sessionSeconds(s.startedAt, s.endedAt), render: (s) => (
+      <span className="tnum font-medium">{formatDurationShort(sessionSeconds(s.startedAt, s.endedAt))}{!s.endedAt && <span className="ml-1 text-xs text-[var(--color-positive)]">live</span>}</span>
+    ) },
+    { key: "type", header: "Type", render: (s) => (
+      <span className="space-x-1">
+        {s.isManual ? <Badge tone="accent">Manual</Badge> : <Badge tone="brand">Tracked</Badge>}
+        {s.tamperSuspected && <Badge tone="red">Flagged</Badge>}
+      </span>
+    ) },
+  ];
 
   return (
     <div>
       <PageHeader title="Timesheets" subtitle={isPrivileged ? "All team time entries" : "Your tracked time"} />
+
+      <div className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <StatTile icon="⏱" tone="brand" label="Total in range" value={<span className="text-[22px]">{formatDurationShort(totalSecs)}</span>} />
+        <StatTile icon="🖊" tone="accent" label="Manual time" value={<span className="text-[22px]">{formatDurationShort(manualSecs)}</span>} />
+        <StatTile icon="📋" tone="teal" label="Entries" value={sessions.length} />
+        <StatTile icon="⚑" tone="muted" label="Flagged" value={flagged} />
+      </div>
 
       <FilterBar>
         <DateRange value={range} onChange={setRange} />
@@ -63,61 +83,14 @@ export default function TimesheetsPage() {
       </FilterBar>
 
       {loading ? (
-        <div className="space-y-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-40" />)}</div>
-      ) : byDay.length === 0 ? (
-        <EmptyState icon="🕐" title="No time entries in this range" hint="Track time from the desktop app, or widen the date range." />
+        <Skeleton className="h-96" />
       ) : (
-        <>
-          <div className="space-y-6">
-            {pageDays.map(([day, rows]) => {
-              const dayTotal = rows.reduce((a, s) => a + sessionSeconds(s.startedAt, s.endedAt), 0);
-              return (
-                <Card key={day} className="p-5">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h2 className="text-base font-semibold">{day}</h2>
-                    <span className="text-sm text-muted">{formatDurationShort(dayTotal)}</span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-                          {isPrivileged && <th className="pb-2 font-medium">Member</th>}
-                          <th className="pb-2 font-medium">Project</th>
-                          <th className="pb-2 font-medium">Task</th>
-                          <th className="pb-2 font-medium">Time</th>
-                          <th className="pb-2 font-medium">Duration</th>
-                          <th className="pb-2 font-medium">Type</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((s) => (
-                          <tr key={s.id} className="border-b border-border/60 last:border-0">
-                            {isPrivileged && <td className="py-2.5 text-muted">{s.user.email}</td>}
-                            <td className="py-2.5 font-medium">{s.project.name}</td>
-                            <td className="py-2.5 text-muted">{s.task?.title ?? "—"}</td>
-                            <td className="py-2.5 text-muted">
-                              {formatTime(s.startedAt)}
-                              {s.endedAt ? ` – ${formatTime(s.endedAt)}` : ""}
-                            </td>
-                            <td className="py-2.5">
-                              {formatDurationShort(sessionSeconds(s.startedAt, s.endedAt))}
-                              {!s.endedAt && <span className="ml-1 text-xs text-green-600">(live)</span>}
-                            </td>
-                            <td className="space-x-1 py-2.5">
-                              {s.isManual ? <Badge tone="accent">Manual</Badge> : <Badge tone="brand">Tracked</Badge>}
-                              {s.tamperSuspected && <Badge tone="red">Flagged</Badge>}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-          <Pagination page={page} pageSize={DAYS_PER_PAGE} total={byDay.length} onPage={setPage} />
-        </>
+        <DataTable
+          rows={sessions}
+          columns={columns}
+          rowId={(s) => s.id}
+          empty={<EmptyState icon="🕐" title="No time entries in this range" hint="Track time from the desktop app, or widen the date range." />}
+        />
       )}
     </div>
   );

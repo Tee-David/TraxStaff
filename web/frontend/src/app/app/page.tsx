@@ -8,6 +8,7 @@ import type { Project, Session } from "@/lib/types";
 import type { ReportSummary } from "@/lib/reports";
 import { Badge, Card, EmptyState, PageHeader, Section, Skeleton, StatTile } from "@/components/ui";
 import { Donut } from "@/components/Donut";
+import { WorkHeatmap } from "@/components/WorkHeatmap";
 import CountUp from "@/components/CountUp";
 import { formatDurationShort, formatTime, sessionSeconds } from "@/lib/format";
 
@@ -190,6 +191,15 @@ export default function DashboardPage() {
               })}
               {projects.length === 0 && <p className="text-sm text-muted">No projects yet.</p>}
             </div>
+          </Section>
+        </div>
+      )}
+
+      {/* Work by hours */}
+      {!loading && week.length > 0 && (
+        <div className="mt-5">
+          <Section title="Work by hours" icon="▦" bodyClassName="p-5">
+            <WorkHeatmap sessions={week} />
           </Section>
         </div>
       )}

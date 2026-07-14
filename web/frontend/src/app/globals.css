@@ -38,6 +38,21 @@
   --shadow-lift: 0 2px 4px rgba(18, 22, 43, 0.05), 0 18px 40px -20px rgba(18, 22, 43, 0.22);
 }
 
+/* Dark theme — override the semantic tokens; every `bg-surface`, `text-ink`,
+   `border-border`, etc. flips automatically. Toggled via data-theme on <html>. */
+:root[data-theme="dark"] {
+  --color-canvas: #0a0e1a;
+  --color-surface: #121829;
+  --color-elevated: #1a2138;
+  --color-border: #242c42;
+  --color-border-strong: #354063;
+  --color-ink: #eef1f8;
+  --color-muted: #9aa4bd;
+  --color-faint: #6a7391;
+  --color-brand: #5468ff;      /* lit navy for legible accents/active states */
+  --color-brand-600: #6d7dff;
+}
+
 * {
   box-sizing: border-box;
 }

@@ -228,7 +228,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       </aside>
       {expanded && (
         <main className="dash-pane">
-          <DesktopDashboard projects={projects} week={week} workedWeek={workedWeek} />
+          <DesktopDashboard projects={projects} week={week} workedWeek={workedWeek} onSignOut={() => { clearToken(); onLogout(); }} />
         </main>
       )}
     </div>
@@ -254,7 +254,7 @@ function TrackingWidget(props: {
 
   return (
     <div className="widget">
-      <div className="widget-brand"><img src="/brand/icon-badge.svg" alt="" /> Trax</div>
+      <div className="widget-brand"><img src="/brand/icon-badge.svg" alt="Trax" className="brand-mark" /></div>
 
       <CircularTimer seconds={workedToday} targetSeconds={DAY_TARGET_SECONDS} active={Boolean(active)} />
 
@@ -324,9 +324,17 @@ function PlayStop({ active }: { active: boolean }) {
   );
 }
 
-function DesktopDashboard({ projects, week, workedWeek }: { projects: Project[]; week: Session[]; workedWeek: number }) {
-  const progress = Math.min(100, Math.round((workedWeek / WEEK_TARGET_SECONDS) * 100));
-  // daily hours for last 7 days
+const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function DesktopDashboard({ projects, week, workedWeek, onSignOut }: { projects: Project[]; week: Session[]; workedWeek: number; onSignOut: () => void }) {
+  const [name, setName] = useState("");
+  const [avgActivity, setAvgActivity] = useState<number | null>(null);
+
+  useEffect(() => {
+    api<{ email: string }>("/auth/me").then((u) => setName(u.email.split("@")[0])).catch(() => {});
+    api<{ avgActivityPct: number | null }>(`/reports/summary?from=${startOfWeek().toISOString()}`).then((s) => setAvgActivity(s.avgActivityPct)).catch(() => {});
+  }, [week]);
+
   const daily = useMemo(() => {
     const days = new Array(7).fill(0);
     const base = startOfWeek().getTime();
@@ -347,59 +355,207 @@ function DesktopDashboard({ projects, week, workedWeek }: { projects: Project[];
     return [...by.values()].sort((a, b) => b.secs - a.secs);
   }, [week]);
 
+  const tasks = useMemo(() => {
+    const all = projects.flatMap((p) => (p.tasks ?? []).map((t) => ({ ...t, project: p.name })));
+    const rank = { in_progress: 0, todo: 1, done: 2 } as Record<string, number>;
+    return all.sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3)).slice(0, 6);
+  }, [projects]);
+
+  const activitySecs = avgActivity != null ? workedWeek * (avgActivity / 100) : workedWeek;
+  const activeProjects = projects.filter((p) => !p.archivedAt).length;
+  const doneTasks = projects.reduce((a, p) => a + (p.tasks?.filter((t) => t.status === "done").length ?? 0), 0);
+
   return (
     <div className="dash">
-      <div className="dash-head">
-        <h1>Performance</h1>
-        <span className="muted small">This week</span>
+      <div className="dash-greet">
+        <div className="dash-greet-l">
+          <span className="dash-avatar">{(name || "U").slice(0, 1).toUpperCase()}</span>
+          <div>
+            <div className="dash-hi">Welcome back, {name || "there"} <span className="wave">👋</span></div>
+            <div className="muted small">Here&rsquo;s your week at a glance</div>
+          </div>
+        </div>
+        <button className="dash-logout" onClick={onSignOut}>
+          <span className="dash-logout-ico">⏻</span> Sign out
+        </button>
       </div>
 
       <div className="dash-stats">
-        <div className="dash-card"><div className="dc-label">Total working hours</div><div className="dc-value">{fmtShort(workedWeek)}</div></div>
-        <div className="dash-card"><div className="dc-label">Active projects</div><div className="dc-value">{projects.filter((p) => !p.archivedAt).length}</div></div>
-        <div className="dash-card"><div className="dc-label">Working progress</div><div className="dc-value">{progress}<span className="pct">%</span></div><div className="dc-sub">of 40h target</div></div>
+        <DashStat label="Total working hours" value={fmtShort(workedWeek)} accent="brand" bars={daily} />
+        <DashStat label="Activity time" value={fmtShort(activitySecs)} accent="accent" sub={avgActivity != null ? `${avgActivity}% active` : undefined} />
+        <DashStat label="Active projects" value={String(activeProjects)} accent="teal" />
+        <DashStat label="Tasks completed" value={String(doneTasks)} accent="brand" />
       </div>
 
-      <div className="dash-chart">
-        <div className="dc-label mb">Your performance</div>
-        <PerformanceChart daily={daily} />
-        <div className="chart-x">{["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => <span key={d}>{d}</span>)}</div>
+      <div className="dash-grid">
+        <div className="dash-chart">
+          <div className="dash-card-head"><span className="dc-label">Your performance</span><span className="muted small">This week · hours/day</span></div>
+          <PerformanceChart daily={daily} />
+          <div className="chart-x">{DOW.map((d) => <span key={d}>{d}</span>)}</div>
+        </div>
+        <div className="dash-gauge">
+          <div className="dc-label mb">Weekly activity</div>
+          <Gauge value={activitySecs} max={WEEK_TARGET_SECONDS} centerLabel={fmtShort(activitySecs)} />
+          <div className="muted small center">of {fmtShort(WEEK_TARGET_SECONDS)} target</div>
+        </div>
       </div>
 
-      <div className="dash-table">
-        <div className="dt-head"><span>Project</span><span>Total time</span><span>Status</span></div>
-        {perProject.length === 0 && <div className="muted small pad">No tracked time this week.</div>}
-        {perProject.map((p) => {
-          const active = Date.now() - p.last < 6 * 60 * 1000;
-          return (
-            <div className="dt-row" key={p.name}>
-              <span className="dt-name">{p.name}</span>
-              <span>{fmtShort(p.secs)}</span>
-              <span className={active ? "status active" : "status idle"}>{active ? "Active" : "Idle"}</span>
+      <div className="dash-heat">
+        <div className="dc-label mb">Work by hours</div>
+        <DashHeatmap week={week} />
+      </div>
+
+      <div className="dash-grid">
+        <div className="dash-table">
+          <div className="dash-card-head"><span className="dc-label">Tasks</span></div>
+          {tasks.length === 0 && <div className="muted small pad">No tasks yet.</div>}
+          {tasks.map((t) => (
+            <div className="task-line" key={t.id}>
+              <span className={`task-status ${t.status}`}>{t.status === "done" ? "◉" : t.status === "in_progress" ? "◐" : "○"}</span>
+              <div className="task-line-body">
+                <div className="task-line-title">{t.title}</div>
+                <div className="muted small">{t.project}</div>
+              </div>
+              <span className={`chip-prio ${t.priority}`}>{t.priority}</span>
             </div>
-          );
-        })}
+          ))}
+        </div>
+        <div className="dash-table">
+          <div className="dash-card-head"><span className="dc-label">Projects</span></div>
+          {perProject.length === 0 && <div className="muted small pad">No tracked time this week.</div>}
+          {perProject.slice(0, 6).map((p) => {
+            const active = Date.now() - p.last < 6 * 60 * 1000;
+            const pct = workedWeek ? Math.round((p.secs / workedWeek) * 100) : 0;
+            return (
+              <div className="proj-line" key={p.name}>
+                <span className="proj-line-dot" style={{ background: active ? "#1f9d63" : "var(--border-strong, #c3cad9)" }} />
+                <div className="proj-line-body">
+                  <div className="proj-line-title">{p.name}</div>
+                  <div className="proj-bar"><span style={{ width: `${pct}%` }} /></div>
+                </div>
+                <span className="muted small">{fmtShort(p.secs)}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 }
 
+function DashStat({ label, value, sub, accent, bars }: { label: string; value: string; sub?: string; accent: "brand" | "accent" | "teal"; bars?: number[] }) {
+  return (
+    <div className="dash-card">
+      <div className="dc-label">{label}</div>
+      <div className="dc-value">{value}</div>
+      {sub && <div className="dc-sub">{sub}</div>}
+      {bars && <MiniBars data={bars} accent={accent} />}
+    </div>
+  );
+}
+
+function MiniBars({ data, accent }: { data: number[]; accent: string }) {
+  const max = Math.max(1, ...data);
+  const color = accent === "accent" ? "var(--accent)" : accent === "teal" ? "#12b5a5" : "var(--brand)";
+  return (
+    <div className="minibars">
+      {data.map((v, i) => <span key={i} style={{ height: `${Math.max(8, (v / max) * 100)}%`, background: color }} />)}
+    </div>
+  );
+}
+
+function Gauge({ value, max, centerLabel }: { value: number; max: number; centerLabel: string }) {
+  const pct = Math.max(0, Math.min(1, value / max));
+  const w = 200, h = 110, cx = w / 2, cy = 100, r = 82, sw = 16;
+  const a0 = Math.PI, a1 = Math.PI * (1 - pct); // left → up as pct grows
+  const pt = (a: number) => [cx + r * Math.cos(a), cy - r * Math.sin(a)];
+  const [sx, sy] = pt(Math.PI);
+  const [ex, ey] = pt(a1);
+  const large = pct > 0.5 ? 1 : 0;
+  const [tx, ty] = pt(0);
+  return (
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`}>
+      <defs>
+        <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#3b5bff" /><stop offset="1" stopColor="#000065" />
+        </linearGradient>
+      </defs>
+      <path d={`M ${sx} ${sy} A ${r} ${r} 0 0 1 ${tx} ${ty}`} fill="none" stroke="#eceef5" strokeWidth={sw} strokeLinecap="round" />
+      {pct > 0.01 && <path d={`M ${sx} ${sy} A ${r} ${r} 0 ${large} 1 ${ex} ${ey}`} fill="none" stroke="url(#gaugeGrad)" strokeWidth={sw} strokeLinecap="round" />}
+      <text x={cx} y={cy - 20} textAnchor="middle" className="gauge-val">{centerLabel}</text>
+    </svg>
+  );
+}
+
+function DashHeatmap({ week }: { week: Session[] }) {
+  const HOURS = Array.from({ length: 11 }, (_, i) => 8 + i);
+  const { grid, max } = useMemo(() => {
+    const g: number[][] = HOURS.map(() => new Array(7).fill(0));
+    const base = startOfWeek().getTime();
+    for (const s of week) {
+      let cur = new Date(s.startedAt);
+      const end = s.endedAt ? new Date(s.endedAt) : new Date();
+      while (cur < end) {
+        const nxt = new Date(cur); nxt.setMinutes(60, 0, 0);
+        const mins = (Math.min(end.getTime(), nxt.getTime()) - cur.getTime()) / 60000;
+        const hi = HOURS.indexOf(cur.getHours());
+        const di = Math.floor((new Date(cur).setHours(0, 0, 0, 0) - base) / 86400000);
+        if (hi >= 0 && di >= 0 && di < 7) g[hi][di] += mins;
+        cur = nxt;
+      }
+    }
+    return { grid: g, max: Math.max(1, ...g.flat()) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [week]);
+  return (
+    <div className="heat-grid">
+      <div />
+      {DOW.map((d) => <div key={d} className="heat-dow">{d}</div>)}
+      {HOURS.map((hr, hi) => (
+        <span key={hr} style={{ display: "contents" }}>
+          <div className="heat-hr">{hr}</div>
+          {grid[hi].map((m, di) => {
+            const a = m === 0 ? 0 : 0.18 + (m / max) * 0.82;
+            return <div key={di} className="heat-cell" title={m > 0 ? `${DOW[di]} ${hr}:00 · ${Math.round(m)}m` : ""} style={{ background: m === 0 ? "var(--canvas)" : `color-mix(in srgb, var(--accent) ${Math.round(a * 100)}%, transparent)` }} />;
+          })}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function PerformanceChart({ daily }: { daily: number[] }) {
-  const w = 640, h = 160; const max = Math.max(1, ...daily);
+  const [hover, setHover] = useState<number | null>(null);
+  const w = 640, h = 170; const max = Math.max(1, ...daily);
   const step = w / (daily.length - 1);
-  const pts = daily.map((v, i) => [i * step, h - (v / max) * (h - 20) - 10]);
+  const pts = daily.map((v, i) => [i * step, h - (v / max) * (h - 30) - 14]);
   const line = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
   const area = `${line} L ${w} ${h} L 0 ${h} Z`;
   return (
-    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="perf" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#000065" stopOpacity="0.25" />
-          <stop offset="1" stopColor="#000065" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill="url(#perf)" />
-      <path d={line} fill="none" stroke="#000065" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <div className="perf-wrap">
+      <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" onMouseLeave={() => setHover(null)}>
+        <defs>
+          <linearGradient id="perf" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#000065" stopOpacity="0.22" /><stop offset="1" stopColor="#000065" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill="url(#perf)" />
+        <path d={line} fill="none" stroke="#000065" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        {pts.map((p, i) => (
+          <g key={i} onMouseEnter={() => setHover(i)}>
+            <rect x={i * step - step / 2} y={0} width={step} height={h} fill="transparent" />
+            {hover === i && <>
+              <circle cx={p[0]} cy={p[1]} r="4.5" fill="#000065" stroke="#fff" strokeWidth="2" />
+              <line x1={p[0]} y1={p[1] + 6} x2={p[0]} y2={h} stroke="#000065" strokeOpacity="0.2" strokeDasharray="3 3" />
+            </>}
+          </g>
+        ))}
+      </svg>
+      {hover != null && (
+        <div className="perf-tip" style={{ left: `${(hover / (daily.length - 1)) * 100}%` }}>
+          {DOW[hover]} · {fmtShort(daily[hover] * 3600)}
+        </div>
+      )}
+    </div>
   );
 }

@@ -39,7 +39,7 @@ export interface Project {
   name: string;
   clientTag: string | null;
   archivedAt?: string | null;
-  tasks?: { id: string; title: string; status: string }[];
+  tasks?: { id: string; title: string; status: string; priority: "lowest" | "normal" | "urgent"; dueDate: string | null }[];
 }
 
 export interface Session {

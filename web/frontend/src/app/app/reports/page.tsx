@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { ByProjectRow, ReportSummary, TimesheetDay } from "@/lib/reports";
-import { Card } from "@/components/ui";
+import { Button, Card, PageHeader, Skeleton } from "@/components/ui";
 import CountUp from "@/components/CountUp";
 import { DateRange, MemberFilter, FilterBar, rangeToParams, type RangeKey } from "@/components/filters";
 import { formatDurationShort } from "@/lib/format";
@@ -73,19 +73,15 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <div className="mb-5 flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl">Reports</h1>
-          <p className="text-sm text-muted">Hours, activity, and time by project</p>
-        </div>
-        <button
-          onClick={exportCsv}
-          disabled={projects.length === 0}
-          className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-canvas disabled:opacity-40"
-        >
-          ↓ Export CSV
-        </button>
-      </div>
+      <PageHeader
+        title="Reports"
+        subtitle="Hours, activity, and time by project"
+        actions={
+          <Button variant="ghost" onClick={exportCsv} disabled={projects.length === 0}>
+            ↓ Export CSV
+          </Button>
+        }
+      />
 
       <FilterBar>
         <DateRange value={range} onChange={setRange} />
@@ -93,7 +89,12 @@ export default function ReportsPage() {
       </FilterBar>
 
       {loading ? (
-        <p className="text-sm text-muted">Loading…</p>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24" />)}
+          </div>
+          <Skeleton className="h-64" />
+        </div>
       ) : (
         <>
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-4">

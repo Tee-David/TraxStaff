@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Member } from "@/lib/types";
-import { Badge, Button, Card, Input, Label } from "@/components/ui";
+import { Badge, Button, Card, Input, Label, PageHeader, Skeleton } from "@/components/ui";
 import { FilterBar, SearchInput } from "@/components/filters";
 
 export default function MembersPage() {
@@ -51,10 +51,8 @@ export default function MembersPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl">Members</h1>
-        <p className="text-sm text-muted">Invite and manage your team</p>
-      </div>
+      <PageHeader title="Members" subtitle="Invite and manage your team" />
+
 
       <Card className="mb-6 p-5">
         <form onSubmit={invite} className="flex flex-wrap items-end gap-3">
@@ -101,7 +99,7 @@ export default function MembersPage() {
       </FilterBar>
 
       {loading ? (
-        <p className="text-sm text-muted">Loading…</p>
+        <Skeleton className="h-64" />
       ) : (
         <Card className="p-5">
           <table className="w-full text-sm">

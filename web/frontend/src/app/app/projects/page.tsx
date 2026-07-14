@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "@/lib/api";
 import type { Project, Task } from "@/lib/types";
-import { Badge, Button, Card, Input, Label } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, Input, Label, PageHeader, Skeleton } from "@/components/ui";
 import { FilterBar, SearchInput } from "@/components/filters";
 
 type Tab = "active" | "archived";
@@ -52,10 +52,7 @@ export default function ProjectsPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-2xl">Projects</h1>
-        <p className="text-sm text-muted">Manage projects and their task boards</p>
-      </div>
+      <PageHeader title="Projects" subtitle="Manage projects and their task boards" />
 
       <FilterBar>
         <div className="inline-flex rounded-lg border border-border bg-surface p-0.5">
@@ -93,9 +90,13 @@ export default function ProjectsPage() {
       )}
 
       {loading ? (
-        <p className="text-sm text-muted">Loading…</p>
+        <div className="space-y-4">{[0, 1].map((i) => <Skeleton key={i} className="h-56" />)}</div>
       ) : visible.length === 0 ? (
-        <Card className="p-8 text-center text-sm text-muted">No {tab} projects{search ? " match your search" : ""}.</Card>
+        <EmptyState
+          icon="🗂"
+          title={search ? "No projects match your search" : `No ${tab} projects`}
+          hint={tab === "active" ? "Create your first project above to start tracking against it." : undefined}
+        />
       ) : (
         <div className="space-y-5">
           {visible.map((p) => (

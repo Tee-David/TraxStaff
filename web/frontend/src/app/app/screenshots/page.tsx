@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Card } from "@/components/ui";
+import { Badge, Card, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import { DateRange, MemberFilter, FilterBar, Pagination, paginate, rangeToParams, type RangeKey } from "@/components/filters";
 import { formatTime, formatDate } from "@/lib/format";
 
@@ -59,10 +59,7 @@ export default function ScreenshotsPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-2xl">Screenshots</h1>
-        <p className="text-sm text-muted">{isAdmin ? "Review captured screenshots" : "Your captured screenshots"}</p>
-      </div>
+      <PageHeader title="Screenshots" subtitle={isAdmin ? "Review captured screenshots" : "Your captured screenshots"} />
 
       <FilterBar>
         <DateRange value={range} onChange={setRange} />
@@ -70,13 +67,9 @@ export default function ScreenshotsPage() {
       </FilterBar>
 
       {loading ? (
-        <p className="text-sm text-muted">Loading…</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="aspect-video" />)}</div>
       ) : shots.length === 0 ? (
-        <Card className="p-10 text-center">
-          <p className="text-sm text-muted">
-            No screenshots in this range. They appear automatically once the desktop tracker captures them.
-          </p>
-        </Card>
+        <EmptyState icon="🖼" title="No screenshots in this range" hint="They appear automatically once the desktop tracker captures them while a member is tracking." />
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

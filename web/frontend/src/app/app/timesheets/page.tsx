@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Session } from "@/lib/types";
-import { Badge, Card } from "@/components/ui";
+import { Badge, Card, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import { DateRange, MemberFilter, FilterBar, Pagination, paginate, rangeToParams, type RangeKey } from "@/components/filters";
 import { formatDurationShort, formatTime, sessionSeconds } from "@/lib/format";
 
@@ -55,10 +55,7 @@ export default function TimesheetsPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-2xl">Timesheets</h1>
-        <p className="text-sm text-muted">{isPrivileged ? "All team time entries" : "Your tracked time"}</p>
-      </div>
+      <PageHeader title="Timesheets" subtitle={isPrivileged ? "All team time entries" : "Your tracked time"} />
 
       <FilterBar>
         <DateRange value={range} onChange={setRange} />
@@ -66,9 +63,9 @@ export default function TimesheetsPage() {
       </FilterBar>
 
       {loading ? (
-        <p className="text-sm text-muted">Loading…</p>
+        <div className="space-y-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-40" />)}</div>
       ) : byDay.length === 0 ? (
-        <Card className="p-8 text-center text-sm text-muted">No time entries in this range.</Card>
+        <EmptyState icon="🕐" title="No time entries in this range" hint="Track time from the desktop app, or widen the date range." />
       ) : (
         <>
           <div className="space-y-6">

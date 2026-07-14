@@ -1,22 +1,153 @@
 import type { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes } from "react";
 
+/* ---------- surfaces ---------- */
+
 export function Card({
   children,
   className = "",
+  hover = false,
 }: {
   children: ReactNode;
   className?: string;
+  hover?: boolean;
 }) {
   return (
     <div
-      className={`bg-surface border border-border rounded-[var(--radius-card)] shadow-[0_1px_3px_rgba(26,31,54,0.06),0_8px_24px_-12px_rgba(26,31,54,0.10)] ${className}`}
+      className={`rounded-[var(--radius-card)] border border-border bg-surface shadow-[var(--shadow-soft)] ${
+        hover ? "transition hover:shadow-[var(--shadow-lift)]" : ""
+      } ${className}`}
     >
       {children}
     </div>
   );
 }
 
-type ButtonVariant = "primary" | "accent" | "ghost" | "danger";
+/** Titled card with an optional icon and right-aligned action. */
+export function Section({
+  title,
+  icon,
+  action,
+  children,
+  className = "",
+  bodyClassName = "p-5",
+}: {
+  title?: ReactNode;
+  icon?: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  bodyClassName?: string;
+}) {
+  return (
+    <Card className={className}>
+      {(title || action) && (
+        <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            {icon && <span className="text-muted">{icon}</span>}
+            {title && <h2 className="font-heading text-[15px] font-semibold">{title}</h2>}
+          </div>
+          {action}
+        </div>
+      )}
+      <div className={bodyClassName}>{children}</div>
+    </Card>
+  );
+}
+
+/* ---------- page scaffolding ---------- */
+
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 className="font-heading text-[26px] font-bold leading-tight">{title}</h1>
+        {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
+      </div>
+      {actions && <div className="flex items-center gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+/* ---------- stat tile ---------- */
+
+export function StatTile({
+  icon,
+  label,
+  value,
+  suffix,
+  delta,
+  tone = "brand",
+}: {
+  icon: ReactNode;
+  label: string;
+  value: ReactNode;
+  suffix?: string;
+  delta?: { value: string; positive: boolean };
+  tone?: "brand" | "accent" | "teal" | "muted";
+}) {
+  const tones: Record<string, string> = {
+    brand: "bg-brand/10 text-brand",
+    accent: "bg-accent/10 text-accent",
+    teal: "bg-[var(--color-cat-other)]/12 text-[var(--color-cat-other)]",
+    muted: "bg-canvas text-muted",
+  };
+  return (
+    <Card className="p-4" hover>
+      <div className="flex items-start justify-between">
+        <span className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg ${tones[tone]}`}>{icon}</span>
+        {delta && (
+          <span className={`text-xs font-semibold ${delta.positive ? "text-[var(--color-positive)]" : "text-[var(--color-negative)]"}`}>
+            {delta.positive ? "↑" : "↓"} {delta.value}
+          </span>
+        )}
+      </div>
+      <div className="mt-3 flex items-baseline gap-0.5 font-heading text-[26px] font-bold tnum text-ink">
+        {value}
+        {suffix && <span className="text-lg text-muted">{suffix}</span>}
+      </div>
+      <div className="mt-0.5 text-[13px] text-muted">{label}</div>
+    </Card>
+  );
+}
+
+/* ---------- feedback states ---------- */
+
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`skeleton ${className}`} />;
+}
+
+export function EmptyState({
+  icon = "✨",
+  title,
+  hint,
+  action,
+}: {
+  icon?: ReactNode;
+  title: string;
+  hint?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <Card className="flex flex-col items-center justify-center px-6 py-14 text-center">
+      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-canvas text-2xl">{icon}</div>
+      <div className="font-heading text-base font-semibold">{title}</div>
+      {hint && <p className="mt-1 max-w-sm text-sm text-muted">{hint}</p>}
+      {action && <div className="mt-4">{action}</div>}
+    </Card>
+  );
+}
+
+/* ---------- controls ---------- */
+
+type ButtonVariant = "primary" | "accent" | "ghost" | "danger" | "subtle";
 
 export function Button({
   variant = "primary",
@@ -25,14 +156,15 @@ export function Button({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
   const variants: Record<ButtonVariant, string> = {
-    primary: "bg-brand text-brand-fg hover:opacity-90",
+    primary: "bg-brand text-brand-fg hover:bg-brand-600",
     accent: "bg-accent text-accent-fg hover:opacity-90",
-    ghost: "bg-transparent text-ink hover:bg-canvas border border-border",
-    danger: "bg-red-600 text-white hover:opacity-90",
+    ghost: "border border-border bg-transparent text-ink hover:bg-canvas",
+    danger: "bg-[var(--color-negative)] text-white hover:opacity-90",
+    subtle: "bg-canvas text-ink hover:bg-border/60",
   };
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${className}`}
       {...props}
     >
       {children}
@@ -40,38 +172,47 @@ export function Button({
   );
 }
 
-export function Input({
-  className = "",
-  ...props
-}: InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className = "", ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className={`w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 ${className}`}
+      className={`w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm outline-none transition placeholder:text-faint focus:border-brand focus:ring-4 focus:ring-brand/8 ${className}`}
       {...props}
     />
   );
 }
 
 export function Label({ children }: { children: ReactNode }) {
-  return <label className="mb-1.5 block text-sm font-medium text-ink">{children}</label>;
+  return <label className="mb-1.5 block text-[13px] font-medium text-ink">{children}</label>;
 }
 
 export function Badge({
   children,
   tone = "muted",
+  dot = false,
 }: {
   children: ReactNode;
-  tone?: "muted" | "brand" | "accent" | "green" | "red";
+  tone?: "muted" | "brand" | "accent" | "green" | "red" | "teal";
+  dot?: boolean;
 }) {
   const tones: Record<string, string> = {
     muted: "bg-canvas text-muted",
     brand: "bg-brand/10 text-brand",
     accent: "bg-accent/10 text-accent",
-    green: "bg-green-100 text-green-700",
-    red: "bg-red-100 text-red-700",
+    green: "bg-[var(--color-positive)]/12 text-[var(--color-positive)]",
+    red: "bg-[var(--color-negative)]/10 text-[var(--color-negative)]",
+    teal: "bg-[var(--color-cat-other)]/12 text-[var(--color-cat-other)]",
+  };
+  const dotColors: Record<string, string> = {
+    muted: "bg-faint",
+    brand: "bg-brand",
+    accent: "bg-accent",
+    green: "bg-[var(--color-positive)]",
+    red: "bg-[var(--color-negative)]",
+    teal: "bg-[var(--color-cat-other)]",
   };
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${tones[tone]}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${tones[tone]}`}>
+      {dot && <span className={`h-1.5 w-1.5 rounded-full ${dotColors[tone]}`} />}
       {children}
     </span>
   );

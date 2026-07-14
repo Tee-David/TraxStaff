@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { LeaderRow, PresenceRow, UnusualFlag } from "@/lib/reports";
-import { Badge, Card } from "@/components/ui";
+import { Badge, Card, PageHeader, Skeleton } from "@/components/ui";
 import { DateRange, FilterBar, rangeToParams, type RangeKey } from "@/components/filters";
 import { formatDurationShort } from "@/lib/format";
 
@@ -52,17 +52,14 @@ export default function InsightsPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-2xl">Insights</h1>
-        <p className="text-sm text-muted">Presence, unusual activity, and team ranking</p>
-      </div>
+      <PageHeader title="Insights" subtitle="Presence, unusual activity, and team ranking" />
 
       <FilterBar>
         <DateRange value={range} onChange={setRange} />
       </FilterBar>
 
       {loading ? (
-        <p className="text-sm text-muted">Loading…</p>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-52" />)}</div>
       ) : (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           {/* Who's online */}

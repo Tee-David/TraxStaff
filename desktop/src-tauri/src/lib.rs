@@ -33,6 +33,7 @@ fn get_device_id(app: tauri::AppHandle) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             capture::spawn_workers(app.handle().clone());
             Ok(())

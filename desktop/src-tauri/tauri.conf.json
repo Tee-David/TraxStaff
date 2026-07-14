@@ -37,6 +37,7 @@
       "icons/icon.png",
       "icons/icon.ico"
     ],
+    "createUpdaterArtifacts": true,
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",
@@ -46,6 +47,12 @@
         "displayLanguageSelector": true,
         "languages": ["English"]
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/Tee-David/trax/releases/latest/download/latest.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMxNjY2REJEOTk4MDkwRTcKUldUbmtJQ1p2VzFtd1lPUXJQUlNlbmRiWEFkdkVITG40K1BKK3dNSkZLalErdjhoaHV5blZNN1IK"
     }
   }
 }

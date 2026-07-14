@@ -104,8 +104,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .dash-greet-l { display: flex; align-items: center; gap: 12px; }
 .dash-avatar { width: 42px; height: 42px; border-radius: 50%; background: color-mix(in srgb, var(--brand) 12%, transparent); color: var(--brand); display: grid; place-items: center; font-weight: 700; font-family: "Space Grotesk"; }
 .dash-hi { font-family: "Space Grotesk"; font-size: 20px; font-weight: 700; }
-.dash-logout { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--border); color: var(--muted); font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 10px; }
-.dash-logout:hover { border-color: var(--accent); color: var(--accent); }
+.dash-logout { display: inline-flex; align-items: center; gap: 6px; background: #dc2626; border: none; color: #fff; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 10px; }
+.dash-logout:hover { background: #b91c1c; }
 .dash-logout-ico { font-size: 14px; }
 
 .dash-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
@@ -165,7 +165,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 /* ---------- staff dashboard tabs (right pane) ---------- */
 .dash-pane { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .dash-scroll { flex: 1; overflow-y: auto; }
-.dashnav { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--card); position: sticky; top: 0; z-index: 5; }
+.dashnav { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--card); position: sticky; top: 0; z-index: 5; }
+.dashnav .dash-logout { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); }
 .dashnav-tabs { display: flex; gap: 4px; }
 .dashnav-tab { position: relative; background: transparent; padding: 8px 14px; font-size: 13px; font-weight: 600; color: var(--muted); border-radius: 10px; }
 .dashnav-tab.on { color: var(--brand); }

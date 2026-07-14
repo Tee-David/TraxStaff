@@ -235,7 +235,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         <main className="dash-pane">
           <DashNav tab={tab} setTab={setTab} onSignOut={() => { clearToken(); onLogout(); }} />
           <div className="dash-scroll">
-            {tab === "dashboard" && <DesktopDashboard projects={projects} week={week} workedWeek={workedWeek} onSignOut={() => { clearToken(); onLogout(); }} onViewActivity={() => setTab("activity")} />}
+            {tab === "dashboard" && <DesktopDashboard projects={projects} week={week} workedWeek={workedWeek} onViewActivity={() => setTab("activity")} />}
             {tab === "timesheets" && <TimesheetsPage week={week} />}
             {tab === "activity" && <ActivityPage />}
             {tab === "reports" && <ReportsPage />}
@@ -309,12 +309,9 @@ function TrackingWidget(props: {
           <span className="foot-refresh-ico">↻</span>
           {lastUpdated ? `Updated ${lastUpdated}` : "Refresh"}
         </button>
-        <div className="foot-actions">
-          <button className="link" onClick={onSignOut}>Sign out</button>
-          <button className="foot-icon" onClick={onToggleExpand} title={expanded ? "Collapse" : "Expand"} aria-label={expanded ? "Collapse" : "Expand"}>
-            {expanded ? "»" : "«"}
-          </button>
-        </div>
+        <button className="foot-icon" onClick={onToggleExpand} title={expanded ? "Collapse" : "Expand"} aria-label={expanded ? "Collapse" : "Expand"}>
+          {expanded ? "»" : "«"}
+        </button>
       </div>
     </div>
   );
@@ -338,7 +335,7 @@ function PlayStop({ active }: { active: boolean }) {
 
 const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function DesktopDashboard({ projects, week, workedWeek, onSignOut, onViewActivity }: { projects: Project[]; week: Session[]; workedWeek: number; onSignOut: () => void; onViewActivity: () => void }) {
+function DesktopDashboard({ projects, week, workedWeek, onViewActivity }: { projects: Project[]; week: Session[]; workedWeek: number; onViewActivity: () => void }) {
   const [name, setName] = useState("");
   const [avgActivity, setAvgActivity] = useState<number | null>(null);
   const [shots, setShots] = useState<{ id: string; url: string | null; activityPct: number; project: string }[]>([]);
@@ -389,9 +386,6 @@ function DesktopDashboard({ projects, week, workedWeek, onSignOut, onViewActivit
             <div className="muted small">Here&rsquo;s your week at a glance</div>
           </div>
         </div>
-        <button className="dash-logout" onClick={onSignOut}>
-          <span className="dash-logout-ico">⏻</span> Sign out
-        </button>
       </div>
 
       <div className="dash-stats">
@@ -412,6 +406,25 @@ function DesktopDashboard({ projects, week, workedWeek, onSignOut, onViewActivit
           <Gauge value={activitySecs} max={WEEK_TARGET_SECONDS} centerLabel={fmtShort(activitySecs)} />
           <div className="muted small center">of {fmtShort(WEEK_TARGET_SECONDS)} target</div>
         </div>
+      </div>
+
+      <div className="dash-heat">
+        <div className="dash-card-head">
+          <span className="dc-label">Recent activity</span>
+          <button className="link-btn" onClick={onViewActivity}>View activity →</button>
+        </div>
+        {shots.length === 0 ? (
+          <div className="muted small pad">No screenshots yet — they appear here while tracking.</div>
+        ) : (
+          <div className="recent-shots">
+            {shots.map((s) => (
+              <div className="recent-shot" key={s.id} onClick={onViewActivity}>
+                {s.url ? <img src={s.url} alt="" /> : <div className="shot-empty">n/a</div>}
+                <span className={`recent-shot-pct ${s.activityPct >= 50 ? "hi" : "lo"}`}>{Math.round(s.activityPct)}%</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="dash-heat">
@@ -454,24 +467,6 @@ function DesktopDashboard({ projects, week, workedWeek, onSignOut, onViewActivit
         </div>
       </div>
 
-      <div className="dash-heat">
-        <div className="dash-card-head">
-          <span className="dc-label">Recent activity</span>
-          <button className="link-btn" onClick={onViewActivity}>View activity →</button>
-        </div>
-        {shots.length === 0 ? (
-          <div className="muted small pad">No screenshots yet — they appear here while tracking.</div>
-        ) : (
-          <div className="recent-shots">
-            {shots.map((s) => (
-              <div className="recent-shot" key={s.id} onClick={onViewActivity}>
-                {s.url ? <img src={s.url} alt="" /> : <div className="shot-empty">n/a</div>}
-                <span className={`recent-shot-pct ${s.activityPct >= 50 ? "hi" : "lo"}`}>{Math.round(s.activityPct)}%</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

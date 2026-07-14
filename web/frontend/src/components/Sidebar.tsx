@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import type { AuthUser } from "@/lib/api";
 import { useTheme } from "@/lib/theme";
+import { toggleThemeWithTransition } from "@/lib/theme-transition";
 import {
   IconChart, IconChevron, IconClock, IconDashboard, IconHelp, IconImage,
   IconKanban, IconLogout, IconMoon, IconSearch, IconSettings, IconSidebar, IconSun, IconTrend, IconUsers,
@@ -49,7 +50,6 @@ export function Sidebar({
   const [unread, setUnread] = useState(0);
 
   useEffect(() => {
-    api<{ id: string; name: string }[]>("/projects").then((p) => setProjects(p.slice(0, 4))).catch(() => {});
     api<{ readAt: string | null }[]>("/notifications").then((n) => setUnread(n.filter((x) => !x.readAt).length)).catch(() => {});
   }, []);
 
@@ -148,47 +148,27 @@ export function Sidebar({
           </>
         )}
 
-        {/* Projects group — labels only make sense when expanded */}
-        {!collapsed && projects.length > 0 && (
-          <>
-            <div className="px-2 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-faint">Projects</div>
-            <div className="space-y-0.5">
-              {projects.map((p, i) => (
-                <Link
-                  key={p.id}
-                  href="/app/projects"
-                  onClick={onNavigate}
-                  className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted transition hover:bg-canvas hover:text-ink"
-                >
-                  <span className="h-2 w-2 rounded-full" style={{ background: DOTS[i % DOTS.length] }} />
-                  <span className="flex-1 truncate">{p.name}</span>
-                  <IconChevron className="h-4 w-4 text-faint" />
-                </Link>
-              ))}
-            </div>
-          </>
-        )}
       </div>
 
       {/* Theme toggle — hidden when collapsed (reachable on hover-expand) */}
       {!collapsed && (
-        <div className="px-4 py-3">
-          <div className="flex rounded-xl border border-border bg-canvas p-1">
+        <div className="px-4 py-3 flex justify-center">
+          <div className="inline-flex rounded-full border border-border bg-canvas p-1 w-full max-w-[200px]">
             <button
-              onClick={() => setTheme("light")}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition ${
-                theme === "light" ? "bg-surface text-ink shadow-sm" : "text-muted"
+              onClick={(e) => toggleThemeWithTransition(e, "light", setTheme)}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-xs font-semibold transition ${
+                theme === "light" ? "bg-surface text-brand shadow-[var(--shadow-soft)]" : "text-muted hover:text-ink hover:bg-canvas"
               }`}
             >
-              <IconSun className="h-4 w-4" /> Light
+              <span className="scale-90"><IconSun /></span> Light
             </button>
             <button
-              onClick={() => setTheme("dark")}
-              className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition ${
-                theme === "dark" ? "bg-elevated text-ink shadow-sm" : "text-muted"
+              onClick={(e) => toggleThemeWithTransition(e, "dark", setTheme)}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-xs font-semibold transition ${
+                theme === "dark" ? "bg-elevated text-brand shadow-[var(--shadow-soft)]" : "text-muted hover:text-ink hover:bg-canvas"
               }`}
             >
-              <IconMoon className="h-4 w-4" /> Dark
+              <span className="scale-90"><IconMoon /></span> Dark
             </button>
           </div>
         </div>

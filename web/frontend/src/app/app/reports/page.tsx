@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import type { ByProjectRow, ReportSummary, TimesheetDay } from "@/lib/reports";
 import { Button, Card, PageHeader, Skeleton } from "@/components/ui";
 import CountUp from "@/components/CountUp";
-import { DateRange, MemberFilter, FilterBar, rangeToParams, type RangeKey } from "@/components/filters";
+import { DateRange, MemberFilter, FilterBar, rangeToParams, type DateRangeValue } from "@/components/filters";
 import { formatDurationShort } from "@/lib/format";
 
 export default function ReportsPage() {
@@ -18,7 +18,7 @@ export default function ReportsPage() {
   const [projects, setProjects] = useState<ByProjectRow[]>([]);
   const [apps, setApps] = useState<{ appName: string; seconds: number }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState<RangeKey>("week");
+  const [range, setRange] = useState<DateRangeValue>({ type: "preset", preset: "week" });
   const [member, setMember] = useState("");
 
   const load = useCallback(() => {

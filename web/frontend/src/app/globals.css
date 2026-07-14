@@ -150,3 +150,25 @@ h1, h2, h3, h4, h5, h6 {
   #trax-preloader { animation: trax-preloader-out 0.2s ease-out 0.5s forwards; }
   .trax-preloader-mark { animation: none; opacity: 1; }
 }
+
+/* Theme Toggle View Transition */
+::view-transition-group(root) {
+  animation-duration: 0.5s;
+}
+::view-transition-new(root),
+::view-transition-old(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 2;
+}
+[data-theme="dark"]::view-transition-old(root) {
+  z-index: 2;
+}
+[data-theme="dark"]::view-transition-new(root) {
+  z-index: 1;
+}

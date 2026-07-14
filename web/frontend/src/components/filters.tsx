@@ -3,50 +3,68 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Select } from "@/components/Select";
+import { DateRangePicker, type DateRangeValue, type PresetKey } from "./DateRangePicker";
 
-export type RangeKey = "today" | "week" | "month" | "all";
+export type { DateRangeValue, PresetKey };
 
-export function rangeToParams(key: RangeKey): { from?: string; to?: string } {
+export function rangeToParams(val: DateRangeValue): { from?: string; to?: string } {
   const now = new Date();
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
-  if (key === "today") return { from: start.toISOString() };
-  if (key === "week") {
-    const d = new Date(start);
-    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-    return { from: d.toISOString() };
+
+  if (val.type === "preset") {
+    const key = val.preset;
+    if (key === "today") return { from: start.toISOString() };
+    if (key === "yesterday") {
+      const d = new Date(start);
+      d.setDate(d.getDate() - 1);
+      const to = new Date(start);
+      return { from: d.toISOString(), to: to.toISOString() };
+    }
+    if (key === "week") {
+      const d = new Date(start);
+      d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      return { from: d.toISOString() };
+    }
+    if (key === "last_week") {
+      const d = new Date(start);
+      d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - 7);
+      const to = new Date(start);
+      to.setDate(to.getDate() - ((to.getDay() + 6) % 7));
+      return { from: d.toISOString(), to: to.toISOString() };
+    }
+    if (key === "month") {
+      const d = new Date(start.getFullYear(), start.getMonth(), 1);
+      return { from: d.toISOString() };
+    }
+    if (key === "last_month") {
+      const d = new Date(start.getFullYear(), start.getMonth() - 1, 1);
+      const to = new Date(start.getFullYear(), start.getMonth(), 1);
+      return { from: d.toISOString(), to: to.toISOString() };
+    }
+    if (key === "year") {
+      const d = new Date(start.getFullYear(), 0, 1);
+      return { from: d.toISOString() };
+    }
+    if (key === "last_year") {
+      const d = new Date(start.getFullYear() - 1, 0, 1);
+      const to = new Date(start.getFullYear(), 0, 1);
+      return { from: d.toISOString(), to: to.toISOString() };
+    }
+    // "all" returns empty
+    return {};
+  } else {
+    // Custom range
+    const from = new Date(val.from);
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(val.to);
+    to.setHours(23, 59, 59, 999);
+    return { from: from.toISOString(), to: to.toISOString() };
   }
-  if (key === "month") {
-    const d = new Date(start.getFullYear(), start.getMonth(), 1);
-    return { from: d.toISOString() };
-  }
-  return {};
 }
 
-export const RANGE_LABELS: Record<RangeKey, string> = {
-  today: "Today",
-  week: "This week",
-  month: "This month",
-  all: "All time",
-};
-
-/** Segmented date-range control. */
-export function DateRange({ value, onChange }: { value: RangeKey; onChange: (k: RangeKey) => void }) {
-  return (
-    <div className="inline-flex rounded-lg border border-border bg-surface p-0.5">
-      {(Object.keys(RANGE_LABELS) as RangeKey[]).map((k) => (
-        <button
-          key={k}
-          onClick={() => onChange(k)}
-          className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-            value === k ? "bg-brand text-brand-fg" : "text-muted hover:text-ink"
-          }`}
-        >
-          {RANGE_LABELS[k]}
-        </button>
-      ))}
-    </div>
-  );
+export function DateRange({ value, onChange }: { value: DateRangeValue; onChange: (v: DateRangeValue) => void }) {
+  return <DateRangePicker value={value} onChange={onChange} />;
 }
 
 interface Member {

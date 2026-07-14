@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth";
 import type { Session } from "@/lib/types";
 import { Badge, EmptyState, PageHeader, Skeleton, StatTile } from "@/components/ui";
 import { DataTable, type Column } from "@/components/DataTable";
-import { DateRange, MemberFilter, FilterBar, rangeToParams, type RangeKey } from "@/components/filters";
+import { DateRange, MemberFilter, FilterBar, rangeToParams, type DateRangeValue } from "@/components/filters";
 import { formatDurationShort, formatDate, formatTime, sessionSeconds } from "@/lib/format";
 
 export default function TimesheetsPage() {
@@ -14,7 +14,7 @@ export default function TimesheetsPage() {
   const isPrivileged = user?.role === "owner" || user?.role === "admin";
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState<RangeKey>("week");
+  const [range, setRange] = useState<DateRangeValue>({ type: "preset", preset: "week" });
   const [member, setMember] = useState("");
 
   const load = useCallback(() => {

@@ -34,10 +34,10 @@ const PROJ_DOTS = ["#000065", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b"];
 const WIDGET_IDS = ["timeline", "projects", "heatmap", "weekly", "topweek", "history"] as const;
 type WidgetId = (typeof WIDGET_IDS)[number];
 const DEFAULT_ORDER: WidgetId[] = ["timeline", "projects", "heatmap", "weekly", "topweek", "history"];
-const DEFAULT_SPANS: Record<WidgetId, number> = { timeline: 2, projects: 1, heatmap: 2, weekly: 1, topweek: 1, history: 3 };
-const LAYOUT_KEY = "trax_dash_layout";
+const DEFAULT_SPANS: Record<WidgetId, number> = { timeline: 2, projects: 1, heatmap: 1, weekly: 1, topweek: 1, history: 3 };
+const LAYOUT_KEY = "trax_dash_layout_v2";
 function spanClass(n: number) {
-  return n >= 3 ? "lg:col-span-3" : n === 2 ? "lg:col-span-2" : "lg:col-span-1";
+  return `col-span-1 ${n >= 3 ? "md:col-span-2 lg:col-span-3" : n === 2 ? "md:col-span-2 lg:col-span-2" : ""}`;
 }
 const CHIP = ["brand", "accent", "teal", "green", "red"] as const;
 function chipTone(email: string) {
@@ -251,9 +251,9 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-4 sm:grid-cols-4">
+            <div className="mt-4 flex flex-wrap gap-4 sm:gap-6 border-t border-border pt-4 justify-start">
               {topToday.length === 0 ? (
-                <p className="col-span-2 text-sm text-muted sm:col-span-4">No time tracked today yet.</p>
+                <p className="w-full text-sm text-muted">No time tracked today yet.</p>
               ) : (
                 topToday.map((p, i) => (
                   <Donut
@@ -446,11 +446,11 @@ export default function DashboardPage() {
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-          <Skeleton className="h-80 lg:col-span-2" />
-          <Skeleton className="h-80" />
-          <Skeleton className="h-64 lg:col-span-2" />
-          <Skeleton className="h-64" />
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+          <Skeleton className="h-80 md:col-span-2 lg:col-span-2" />
+          <Skeleton className="h-80 col-span-1" />
+          <Skeleton className="h-64 md:col-span-2 lg:col-span-2" />
+          <Skeleton className="h-64 col-span-1" />
         </div>
       ) : (
         <Reorder.Group
@@ -458,7 +458,7 @@ export default function DashboardPage() {
           axis="y"
           values={order}
           onReorder={(v) => reorder(v as WidgetId[])}
-          className="grid grid-cols-1 gap-5 lg:grid-cols-3"
+          className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3"
         >
           {order.map((id) => (
             <Reorder.Item

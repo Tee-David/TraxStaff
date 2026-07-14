@@ -26,6 +26,18 @@ export default async function projectRoutes(fastify: FastifyInstance) {
     return reply.send(projects);
   });
 
+  fastify.get("/projects/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const project = await prisma.project.findUnique({
+      where: { id },
+      include: { tasks: true },
+    });
+    if (!project || project.orgId !== req.user.orgId) {
+      return reply.code(404).send({ error: "Project not found" });
+    }
+    return reply.send(project);
+  });
+
   fastify.post(
     "/projects",
     { preHandler: [fastify.requireRole(["owner", "admin"])] },

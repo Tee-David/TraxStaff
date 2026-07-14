@@ -1,11 +1,65 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import type { AuthUser } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
 import { NotificationsBell } from "@/components/NotificationsBell";
+
+// Top-bar profile: avatar (uploaded picture if present, else initials) with a
+// menu to jump to Settings or sign out.
+function ProfileMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const initial = user.email.slice(0, 1).toUpperCase();
+  const avatarUrl = (user as { avatarUrl?: string }).avatarUrl;
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Account"
+        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-brand/10 text-sm font-semibold text-brand ring-offset-2 ring-offset-surface transition hover:ring-2 hover:ring-brand/30"
+      >
+        {avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          initial
+        )}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-lift">
+            <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 text-sm font-semibold uppercase text-brand">
+                {avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  initial
+                )}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{user.email.split("@")[0]}</div>
+                <div className="truncate text-xs capitalize text-muted">{user.role}</div>
+              </div>
+            </div>
+            <Link href="/app/settings" onClick={() => setOpen(false)} className="block px-4 py-2.5 text-sm transition hover:bg-canvas">
+              Settings
+            </Link>
+            <button onClick={onLogout} className="block w-full px-4 py-2.5 text-left text-sm text-[var(--color-negative)] transition hover:bg-canvas">
+              Sign out
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
@@ -89,7 +143,10 @@ function Shell({ children }: { children: React.ReactNode }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/icon-badge.svg" alt="" className="h-7 w-7 lg:hidden" />
           </div>
-          <NotificationsBell />
+          <div className="flex items-center gap-1.5">
+            <NotificationsBell />
+            <ProfileMenu user={user} onLogout={logout} />
+          </div>
         </header>
 
         <main className="flex-1 overflow-auto">

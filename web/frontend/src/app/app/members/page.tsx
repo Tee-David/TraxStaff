@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { Member } from "@/lib/types";
 import { Badge, Button, Card, EmptyState, Input, Label, PageHeader, Skeleton } from "@/components/ui";
+import { Select } from "@/components/Select";
 import { formatDate } from "@/lib/format";
 
 const MAX_SEATS = 10; // team stays under 10 (see PRD)
@@ -133,14 +134,12 @@ export default function MembersPage() {
           </div>
           <div>
             <Label>Role</Label>
-            <select
+            <Select
               value={role}
-              onChange={(e) => setRole(e.target.value as "admin" | "member")}
-              className="rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-brand"
-            >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
+              onChange={(v) => setRole(v as "admin" | "member")}
+              options={[{ value: "member", label: "Member" }, { value: "admin", label: "Admin" }]}
+              minWidth={140}
+            />
           </div>
           <Button type="submit" disabled={inviting || seatsUsed >= MAX_SEATS}>
             {inviting ? "Sending…" : "Send invite"}
@@ -194,16 +193,16 @@ export default function MembersPage() {
                   <span className="hidden text-xs text-faint sm:block">Joined {formatDate(m.createdAt)}</span>
                   {m.role === "owner" ? (
                     <Badge tone={roleTone.owner}>Owner</Badge>
+                  ) : m.status === "disabled" ? (
+                    <Badge tone="muted">{m.role}</Badge>
                   ) : (
-                    <select
+                    <Select
                       value={m.role}
-                      onChange={(e) => changeRole(m, e.target.value as "admin" | "member")}
-                      disabled={m.status === "disabled"}
-                      className="rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs font-medium outline-none focus:border-brand disabled:opacity-50"
-                    >
-                      <option value="member">Member</option>
-                      <option value="admin">Admin</option>
-                    </select>
+                      onChange={(v) => changeRole(m, v as "admin" | "member")}
+                      options={[{ value: "member", label: "Member" }, { value: "admin", label: "Admin" }]}
+                      align="right"
+                      minWidth={140}
+                    />
                   )}
                   {m.role !== "owner" && (
                     <RowMenu

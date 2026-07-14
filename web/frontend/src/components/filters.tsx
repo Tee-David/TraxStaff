@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { Select } from "@/components/Select";
 
 export type RangeKey = "today" | "week" | "month" | "all";
 
@@ -72,18 +73,12 @@ export function MemberFilter({
   }, [enabled]);
   if (!enabled) return null;
   return (
-    <select
+    <Select
       value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs outline-none focus:border-brand"
-    >
-      <option value="">All members</option>
-      {members.map((m) => (
-        <option key={m.id} value={m.id}>
-          {m.email}
-        </option>
-      ))}
-    </select>
+      onChange={onChange}
+      searchable
+      options={[{ value: "", label: "All members" }, ...members.map((m) => ({ value: m.id, label: m.email }))]}
+    />
   );
 }
 

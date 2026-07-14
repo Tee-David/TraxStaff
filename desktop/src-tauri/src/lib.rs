@@ -50,7 +50,15 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let mut builder = TrayIconBuilder::new().menu(&menu).tooltip("Trax").on_menu_event(|app, event| {
         let id = event.id().as_ref();
         match id {
-            "quit" => app.exit(0),
+            // Route Quit through the window close flow so a live session is
+            // stopped and the sync queue flushed (see CloseRequested below)
+            // instead of hard-killing the process.
+            "quit" => {
+                match app.get_webview_window("main") {
+                    Some(w) => { let _ = w.close(); }
+                    None => app.exit(0),
+                }
+            }
             _ => {
                 if id == "open" || id == "dashboard" {
                     if let Some(w) = app.get_webview_window("main") {

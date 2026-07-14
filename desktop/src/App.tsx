@@ -22,6 +22,10 @@ function startOfWeek(): Date { const d = startOfToday(); const day = (d.getDay()
 function secs(s: Session): number { const e = s.endedAt ? new Date(s.endedAt).getTime() : Date.now(); return (e - new Date(s.startedAt).getTime()) / 1000; }
 function fmtClock(sec: number): string { const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60); return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`; }
 function fmtShort(sec: number): string { const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; }
+function fmtT(iso: string): string { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+function fmtD(iso: string): string { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); }
+
+type DashTab = "dashboard" | "timesheets" | "activity" | "reports" | "projects";
 
 export default function App() {
   const [authed, setAuthed] = useState(Boolean(getToken()));
@@ -97,6 +101,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [elapsed, setElapsed] = useState(0);
   const [expanded, setExpanded] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [tab, setTab] = useState<DashTab>("dashboard");
   const [error, setError] = useState<string | null>(null);
   const [idleMin, setIdleMin] = useState<number | null>(null);
   const deviceId = useRef<string | null>(null);
@@ -228,7 +233,14 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       </aside>
       {expanded && (
         <main className="dash-pane">
-          <DesktopDashboard projects={projects} week={week} workedWeek={workedWeek} onSignOut={() => { clearToken(); onLogout(); }} />
+          <DashNav tab={tab} setTab={setTab} onSignOut={() => { clearToken(); onLogout(); }} />
+          <div className="dash-scroll">
+            {tab === "dashboard" && <DesktopDashboard projects={projects} week={week} workedWeek={workedWeek} onSignOut={() => { clearToken(); onLogout(); }} onViewActivity={() => setTab("activity")} />}
+            {tab === "timesheets" && <TimesheetsPage week={week} />}
+            {tab === "activity" && <ActivityPage />}
+            {tab === "reports" && <ReportsPage />}
+            {tab === "projects" && <ProjectsPageDesktop projects={projects} onChange={load} />}
+          </div>
         </main>
       )}
     </div>
@@ -326,13 +338,15 @@ function PlayStop({ active }: { active: boolean }) {
 
 const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function DesktopDashboard({ projects, week, workedWeek, onSignOut }: { projects: Project[]; week: Session[]; workedWeek: number; onSignOut: () => void }) {
+function DesktopDashboard({ projects, week, workedWeek, onSignOut, onViewActivity }: { projects: Project[]; week: Session[]; workedWeek: number; onSignOut: () => void; onViewActivity: () => void }) {
   const [name, setName] = useState("");
   const [avgActivity, setAvgActivity] = useState<number | null>(null);
+  const [shots, setShots] = useState<{ id: string; url: string | null; activityPct: number; project: string }[]>([]);
 
   useEffect(() => {
     api<{ email: string }>("/auth/me").then((u) => setName(u.email.split("@")[0])).catch(() => {});
     api<{ avgActivityPct: number | null }>(`/reports/summary?from=${startOfWeek().toISOString()}`).then((s) => setAvgActivity(s.avgActivityPct)).catch(() => {});
+    api<typeof shots>(`/screenshots?from=${startOfWeek().toISOString()}`).then((s) => setShots(s.slice(0, 6))).catch(() => {});
   }, [week]);
 
   const daily = useMemo(() => {
@@ -438,6 +452,25 @@ function DesktopDashboard({ projects, week, workedWeek, onSignOut }: { projects:
             );
           })}
         </div>
+      </div>
+
+      <div className="dash-heat">
+        <div className="dash-card-head">
+          <span className="dc-label">Recent activity</span>
+          <button className="link-btn" onClick={onViewActivity}>View activity →</button>
+        </div>
+        {shots.length === 0 ? (
+          <div className="muted small pad">No screenshots yet — they appear here while tracking.</div>
+        ) : (
+          <div className="recent-shots">
+            {shots.map((s) => (
+              <div className="recent-shot" key={s.id} onClick={onViewActivity}>
+                {s.url ? <img src={s.url} alt="" /> : <div className="shot-empty">n/a</div>}
+                <span className={`recent-shot-pct ${s.activityPct >= 50 ? "hi" : "lo"}`}>{Math.round(s.activityPct)}%</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -556,6 +589,202 @@ function PerformanceChart({ daily }: { daily: number[] }) {
           {DOW[hover]} · {fmtShort(daily[hover] * 3600)}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------- staff dashboard tabs (embedded in the app's right pane) ----------
+
+const DASH_TABS: { id: DashTab; label: string }[] = [
+  { id: "dashboard", label: "Dashboard" },
+  { id: "timesheets", label: "Timesheets" },
+  { id: "activity", label: "Activity" },
+  { id: "reports", label: "Reports" },
+  { id: "projects", label: "Projects" },
+];
+
+function DashNav({ tab, setTab, onSignOut }: { tab: DashTab; setTab: (t: DashTab) => void; onSignOut: () => void }) {
+  return (
+    <div className="dashnav">
+      <div className="dashnav-tabs">
+        {DASH_TABS.map((t) => (
+          <button key={t.id} className={`dashnav-tab ${tab === t.id ? "on" : ""}`} onClick={() => setTab(t.id)}>
+            {tab === t.id && <motion.span layoutId="navpill" className="dashnav-pill" transition={{ type: "spring", stiffness: 380, damping: 30 }} />}
+            <span className="dashnav-label">{t.label}</span>
+          </button>
+        ))}
+      </div>
+      <button className="dash-logout" onClick={onSignOut}><span className="dash-logout-ico">⏻</span> Sign out</button>
+    </div>
+  );
+}
+
+function SubTabs<T extends string>({ tabs, value, onChange }: { tabs: { id: T; label: string }[]; value: T; onChange: (t: T) => void }) {
+  return (
+    <div className="subtabs">
+      {tabs.map((t) => (
+        <button key={t.id} className={`subtab ${value === t.id ? "on" : ""}`} onClick={() => onChange(t.id)}>{t.label}</button>
+      ))}
+    </div>
+  );
+}
+
+function TimesheetsPage({ week }: { week: Session[] }) {
+  const [sub, setSub] = useState<"edit" | "approvals">("edit");
+  const rows = sub === "approvals" ? week.filter((s) => s.isManual || s.tamperSuspected) : week;
+  const byDay = useMemo(() => {
+    const g = new Map<string, Session[]>();
+    for (const s of [...rows].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())) {
+      const k = new Date(s.startedAt).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+      (g.get(k) ?? g.set(k, []).get(k)!).push(s);
+    }
+    return [...g.entries()];
+  }, [rows]);
+
+  return (
+    <div className="page">
+      <div className="page-head"><h2>Timesheets</h2></div>
+      <SubTabs tabs={[{ id: "edit", label: "View & edit" }, { id: "approvals", label: "Approvals" }]} value={sub} onChange={setSub} />
+      {byDay.length === 0 ? (
+        <div className="empty">{sub === "approvals" ? "Nothing awaiting review." : "No time tracked this week."}</div>
+      ) : (
+        byDay.map(([day, list]) => (
+          <div className="ts-day" key={day}>
+            <div className="ts-day-head"><span>{day}</span><span>{fmtShort(list.reduce((a, s) => a + secs(s), 0))}</span></div>
+            {list.map((s) => (
+              <div className="ts-row" key={s.id}>
+                <span className="ts-proj">{s.project.name}{s.task ? ` · ${s.task.title}` : ""}</span>
+                <span className="ts-time">{fmtT(s.startedAt)}{s.endedAt ? `–${fmtT(s.endedAt)}` : ""}</span>
+                <span className="ts-dur">{fmtShort(secs(s))}</span>
+                <span className={`chip-prio ${s.isManual ? "urgent" : ""}`}>{s.isManual ? "Manual" : "Tracked"}</span>
+              </div>
+            ))}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function ActivityPage() {
+  const [sub, setSub] = useState<"screenshots" | "apps" | "urls">("screenshots");
+  const [shots, setShots] = useState<{ id: string; url: string | null; takenAt: string; activityPct: number; project: string }[]>([]);
+  const [apps, setApps] = useState<{ appName: string; seconds: number }[]>([]);
+  useEffect(() => {
+    const from = startOfWeek().toISOString();
+    api<typeof shots>(`/screenshots?from=${from}`).then(setShots).catch(() => {});
+    api<typeof apps>(`/reports/app-usage?from=${from}`).then(setApps).catch(() => {});
+  }, []);
+  const maxApp = Math.max(1, ...apps.map((a) => a.seconds));
+  return (
+    <div className="page">
+      <div className="page-head"><h2>Activity</h2></div>
+      <SubTabs tabs={[{ id: "screenshots", label: "Screenshots" }, { id: "apps", label: "Apps" }, { id: "urls", label: "URLs" }]} value={sub} onChange={setSub} />
+      {sub === "screenshots" && (
+        shots.length === 0 ? <div className="empty">No screenshots captured yet.</div> : (
+          <div className="shot-grid">
+            {shots.map((s) => (
+              <div className="shot" key={s.id}>
+                {s.url ? <img src={s.url} alt="" /> : <div className="shot-empty">n/a</div>}
+                <div className="shot-meta"><span>{s.project}</span><span>{Math.round(s.activityPct)}%</span></div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+      {sub === "apps" && (
+        apps.length === 0 ? <div className="empty">No app usage captured yet.</div> : (
+          <div className="bars">
+            {apps.slice(0, 14).map((a) => (
+              <div className="bar-row" key={a.appName}>
+                <span className="bar-name">{a.appName}</span>
+                <div className="bar-track"><span style={{ width: `${(a.seconds / maxApp) * 100}%` }} /></div>
+                <span className="bar-val">{fmtShort(a.seconds)}</span>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+      {sub === "urls" && <div className="empty">URL tracking needs a browser extension — coming later.</div>}
+    </div>
+  );
+}
+
+function ReportsPage() {
+  const [summary, setSummary] = useState<{ totalSeconds: number; avgActivityPct: number | null; sessions: number } | null>(null);
+  const [byProj, setByProj] = useState<{ project: string; totalSeconds: number; avgActivityPct: number | null }[]>([]);
+  useEffect(() => {
+    const from = startOfWeek().toISOString();
+    api<typeof summary>(`/reports/summary?from=${from}`).then(setSummary).catch(() => {});
+    api<typeof byProj>(`/reports/by-project?from=${from}`).then(setByProj).catch(() => {});
+  }, []);
+  const maxP = Math.max(1, ...byProj.map((p) => p.totalSeconds));
+  return (
+    <div className="page">
+      <div className="page-head"><h2>Reports</h2><span className="muted small">This week</span></div>
+      <div className="dash-stats">
+        <div className="dash-card"><div className="dc-label">Total hours</div><div className="dc-value">{summary ? fmtShort(summary.totalSeconds) : "—"}</div></div>
+        <div className="dash-card"><div className="dc-label">Avg activity</div><div className="dc-value">{summary?.avgActivityPct != null ? `${summary.avgActivityPct}%` : "—"}</div></div>
+        <div className="dash-card"><div className="dc-label">Sessions</div><div className="dc-value">{summary?.sessions ?? "—"}</div></div>
+      </div>
+      <div className="dash-table" style={{ marginTop: 14 }}>
+        <div className="dash-card-head"><span className="dc-label">Time by project</span></div>
+        {byProj.length === 0 && <div className="empty">No tracked time this week.</div>}
+        {byProj.map((p) => (
+          <div className="proj-line" key={p.project}>
+            <div className="proj-line-body">
+              <div className="proj-line-title">{p.project}</div>
+              <div className="proj-bar"><span style={{ width: `${(p.totalSeconds / maxP) * 100}%` }} /></div>
+            </div>
+            <span className="muted small">{fmtShort(p.totalSeconds)}{p.avgActivityPct != null ? ` · ${p.avgActivityPct}%` : ""}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProjectsPageDesktop({ projects, onChange }: { projects: Project[]; onChange: () => void }) {
+  const COLS = [
+    { key: "todo", label: "To Do" },
+    { key: "in_progress", label: "In Progress" },
+    { key: "done", label: "Done" },
+  ] as const;
+  async function move(id: string, status: string) {
+    await api(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }).catch(() => {});
+    onChange();
+  }
+  return (
+    <div className="page">
+      <div className="page-head"><h2>Projects &amp; Tasks</h2></div>
+      {projects.filter((p) => !p.archivedAt).length === 0 && <div className="empty">No projects yet.</div>}
+      {projects.filter((p) => !p.archivedAt).map((p) => (
+        <div className="proj-card" key={p.id}>
+          <div className="proj-card-head">
+            <span className="proj-card-title">{p.name}</span>
+            <span className="muted small">{p.tasks?.length ?? 0} tasks</span>
+          </div>
+          <div className="kb">
+            {COLS.map((c) => {
+              const items = (p.tasks ?? []).filter((t) => t.status === c.key);
+              return (
+                <div className="kb-col" key={c.key}>
+                  <div className="kb-col-head">{c.label} <span>{items.length}</span></div>
+                  {items.map((t) => (
+                    <div className="kb-task" key={t.id}>
+                      <span>{t.title}</span>
+                      <div className="kb-move">
+                        {c.key !== "todo" && <button onClick={() => move(t.id, c.key === "done" ? "in_progress" : "todo")}>←</button>}
+                        {c.key !== "done" && <button onClick={() => move(t.id, c.key === "todo" ? "in_progress" : "done")}>→</button>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

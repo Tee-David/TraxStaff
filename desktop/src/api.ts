@@ -49,6 +49,8 @@ export interface Session {
   startedAt: string;
   endedAt: string | null;
   deviceId?: string;
+  isManual?: boolean;
+  tamperSuspected?: boolean;
   project: { id: string; name: string; clientTag: string | null };
   task?: { id: string; title: string } | null;
 }

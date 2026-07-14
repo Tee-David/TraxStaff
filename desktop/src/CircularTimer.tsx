@@ -1,13 +1,16 @@
 // Hero circular timer: a bold brand-gradient progress ring. The center shows
 // today's worked time ticking live; the ring fills toward the daily target.
+// A play/pause control sits under the goal label.
 export default function CircularTimer({
   seconds,
   targetSeconds,
   active,
+  onToggle,
 }: {
   seconds: number;
   targetSeconds: number;
   active: boolean;
+  onToggle: () => void;
 }) {
   const size = 208;
   const stroke = 14;
@@ -46,11 +49,18 @@ export default function CircularTimer({
         />
       </svg>
       <div className="ring-center">
-        <div className={`ring-status ${active ? "on" : ""}`}>
+        <div className={`ring-status ${active ? "on" : "paused"}`}>
           <span className="ring-dot" /> {active ? "Tracking" : "Paused"}
         </div>
         <div className="ring-time">{time}</div>
         <div className="ring-sub">{Math.round(pct * 100)}% of daily goal</div>
+        <button className={`ring-toggle ${active ? "on" : ""}`} onClick={onToggle} aria-label={active ? "Pause" : "Start"}>
+          {active ? (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="3.5" y="3" width="3" height="10" rx="1.2" /><rect x="9.5" y="3" width="3" height="10" rx="1.2" /></svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5v9l7.5-4.5z" /></svg>
+          )}
+        </button>
       </div>
     </div>
   );

@@ -8,6 +8,10 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
 use uuid::Uuid;
 
+// Set once the user has requested close and we've begun draining the sync queue,
+// so the flushed second close request is allowed straight through.
+static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 // Build the always-visible system tray + menu (Start Working, Open Timer,
 // Open Dashboard, Check for Updates, Sign Out, Quit, …). Menu clicks that need
 // app state emit a `tray:<id>` event the webview handles; window/quit are native.
@@ -100,10 +104,26 @@ pub fn run() {
             setup_tray(app.handle())?;
             Ok(())
         })
+        .on_window_event(|window, event| {
+            // On close: give the sync queue a chance to drain. The webview shows an
+            // "Uploading data" dialog; we prevent the immediate close and let the
+            // frontend flush the queue, then call close again once it's done.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let has_work = capture::is_capturing()
+                    || capture::queue_count(window.app_handle().clone()) > 0;
+                if has_work && !CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst)
+                {
+                    api.prevent_close();
+                    let _ = window.emit("app-closing", ());
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_device_id,
             capture::begin_capture,
-            capture::end_capture
+            capture::end_capture,
+            capture::queue_count,
+            capture::flush_now
         ])
         .run(tauri::generate_context!())
         .expect("error while running Trax");

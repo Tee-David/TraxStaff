@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -485,7 +485,11 @@ fn enqueue_block(session_id: &str, block: &BlockPayload, shots: &[PendingShot], 
 
 fn flush_queue(backend: &str, token: &str) {
     let Some(dir) = queue_dir() else { return };
-    let Ok(entries) = fs::read_dir(&dir) else { return };
+    flush_queue_dir(&dir, backend, token);
+}
+
+fn flush_queue_dir(dir: &Path, backend: &str, token: &str) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
     let mut blocks: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
@@ -560,6 +564,46 @@ pub fn begin_capture(
 #[tauri::command]
 pub fn end_capture() {
     end();
+}
+
+fn resolve_queue_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    use tauri::Manager;
+    app.path().app_data_dir().ok().map(|d| d.join("queue"))
+}
+
+fn count_blocks(dir: &Path) -> usize {
+    fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().starts_with("block-"))
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+/// Whether a tracking session is currently live.
+pub fn is_capturing() -> bool {
+    ACTIVE.load(Ordering::Relaxed)
+}
+
+/// Count pending queued activity blocks (used by the exit "uploading data" dialog).
+#[tauri::command]
+pub fn queue_count(app: tauri::AppHandle) -> usize {
+    resolve_queue_dir(&app).map(|d| count_blocks(&d)).unwrap_or(0)
+}
+
+/// Finalize the active session and drain the offline queue in one shot.
+/// Returns the number of blocks still pending afterwards (0 = fully synced).
+#[tauri::command]
+pub fn flush_now(app: tauri::AppHandle, token: String, backend: String) -> usize {
+    end();
+    if let Some(dir) = resolve_queue_dir(&app) {
+        flush_queue_dir(&dir, &backend, &token);
+        count_blocks(&dir)
+    } else {
+        0
+    }
 }
 
 // silence unused warning for iso_now helper on some targets

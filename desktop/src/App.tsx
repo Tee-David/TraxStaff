@@ -23,8 +23,28 @@ function fmtShort(sec: number): string { const h = Math.floor(sec / 3600), m = M
 
 export default function App() {
   const [authed, setAuthed] = useState(Boolean(getToken()));
+  useUpdateCheck();
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
   return <Tracker onLogout={() => setAuthed(false)} />;
+}
+
+// Check for a newer signed release on startup; if found, download + relaunch.
+function useUpdateCheck() {
+  useEffect(() => {
+    (async () => {
+      try {
+        const { check } = await import("@tauri-apps/plugin-updater");
+        const update = await check();
+        if (update?.available) {
+          await update.downloadAndInstall();
+          const { relaunch } = await import("@tauri-apps/plugin-process");
+          await relaunch();
+        }
+      } catch {
+        /* not running under Tauri, offline, or no update — ignore */
+      }
+    })();
+  }, []);
 }
 
 function Login({ onLogin }: { onLogin: () => void }) {

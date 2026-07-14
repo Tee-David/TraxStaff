@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { Member } from "@/lib/types";
-import { Badge, Button, Card, Input, Label, PageHeader, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, Input, Label, PageHeader, Skeleton } from "@/components/ui";
 import { FilterBar, SearchInput } from "@/components/filters";
+import { DataTable, type Column } from "@/components/DataTable";
+import { formatDate } from "@/lib/format";
 
 export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([]);
@@ -45,9 +47,31 @@ export default function MembersPage() {
     await api(`/members/${m.id}`, { method: "DELETE" });
     await load();
   }
+  async function bulkDisable(ids: string[], clear: () => void) {
+    const targets = members.filter((m) => ids.includes(m.id) && m.role !== "owner" && m.status !== "disabled");
+    await Promise.all(targets.map((m) => api(`/members/${m.id}`, { method: "DELETE" }).catch(() => {})));
+    clear();
+    await load();
+  }
 
   const roleTone = { owner: "accent", admin: "brand", member: "muted" } as const;
   const statusTone = { active: "green", invited: "muted", disabled: "red" } as const;
+
+  const visible = members
+    .filter((m) => m.email.toLowerCase().includes(search.toLowerCase()))
+    .filter((m) => !roleFilter || m.role === roleFilter);
+
+  const columns: Column<Member>[] = [
+    { key: "email", header: "Member", sortValue: (m) => m.email, render: (m) => (
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand/10 text-xs font-semibold uppercase text-brand">{m.email.slice(0, 1)}</span>
+        <span className="font-medium">{m.email}</span>
+      </div>
+    ) },
+    { key: "role", header: "Role", sortValue: (m) => m.role, render: (m) => <Badge tone={roleTone[m.role]}>{m.role}</Badge> },
+    { key: "status", header: "Status", sortValue: (m) => m.status, render: (m) => <Badge tone={statusTone[m.status]} dot>{m.status}</Badge> },
+    { key: "created", header: "Joined", sortValue: (m) => m.createdAt, render: (m) => <span className="text-muted">{formatDate(m.createdAt)}</span> },
+  ];
 
   return (
     <div>
@@ -101,44 +125,25 @@ export default function MembersPage() {
       {loading ? (
         <Skeleton className="h-64" />
       ) : (
-        <Card className="p-5">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-                <th className="pb-2 font-medium">Email</th>
-                <th className="pb-2 font-medium">Role</th>
-                <th className="pb-2 font-medium">Status</th>
-                <th className="pb-2 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {members
-                .filter((m) => m.email.toLowerCase().includes(search.toLowerCase()))
-                .filter((m) => !roleFilter || m.role === roleFilter)
-                .map((m) => (
-                <tr key={m.id} className="border-b border-border/60 last:border-0">
-                  <td className="py-2.5 font-medium">{m.email}</td>
-                  <td className="py-2.5">
-                    <Badge tone={roleTone[m.role]}>{m.role}</Badge>
-                  </td>
-                  <td className="py-2.5">
-                    <Badge tone={statusTone[m.status]}>{m.status}</Badge>
-                  </td>
-                  <td className="py-2.5 text-right">
-                    {m.role !== "owner" && m.status !== "disabled" && (
-                      <button
-                        onClick={() => disable(m)}
-                        className="text-sm text-red-600 hover:underline"
-                      >
-                        Disable
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <DataTable
+          rows={visible}
+          columns={columns}
+          rowId={(m) => m.id}
+          selectable
+          bulkActions={(ids, clear) => (
+            <Button variant="danger" className="px-3 py-1.5 text-xs" onClick={() => bulkDisable(ids, clear)}>
+              Disable selected
+            </Button>
+          )}
+          rowActions={(m) =>
+            m.role !== "owner" && m.status !== "disabled" ? (
+              <button onClick={() => disable(m)} className="text-sm text-[var(--color-negative)] hover:underline">
+                Disable
+              </button>
+            ) : null
+          }
+          empty={<EmptyState icon="👥" title="No members match" hint="Adjust your search or role filter." />}
+        />
       )}
     </div>
   );

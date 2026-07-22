@@ -67,6 +67,9 @@ function Shell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [hovered, setHovered] = useState(false);
+  // After clicking "collapse", the cursor is still over the rail — suppress the
+  // hover-peek until the pointer actually leaves, so collapsing visibly sticks.
+  const [suppressPeek, setSuppressPeek] = useState(false);
 
   // Persist the collapsed preference across sessions.
   useEffect(() => {
@@ -76,11 +79,12 @@ function Shell({ children }: { children: React.ReactNode }) {
     setCollapsed((c) => {
       const next = !c;
       try { localStorage.setItem("trax_sidebar_collapsed", next ? "1" : "0"); } catch {}
+      if (next) { setHovered(false); setSuppressPeek(true); }
       return next;
     });
   }
-  // Expanded whenever not collapsed, or while hovering a collapsed rail.
-  const expandedNow = !collapsed || hovered;
+  // Expanded whenever not collapsed, or while peeking a collapsed rail on hover.
+  const expandedNow = !collapsed || (hovered && !suppressPeek);
 
   if (loading) {
     return (
@@ -101,10 +105,10 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className={`hidden shrink-0 transition-[width] duration-200 lg:block ${collapsed ? "w-[76px]" : "w-64"}`} />
       <div
         onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onMouseLeave={() => { setHovered(false); setSuppressPeek(false); }}
         className={`fixed inset-y-0 left-0 z-40 hidden h-screen border-r border-border bg-surface transition-[width] duration-200 lg:block ${
           expandedNow ? "w-64" : "w-[76px]"
-        } ${collapsed && hovered ? "shadow-lift" : ""}`}
+        } ${collapsed && expandedNow ? "shadow-lift" : ""}`}
       >
         <Sidebar user={user} onLogout={logout} collapsed={!expandedNow} onToggleCollapse={toggleCollapsed} />
       </div>

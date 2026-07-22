@@ -87,12 +87,29 @@ export function Sidebar({
 
   return (
     <div className="flex h-full flex-col bg-surface">
-      {/* Brand + collapse toggle (opposite the logo) */}
+      {/* Brand + collapse toggle (opposite the logo). When collapsed, the logo
+          itself becomes the expand button so the rail can be re-opened without
+          relying on hover. */}
       <div className={`flex items-center pb-4 pt-5 ${collapsed ? "justify-center px-2" : "gap-2.5 px-5"}`}>
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/icon-white.svg" alt="" className="h-5 w-5" />
-        </span>
+        {collapsed && onToggleCollapse ? (
+          <button
+            onClick={onToggleCollapse}
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+            className="group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand transition hover:brightness-110"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/icon-white.svg" alt="" className="h-5 w-5 transition group-hover:opacity-0" />
+            <span className="absolute inset-0 flex items-center justify-center text-white opacity-0 transition group-hover:opacity-100">
+              <IconChevron />
+            </span>
+          </button>
+        ) : (
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/icon-white.svg" alt="" className="h-5 w-5" />
+          </span>
+        )}
         {!collapsed && <span className="font-heading text-lg font-bold">Trax</span>}
         {!collapsed && onToggleCollapse && (
           <button

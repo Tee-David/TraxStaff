@@ -501,8 +501,15 @@ fn finalize_block(stopping: bool) {
         (payload, sid, backend, token, blur, seq, shots, app_usage, url_usage, block_start_iso)
     };
 
-    // Network I/O outside the lock.
-    let synced = sync::sync_block(&backend, &token, &session_id, &payload);
+    // Network I/O outside the lock. On STOP we never touch the network — enqueue
+    // locally and let the background sync loop drain it, so stopping is instant
+    // and works fully offline. Mid-session block boundaries (worker thread) still
+    // sync inline since they don't block the UI.
+    let synced = if stopping {
+        false
+    } else {
+        sync::sync_block(&backend, &token, &session_id, &payload)
+    };
     if synced {
         for shot in &shots {
             let taken = shot.taken_at.to_rfc3339_opts(SecondsFormat::Millis, true);
@@ -520,7 +527,9 @@ fn finalize_block(stopping: bool) {
         }
     } else {
         enqueue_block(&session_id, &payload, &shots, blur, seq, &app_usage, &url_usage);
-        sync::note_attempt_result(false, Some("offline".into()));
+        if !stopping {
+            sync::note_attempt_result(false, Some("offline".into()));
+        }
     }
 }
 

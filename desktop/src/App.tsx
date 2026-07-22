@@ -42,6 +42,25 @@ async function getAppVersion(): Promise<string> {
   catch { return "0.0.0"; }
 }
 
+// Org capture policy is cached so a session can start (and capture) with no
+// network — offline-first. Refreshed whenever we successfully reach the backend.
+interface OrgCaptureSettings { perBlock: number; blur: boolean; idleMinutes: number }
+function cacheOrgSettings(o: { screenshotsPerBlock: number; blurScreenshots: boolean; idleTimeoutMinutes: number }) {
+  try { localStorage.setItem("trax_org_settings", JSON.stringify({ perBlock: o.screenshotsPerBlock, blur: o.blurScreenshots, idleMinutes: o.idleTimeoutMinutes })); } catch { /* ignore */ }
+}
+function getCachedOrgSettings(): OrgCaptureSettings {
+  try { const v = JSON.parse(localStorage.getItem("trax_org_settings") || ""); if (v && typeof v.perBlock === "number") return v; } catch { /* ignore */ }
+  return { perBlock: 1, blur: false, idleMinutes: 5 };
+}
+// A locally-generated session id so tracking can begin with zero network.
+function newSessionId(): string {
+  try { return crypto.randomUUID(); } catch {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0; return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+    });
+  }
+}
+
 // Fire a native OS notification (best-effort; requests permission on first use).
 async function notify(title: string, body: string) {
   try {
@@ -203,6 +222,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [closingRemaining, setClosingRemaining] = useState<number | null>(null);
   const deviceId = useRef<string | null>(null);
   const heartbeat = useRef<ReturnType<typeof setInterval> | null>(null);
+  const registerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reminders = useRef<ReminderPrefs>(loadReminders());
   const [remPrefs, setRemPrefs] = useState<ReminderPrefs>(reminders.current);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -337,43 +357,77 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   function beginHeartbeat(id: string) { stopHeartbeat(); heartbeat.current = setInterval(() => { api(`/sessions/${id}/heartbeat`, { method: "POST" }).catch(() => {}); }, 60_000); }
   function stopHeartbeat() { if (heartbeat.current) clearInterval(heartbeat.current); heartbeat.current = null; }
 
+  // LOCAL-FIRST start: the session id is generated on-device and tracking +
+  // capture begin immediately with NO network. Works fully offline; the server
+  // session is registered in the background purely so uploads have a home.
   async function start(pid?: string) {
     const useProject = pid ?? projectId;
     if (!useProject) return;
+    // Same project already tracking → no-op; a different one → switch cleanly.
+    if (activeRef.current) {
+      if (activeRef.current.projectId === useProject) return;
+      await stop();
+    }
     setError(null);
     setProjectId(useProject);
-    const firstTask = projects.find((p) => p.id === useProject)?.tasks?.find((t) => t.status !== "done")?.id;
+    const proj = projects.find((p) => p.id === useProject);
+    const taskForSession = (pid ? proj?.tasks?.find((t) => t.status !== "done")?.id : taskId) || undefined;
+    const sid = newSessionId();
+    const startedAt = new Date().toISOString();
+    // Timer starts now, off the local monotonic clock — never waits on Render.
+    setActive({
+      id: sid, projectId: useProject, taskId: taskForSession ?? null, startedAt, endedAt: null,
+      project: { id: useProject, name: proj?.name ?? "Project", clientTag: proj?.clientTag ?? null },
+    });
+    const s = getCachedOrgSettings();
+    invoke("begin_capture", {
+      token: getToken() ?? "", backend: API_BASE, sessionId: sid,
+      screenshotsPerBlock: s.perBlock, blur: s.blur, idleMinutes: s.idleMinutes, baseElapsedSecs: 0,
+    })
+      .then(() => invoke("set_tracking_indicator", { active: true }))
+      .catch(() => { /* capture worker not up (e.g. browser preview) — timer still runs */ });
+    void registerSession(sid, useProject, taskForSession, startedAt);
+  }
+
+  // Register the locally-started session with the server (background, retried).
+  // Not required for tracking — only so the queued data has somewhere to sync.
+  async function registerSession(sid: string, useProject: string, taskForSession: string | undefined, startedAt: string) {
+    if (registerTimer.current) { clearTimeout(registerTimer.current); registerTimer.current = null; }
     try {
       const appVersion = await getAppVersion();
-      const s = await api<Session>("/sessions/start", { method: "POST", body: JSON.stringify({ projectId: useProject, taskId: (pid ? firstTask : taskId) || undefined, deviceId: deviceId.current ?? undefined, platform: "windows", appVersion }) });
-      setActive(s); beginHeartbeat(s.id);
-      // Kick off native capture (activity sampling + screenshots + sync) in Rust.
-      let perBlock = 1, blur = false, idleMinutes = 5;
-      try {
-        const o = await api<{ screenshotsPerBlock: number; blurScreenshots: boolean; idleTimeoutMinutes: number }>("/orgs/settings");
-        perBlock = o.screenshotsPerBlock; blur = o.blurScreenshots; idleMinutes = o.idleTimeoutMinutes;
-      } catch { /* use defaults */ }
-      // Seed the monotonic timer from the server-anchored start (handles a
-      // session that was already open — the server is authoritative for duration).
-      const baseElapsedSecs = Math.max(0, Math.floor((Date.now() - new Date(s.startedAt).getTime()) / 1000));
-      try {
-        await invoke("begin_capture", {
-          token: getToken() ?? "", backend: API_BASE, sessionId: s.id,
-          screenshotsPerBlock: perBlock, blur, idleMinutes, baseElapsedSecs,
-        });
-        invoke("set_tracking_indicator", { active: true }).catch(() => {});
-      } catch (e) {
-        // Time still counts; warn that activity/screenshots may not be captured.
-        setError(`Tracking started, but capture failed to initialize: ${e instanceof Error ? e.message : e}`);
+      await api<Session>("/sessions/start", { method: "POST", body: JSON.stringify({ id: sid, startedAt, projectId: useProject, taskId: taskForSession, deviceId: deviceId.current ?? undefined, platform: "windows", appVersion }) });
+      if (activeRef.current?.id === sid) beginHeartbeat(sid);
+      api<{ screenshotsPerBlock: number; blurScreenshots: boolean; idleTimeoutMinutes: number }>("/orgs/settings").then(cacheOrgSettings).catch(() => {});
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/another device/i.test(msg)) {
+        setError("A session is already running on another device. Stop it there first.");
+        await stop();
+        return;
       }
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not start"); }
+      // Offline / backend asleep — keep tracking locally and retry registration.
+      if (activeRef.current?.id === sid) {
+        registerTimer.current = setTimeout(() => {
+          if (activeRef.current?.id === sid) registerSession(sid, useProject, taskForSession, startedAt);
+        }, 20_000);
+      }
+    }
   }
+
+  // LOCAL-FIRST stop: end the timer + capture instantly (capture finalizes to the
+  // local queue, no network); the server is told in the background.
   async function stop() {
-    if (!active) return;
-    invoke("end_capture").catch(() => {});
+    const cur = activeRef.current;
+    if (!cur) return;
+    if (registerTimer.current) { clearTimeout(registerTimer.current); registerTimer.current = null; }
+    await invoke("end_capture").catch(() => {}); // fast + local; awaited so a following start() can't race it
     invoke("set_tracking_indicator", { active: false }).catch(() => {});
-    try { await api(`/sessions/${active.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }); } catch { /* reconcile later */ }
-    stopHeartbeat(); setActive(null); setElapsed(0); load();
+    stopHeartbeat();
+    setActive(null); setElapsed(0);
+    if (cur.id) {
+      api(`/sessions/${cur.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }).catch(() => {});
+    }
+    load();
   }
   // Signing out stops tracking first — otherwise the session stays open on the
   // server and the timer would resume the next time you sign in.

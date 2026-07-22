@@ -8,6 +8,11 @@ import { prisma } from "../lib/prisma";
 const STALE_SESSION_MS = 150_000;
 
 const startSchema = z.object({
+  // Client-generated id + startedAt: the desktop app tracks fully locally and
+  // registers the session here when a connection is available (offline-first).
+  // Both optional so older/online clients that let the server stamp still work.
+  id: z.string().uuid().optional(),
+  startedAt: z.string().datetime({ offset: true }).optional(),
   projectId: z.string().uuid(),
   taskId: z.string().uuid().optional(),
   deviceId: z.string().uuid().optional(),
@@ -70,45 +75,57 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
     const project = await assertProjectInOrg(body.projectId, req.user.orgId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
 
+    // Idempotent registration: the offline-first client may retry registering the
+    // same locally-created session id. If it already exists, just return it.
+    if (body.id) {
+      const existing = await prisma.trackingSession.findUnique({ where: { id: body.id } });
+      if (existing) {
+        if (existing.userId !== req.user.userId) return reply.code(404).send({ error: "Session not found" });
+        return reply.send({ ...existing, deviceId: existing.deviceId });
+      }
+    }
+
+    const device = await resolveDevice(req.user.userId, body.deviceId, body.platform, body.appVersion);
+
     // RECONCILIATION INVARIANT: a user may have at most one OPEN session at any
-    // instant, across every device they're signed into. This is the core guard
-    // against inflating hours by running two timers on two machines at once.
+    // instant. But switching projects on the SAME device is not double-tracking —
+    // only a *different* device with a live heartbeat is (the fraud case).
     const open = await prisma.trackingSession.findFirst({
       where: { userId: req.user.userId, endedAt: null },
       include: { device: true },
     });
     if (open) {
-      // Is the existing session still "live"? A tracking client heartbeats every
-      // 60s, refreshing its device's lastSeenAt. If we've heard from it recently,
-      // this really is a second concurrent timer — reject it (the fraud case).
-      const lastBeat = open.device.lastSeenAt.getTime();
-      const isFresh = Date.now() - lastBeat < STALE_SESSION_MS;
-      if (isFresh) {
+      const sameDevice = open.deviceId === device.id;
+      const isFresh = Date.now() - open.device.lastSeenAt.getTime() < STALE_SESSION_MS;
+      if (!sameDevice && isFresh) {
+        // A second live timer on another machine — reject.
         return reply.code(409).send({
           error:
             "A session is already running on another device. Stop it there before starting here.",
           sessionId: open.id,
         });
       }
-      // Otherwise the previous device went dark (crash / lost network / closed
-      // laptop) without stopping cleanly. Finalize that session at its last known
-      // heartbeat and flag the unclean end, then let this device take over. This
-      // is a legitimate device switch, not double-counting.
+      // Same device switching projects (close cleanly), or a device that went
+      // dark without stopping (finalize at its last heartbeat) — then take over.
       await prisma.trackingSession.update({
         where: { id: open.id },
-        data: { endedAt: open.device.lastSeenAt, endReason: "abrupt_exit" },
+        data: {
+          endedAt: sameDevice ? new Date() : open.device.lastSeenAt,
+          endReason: sameDevice ? "stopped" : "abrupt_exit",
+        },
       });
     }
 
-    const device = await resolveDevice(req.user.userId, body.deviceId, body.platform, body.appVersion);
-
     const session = await prisma.trackingSession.create({
       data: {
+        // Honor the client's id + startedAt when provided (a session that began
+        // locally, possibly offline); otherwise stamp server-side.
+        ...(body.id ? { id: body.id } : {}),
         userId: req.user.userId,
         projectId: body.projectId,
         taskId: body.taskId,
         deviceId: device.id,
-        startedAt: new Date(),
+        startedAt: body.startedAt ? new Date(body.startedAt) : new Date(),
       },
     });
 

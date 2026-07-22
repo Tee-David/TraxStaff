@@ -66,9 +66,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .pw-wrap { position: relative; }
 .pw-wrap input { padding-right: 40px; }
 .pw-toggle {
-  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-  background: transparent; border: none; padding: 6px; font-size: 15px; cursor: pointer; line-height: 1;
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: none; padding: 4px; cursor: pointer; line-height: 0;
+  color: var(--muted); border-radius: 8px; transition: color 0.15s, background 0.15s;
 }
+.pw-toggle:hover { color: var(--ink); background: var(--canvas); }
 .stack button { padding: 12px; background: var(--brand); color: #fff; font-size: 15px; }
 
 /* ---------- app shell (two-pane responsive) ---------- */

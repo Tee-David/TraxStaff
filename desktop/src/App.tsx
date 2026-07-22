@@ -124,6 +124,25 @@ function useUpdateCheck() {
   }, []);
 }
 
+const eyeProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+function EyeIcon() {
+  return (
+    <svg {...eyeProps} aria-hidden>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+function EyeOffIcon() {
+  return (
+    <svg {...eyeProps} aria-hidden>
+      <path d="M10.6 6.1A9.6 9.6 0 0 1 12 6c6.5 0 10 6 10 6a15 15 0 0 1-3.3 3.8M6.6 6.6A15 15 0 0 0 2 12s3.5 6 10 6a9.3 9.3 0 0 0 3.6-.7" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+      <path d="m3 3 18 18" />
+    </svg>
+  );
+}
+
 function Login({ onLogin }: { onLogin: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -152,7 +171,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
           <div className="pw-wrap">
             <input type={showPw ? "text" : "password"} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
             <button type="button" className="pw-toggle" onClick={() => setShowPw((s) => !s)} aria-label={showPw ? "Hide password" : "Show password"}>
-              {showPw ? "🙈" : "👁"}
+              {showPw ? <EyeOffIcon /> : <EyeIcon />}
             </button>
           </div>
           {error && <div className="error">{error}</div>}

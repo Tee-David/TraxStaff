@@ -86,13 +86,8 @@ function Shell({ children }: { children: React.ReactNode }) {
   // Expanded whenever not collapsed, or while peeking a collapsed rail on hover.
   const expandedNow = !collapsed || (hovered && !suppressPeek);
 
-  if (loading) {
-    return (
-      <div className="trax-loading" role="status" aria-label="Loading">
-        <div className="trax-loading-mark" />
-      </div>
-    );
-  }
+  // No loading screen — render nothing until auth resolves, then the app.
+  if (loading) return null;
   if (!user) {
     if (typeof window !== "undefined") window.location.href = "/login";
     return null;

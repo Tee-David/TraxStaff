@@ -44,7 +44,8 @@
         "installerIcon": "icons/icon.ico",
         "headerImage": "installer/header.bmp",
         "sidebarImage": "installer/sidebar.bmp",
-        "installMode": "both",
+        "installMode": "currentUser",
+        "installerHooks": "installer-hooks.nsh",
         "displayLanguageSelector": true,
         "languages": ["English"]
       }

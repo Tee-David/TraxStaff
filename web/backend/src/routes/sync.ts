@@ -29,6 +29,18 @@ const appUsageSchema = z.object({
   apps: z.array(z.object({ appName: z.string().min(1), seconds: z.number().int().min(1) })).min(1),
 });
 
+const urlUsageSchema = z.object({
+  sessionId: z.string().uuid(),
+  blockStart: z.string().datetime({ offset: true }),
+  urls: z.array(z.object({ domain: z.string().min(1), seconds: z.number().int().min(1) })).min(1),
+});
+
+const discardIdleSchema = z.object({
+  sessionId: z.string().uuid(),
+  fromISO: z.string().datetime({ offset: true }),
+  toISO: z.string().datetime({ offset: true }),
+});
+
 export default async function syncRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
 
@@ -140,8 +152,47 @@ export default async function syncRoutes(fastify: FastifyInstance) {
         seconds: a.seconds,
         blockStart: new Date(body.blockStart),
       })),
+      skipDuplicates: true,
     });
     return reply.send({ ingested: body.apps.length });
+  });
+
+  // Ingest per-domain foreground seconds for a block (browser URL sampling).
+  fastify.post("/sync/url-usage", async (req, reply) => {
+    const body = urlUsageSchema.parse(req.body);
+    const session = await prisma.trackingSession.findUnique({ where: { id: body.sessionId } });
+    if (!session || session.userId !== req.user.userId) {
+      return reply.code(404).send({ error: "Session not found" });
+    }
+    await prisma.urlUsage.createMany({
+      data: body.urls.map((u) => ({
+        sessionId: body.sessionId,
+        domain: u.domain,
+        seconds: u.seconds,
+        blockStart: new Date(body.blockStart),
+      })),
+      skipDuplicates: true,
+    });
+    return reply.send({ ingested: body.urls.length });
+  });
+
+  // Record a discarded idle span. Duration is trusted from the client-reported
+  // window but stored so reports can subtract it from worked time. Never mutates
+  // ActivityBlocks — this is a reversible accounting adjustment only.
+  fastify.post("/sync/discard-idle", async (req, reply) => {
+    const body = discardIdleSchema.parse(req.body);
+    const session = await prisma.trackingSession.findUnique({ where: { id: body.sessionId } });
+    if (!session || session.userId !== req.user.userId) {
+      return reply.code(404).send({ error: "Session not found" });
+    }
+    const from = new Date(body.fromISO);
+    const to = new Date(body.toISO);
+    const seconds = Math.round((to.getTime() - from.getTime()) / 1000);
+    if (seconds <= 0) {
+      return reply.code(400).send({ error: "Discard window must be positive" });
+    }
+    await prisma.idleDiscard.create({ data: { sessionId: body.sessionId, from, to, seconds } });
+    return reply.send({ ok: true, seconds });
   });
 }
 

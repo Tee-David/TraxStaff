@@ -51,6 +51,7 @@ model Organization {
   screenshotsPerBlock Int      @default(1) // 0 = off, 1/2/3 per 10-min block
   blurScreenshots     Boolean  @default(false)
   idleTimeoutMinutes  Int      @default(5)
+  keepIdleDefault     Boolean  @default(true)
   users         User[]
   projects      Project[]
   invites       InviteToken[]
@@ -65,10 +66,13 @@ model User {
   passwordHash       String?
   role               Role              @default(member)
   status             UserStatus        @default(invited)
+  consentAcceptedAt  DateTime?
+  consentVersion     Int?
   createdAt          DateTime          @default(now())
   devices            Device[]
   sessions           TrackingSession[]
   notifications      Notification[]
+  timeNotes          TimeNote[]
   deletedScreenshots Screenshot[]      @relation("ScreenshotDeletedBy")
 
   @@index([orgId])
@@ -150,6 +154,9 @@ model TrackingSession {
   screenshots     Screenshot[]
   flags           UnusualActivityFlag[]
   appUsages       AppUsage[]
+  urlUsages       UrlUsage[]
+  idleDiscards    IdleDiscard[]
+  notes           TimeNote[]
 
   @@index([userId])
   @@index([projectId])
@@ -164,6 +171,44 @@ model AppUsage {
   seconds    Int
   blockStart DateTime
   createdAt  DateTime        @default(now())
+
+  @@unique([sessionId, blockStart, appName])
+  @@index([sessionId])
+}
+
+model UrlUsage {
+  id         String          @id @default(uuid()) @db.Uuid
+  sessionId  String          @db.Uuid
+  session    TrackingSession @relation(fields: [sessionId], references: [id])
+  domain     String
+  seconds    Int
+  blockStart DateTime
+  createdAt  DateTime        @default(now())
+
+  @@unique([sessionId, blockStart, domain])
+  @@index([sessionId])
+}
+
+model IdleDiscard {
+  id        String          @id @default(uuid()) @db.Uuid
+  sessionId String          @db.Uuid
+  session   TrackingSession @relation(fields: [sessionId], references: [id])
+  from      DateTime
+  to        DateTime
+  seconds   Int
+  createdAt DateTime        @default(now())
+
+  @@index([sessionId])
+}
+
+model TimeNote {
+  id        String          @id @default(uuid()) @db.Uuid
+  sessionId String          @db.Uuid
+  session   TrackingSession @relation(fields: [sessionId], references: [id])
+  userId    String          @db.Uuid
+  user      User            @relation(fields: [userId], references: [id])
+  body      String
+  createdAt DateTime        @default(now())
 
   @@index([sessionId])
 }

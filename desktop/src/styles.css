@@ -1,3 +1,38 @@
+/* Bundled variable fonts (local woff2 — no external requests, works offline
+   under the app's strict CSP). Latin + latin-ext subsets. */
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("./assets/fonts/space-grotesk-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("./assets/fonts/space-grotesk-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Outfit";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("./assets/fonts/outfit-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Outfit";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("./assets/fonts/outfit-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
   --brand: #000065;
   --brand-2: #2a2aa8;
@@ -278,3 +313,61 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .close-sub { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
 .close-remaining { font-size: 13px; color: var(--ink); background: var(--canvas); border-radius: 12px; padding: 10px; }
 .close-remaining strong { font-family: "Space Grotesk"; color: var(--brand); }
+
+/* ---------- app loading (auth/consent check) ---------- */
+.app-loading { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: radial-gradient(120% 120% at 50% 30%, #12126b 0%, #000065 45%, #05052e 100%); }
+.app-loading-mark { width: 64px; height: 64px; background: url('/brand/icon-white.svg') center/contain no-repeat; animation: app-pulse 1s ease-in-out infinite; }
+@keyframes app-pulse { 0%,100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.08); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .app-loading-mark { animation: none; } }
+
+/* ---------- sync badge ---------- */
+.sync-badge { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; padding: 6px 10px; border-radius: 10px; font-size: 12px; font-weight: 500; background: var(--canvas); color: var(--muted); align-self: flex-start; }
+.sync-badge .sync-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.sync-badge.ok .sync-dot { background: #1f9d63; }
+.sync-badge.offline { color: #9a6a00; background: #fff6e6; }
+.sync-badge.offline .sync-dot { background: #f59e0b; }
+.sync-badge.err { color: #b91c1c; background: #fdecec; }
+.sync-badge.err .sync-dot { background: #dc2626; }
+
+/* ---------- warning banner ---------- */
+.warn-banner { margin: 0 0 10px; padding: 9px 13px; border-radius: 12px; font-size: 12.5px; background: #fff6e6; color: #8a5a00; border: 1px solid #ffe2b0; }
+.warn-banner.subtle { background: var(--canvas); color: var(--muted); border-color: var(--border); }
+
+/* ---------- close dialog (three-way) ---------- */
+.close-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.close-primary { background: var(--brand); color: #fff; padding: 11px; font-size: 14px; }
+.close-ghost { background: var(--canvas); color: var(--ink); padding: 11px; font-size: 14px; }
+.close-cancel { background: transparent; color: var(--muted); padding: 8px; font-size: 13px; }
+.close-fine { font-size: 11.5px; color: var(--muted); margin: 12px 0 0; line-height: 1.4; }
+
+/* ---------- note modal ---------- */
+.note-overlay { position: fixed; inset: 0; z-index: 55; display: grid; place-items: center; background: rgba(5,5,30,0.5); backdrop-filter: blur(3px); padding: 20px; }
+.note-modal { width: 100%; max-width: 380px; background: var(--card); border-radius: 18px; padding: 22px; box-shadow: 0 30px 70px -20px rgba(0,0,0,0.5); }
+.note-title { font-family: "Space Grotesk", system-ui, sans-serif; font-size: 17px; margin: 0 0 12px; }
+.note-input { width: 100%; min-height: 96px; resize: vertical; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; font-family: inherit; font-size: 14px; outline: none; }
+.note-input:focus { border-color: var(--brand); }
+.note-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.note-cancel { background: var(--canvas); color: var(--ink); padding: 9px 16px; font-size: 13px; }
+.note-save { background: var(--brand); color: #fff; padding: 9px 16px; font-size: 13px; }
+
+/* ---------- reminders popover ---------- */
+.foot-settings-wrap { position: relative; }
+.foot-settings { position: absolute; bottom: 40px; right: 0; width: 250px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: 0 20px 50px -18px rgba(0,0,0,0.4); z-index: 20; }
+.foot-settings-title { font-family: "Space Grotesk", system-ui, sans-serif; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.foot-toggle { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; color: var(--ink); padding: 6px 0; cursor: pointer; line-height: 1.35; }
+.foot-toggle input { margin-top: 2px; accent-color: var(--brand); }
+
+/* ---------- consent screen ---------- */
+.consent-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: linear-gradient(150deg, #000065 0%, #12126b 45%, #05052e 100%); overflow-y: auto; }
+.consent-card { width: 100%; max-width: 440px; background: rgba(255,255,255,0.98); border-radius: 22px; padding: 30px 28px; box-shadow: 0 30px 80px -24px rgba(0,0,0,0.6); }
+.consent-badge { width: 48px; height: 48px; }
+.consent-title { font-family: "Space Grotesk", system-ui, sans-serif; font-size: 22px; font-weight: 700; margin: 14px 0 8px; }
+.consent-sub { font-size: 13.5px; color: var(--muted); line-height: 1.5; margin: 0 0 18px; }
+.consent-list { list-style: none; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 13px; }
+.consent-list li { display: flex; gap: 12px; font-size: 13.5px; line-height: 1.45; }
+.consent-list strong { font-weight: 600; }
+.consent-ic { font-size: 18px; flex: none; line-height: 1.3; }
+.consent-fine { font-size: 12px; color: var(--muted); line-height: 1.5; background: var(--canvas); border-radius: 12px; padding: 12px 14px; margin: 0 0 18px; }
+.consent-actions { display: flex; gap: 10px; }
+.consent-accept { flex: 1; background: var(--brand); color: #fff; padding: 13px; font-size: 14px; }
+.consent-decline { background: transparent; color: var(--muted); padding: 13px 14px; font-size: 13px; }

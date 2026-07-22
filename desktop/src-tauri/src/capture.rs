@@ -1,17 +1,18 @@
 // Native capture core: samples keyboard/mouse *intensity* (never content),
 // computes per-10-min activity %, captures all-monitor WebP screenshots at the
 // admin-set frequency, and syncs a tamper-evident hash-chain to the backend.
-// Falls back to an on-disk queue when offline and retries.
+// Records that can't be sent immediately go to the on-disk queue (see sync.rs),
+// which retries with backoff. Elapsed time is anchored to a monotonic clock so
+// sleep/suspend and a throttled webview can't distort the running timer.
 //
 // Verified via the Windows CI build (this Linux sandbox can't build the GUI).
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use once_cell::sync::Lazy;
@@ -19,7 +20,15 @@ use rand::Rng;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 
+use crate::sync;
+#[cfg(windows)]
+use crate::url_capture;
+
 const GENESIS: &str = "GENESIS";
+// A wall-clock jump larger than this between 1 Hz ticks means the machine slept.
+const SUSPEND_GAP_SECS: i64 = 120;
+// A second counts toward app/URL attribution only if input landed this recently.
+const ACTIVE_WINDOW_SECS: i64 = 2;
 const JIGGLER_BLOCKLIST: &[&str] = &[
     "mousejiggler", "movemouse", "move mouse", "caffeine", "autoclicker",
     "auto clicker", "mousemover", "jiggler", "wiggler", "clickermann", "pressplay",
@@ -28,8 +37,16 @@ const JIGGLER_BLOCKLIST: &[&str] = &[
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static LAST_INPUT: AtomicI64 = AtomicI64::new(0);
 static IDLE_NOTIFIED: AtomicBool = AtomicBool::new(false);
+static LAST_TICK_WALL: AtomicI64 = AtomicI64::new(0);
+// Whether the rdev input hook is delivering events. Starts true; the supervisor
+// flips it false if the listener dies so the UI can warn that activity % is 0.
+static INPUT_HOOK_OK: AtomicBool = AtomicBool::new(true);
 static CAPTURE: Lazy<Mutex<Option<Capture>>> = Lazy::new(|| Mutex::new(None));
 static APP_HANDLE: Lazy<Mutex<Option<AppHandle>>> = Lazy::new(|| Mutex::new(None));
+// Reused across blocks so the jiggler scan doesn't rebuild the process table each time.
+static SYS: Lazy<Mutex<sysinfo::System>> = Lazy::new(|| Mutex::new(sysinfo::System::new()));
+
+const BROWSERS: &[&str] = &["chrome", "msedge", "firefox", "brave", "opera", "chromium", "vivaldi"];
 
 struct PendingShot {
     monitor_index: u32,
@@ -53,8 +70,13 @@ struct Capture {
     shots_taken: HashSet<i64>,
     pending_shots: Vec<PendingShot>,
     app_secs: HashMap<String, i64>,
+    url_secs: HashMap<String, i64>,
     idle_threshold: i64,
     queue_dir: PathBuf,
+    // Monotonic anchor for elapsed time; base is prior server-side elapsed
+    // (non-zero when resuming an already-open session).
+    anchor: Instant,
+    base_elapsed_secs: i64,
 }
 
 impl Capture {
@@ -68,6 +90,7 @@ impl Capture {
         idle_threshold: i64,
         queue_dir: PathBuf,
         block_secs: i64,
+        base_elapsed_secs: i64,
     ) -> Self {
         let mut c = Capture {
             token,
@@ -85,8 +108,11 @@ impl Capture {
             shots_taken: HashSet::new(),
             pending_shots: Vec::new(),
             app_secs: HashMap::new(),
+            url_secs: HashMap::new(),
             idle_threshold,
             queue_dir,
+            anchor: Instant::now(),
+            base_elapsed_secs,
         };
         c.plan_shots();
         c
@@ -113,20 +139,39 @@ impl Capture {
     }
 }
 
-fn iso_now() -> String {
-    Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
+fn emit<S: serde::Serialize + Clone>(event: &str, payload: S) {
+    if let Ok(guard) = APP_HANDLE.lock() {
+        if let Some(app) = guard.as_ref() {
+            let _ = app.emit(event, payload);
+        }
+    }
 }
 
 /// Record an input event into the current block's per-second active buckets.
 pub fn on_input(is_keyboard: bool) {
+    // First event confirms the hook is alive.
+    if !INPUT_HOOK_OK.swap(true, Ordering::Relaxed) {
+        emit("trax:capture-health", serde_json::json!({ "inputHook": true }));
+    }
     if !ACTIVE.load(Ordering::Relaxed) {
         return;
     }
-    LAST_INPUT.store(Utc::now().timestamp(), Ordering::Relaxed);
-    IDLE_NOTIFIED.store(false, Ordering::Relaxed);
+    let sec = Utc::now().timestamp();
+    let prev = LAST_INPUT.swap(sec, Ordering::Relaxed);
+    // Returning from an idle stretch we already notified about → offer the
+    // keep/discard prompt for the gap (from last input to now).
+    if IDLE_NOTIFIED.swap(false, Ordering::Relaxed) && prev > 0 {
+        emit(
+            "trax:idle-ended",
+            serde_json::json!({
+                "minutes": (sec - prev) / 60,
+                "fromISO": iso_ts(prev),
+                "toISO": iso_ts(sec),
+            }),
+        );
+    }
     if let Ok(mut guard) = CAPTURE.lock() {
         if let Some(c) = guard.as_mut() {
-            let sec = Utc::now().timestamp();
             if is_keyboard {
                 c.kb_secs.insert(sec);
             } else {
@@ -136,7 +181,15 @@ pub fn on_input(is_keyboard: bool) {
     }
 }
 
-/// Start capturing for a session.
+/// A unix-seconds timestamp as an ISO-8601 string (UTC, matching JS toISOString).
+fn iso_ts(secs: i64) -> String {
+    DateTime::from_timestamp(secs, 0)
+        .unwrap_or_else(Utc::now)
+        .to_rfc3339_opts(SecondsFormat::Millis, true)
+}
+
+/// Start capturing for a session. `base_elapsed_secs` seeds the timer when
+/// resuming a session the server says already started earlier.
 #[allow(clippy::too_many_arguments)]
 pub fn begin(
     token: String,
@@ -146,6 +199,7 @@ pub fn begin(
     blur: bool,
     idle_minutes: i64,
     queue_dir: PathBuf,
+    base_elapsed_secs: i64,
 ) {
     let block_secs = std::env::var("TRAX_BLOCK_SECS")
         .ok()
@@ -153,7 +207,9 @@ pub fn begin(
         .unwrap_or(600)
         .clamp(30, 3600);
     let _ = fs::create_dir_all(&queue_dir);
-    LAST_INPUT.store(Utc::now().timestamp(), Ordering::Relaxed);
+    let now = Utc::now().timestamp();
+    LAST_INPUT.store(now, Ordering::Relaxed);
+    LAST_TICK_WALL.store(now, Ordering::Relaxed);
     IDLE_NOTIFIED.store(false, Ordering::Relaxed);
     if let Ok(mut guard) = CAPTURE.lock() {
         *guard = Some(Capture::new(
@@ -165,6 +221,7 @@ pub fn begin(
             idle_minutes.clamp(1, 60) * 60,
             queue_dir,
             block_secs,
+            base_elapsed_secs.max(0),
         ));
     }
     ACTIVE.store(true, Ordering::Relaxed);
@@ -179,33 +236,81 @@ pub fn end() {
     }
 }
 
-/// Background worker: called ~every second. Handles screenshot timing and block boundaries.
+/// Seconds elapsed in the running session, from the monotonic anchor (immune to
+/// wall-clock changes and webview throttling). 0 when no session is active.
+fn elapsed_secs() -> i64 {
+    CAPTURE
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().map(|c| c.base_elapsed_secs + c.anchor.elapsed().as_secs() as i64))
+        .unwrap_or(0)
+}
+
+/// OS-reported idle seconds (Windows), independent of the rdev hook so idle
+/// detection survives a dead input listener. `None` on other platforms.
+fn os_idle_secs() -> Option<i64> {
+    #[cfg(windows)]
+    {
+        crate::os_idle::idle_seconds()
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+/// Background worker: called ~every second. Handles screenshot timing, block
+/// boundaries, the running-timer tick, idle detection, and suspend recovery.
 pub fn tick() {
     if !ACTIVE.load(Ordering::Relaxed) {
         return;
     }
-    // Sample the foreground app for this second (outside the lock; it can be slow).
-    let active_app = active_win_pos_rs::get_active_window().ok().map(|w| {
-        let mut name = w.app_name;
-        if name.trim().is_empty() {
-            name = w.title;
-        }
-        name.trim().to_string()
-    });
+    let now_ts = Utc::now().timestamp();
 
-    // Idle detection: notify the UI once per idle stretch.
-    let idle_threshold = CAPTURE.lock().ok().and_then(|g| g.as_ref().map(|c| c.idle_threshold)).unwrap_or(300);
-    let idle_for = Utc::now().timestamp() - LAST_INPUT.load(Ordering::Relaxed);
-    if idle_for >= idle_threshold && !IDLE_NOTIFIED.swap(true, Ordering::Relaxed) {
-        if let Ok(guard) = APP_HANDLE.lock() {
-            if let Some(app) = guard.as_ref() {
-                let _ = app.emit("trax:idle", idle_for / 60);
+    // Suspend/resume: a big wall-clock jump between ticks means the machine
+    // slept. Close the current block (the gap is naturally idle) and tell the UI.
+    let prev_tick = LAST_TICK_WALL.swap(now_ts, Ordering::Relaxed);
+    if prev_tick > 0 && now_ts - prev_tick > SUSPEND_GAP_SECS {
+        let gap = now_ts - prev_tick;
+        emit("trax:resumed", serde_json::json!({ "gapSecs": gap }));
+        finalize_block(false);
+    }
+
+    // Drive the running timer from the monotonic clock (survives minimize/sleep).
+    emit("trax:tick", serde_json::json!({ "elapsedSecs": elapsed_secs() }));
+
+    // A second counts toward app/URL only if the user was active in it.
+    let rdev_idle = now_ts - LAST_INPUT.load(Ordering::Relaxed);
+    let active_now = rdev_idle <= ACTIVE_WINDOW_SECS;
+
+    // Sample the foreground app (outside the lock; it can be slow).
+    let active_app = if active_now {
+        active_win_pos_rs::get_active_window().ok().map(|w| {
+            let mut name = w.app_name;
+            if name.trim().is_empty() {
+                name = w.title;
             }
-        }
+            name.trim().to_string()
+        })
+    } else {
+        None
+    };
+    // If the active app is a browser, sample its domain via UI Automation.
+    let active_domain = active_app.as_deref().and_then(browser_domain);
+
+    // Idle detection: use whichever clock reports the *smaller* idle so a dead
+    // rdev hook can't keep the user "active" forever.
+    let idle_threshold = CAPTURE.lock().ok().and_then(|g| g.as_ref().map(|c| c.idle_threshold)).unwrap_or(300);
+    let idle_for = match os_idle_secs() {
+        Some(os) => rdev_idle.min(os),
+        None => rdev_idle,
+    };
+    if idle_for >= idle_threshold && !IDLE_NOTIFIED.swap(true, Ordering::Relaxed) {
+        emit("trax:idle", serde_json::json!({ "minutes": idle_for / 60 }));
     }
 
     // Determine due screenshots + whether the block is complete (under lock, briefly).
-    let (due, backend, token, session_id, blur, seq, complete) = {
+    let (due, complete) = {
         let mut guard = match CAPTURE.lock() {
             Ok(g) => g,
             Err(_) => return,
@@ -214,10 +319,11 @@ pub fn tick() {
             Some(c) => c,
             None => return,
         };
-        if let Some(app) = &active_app {
-            if !app.is_empty() {
-                *c.app_secs.entry(app.clone()).or_insert(0) += 1;
-            }
+        if let Some(app) = active_app.as_ref().filter(|a| !a.is_empty()) {
+            *c.app_secs.entry(app.clone()).or_insert(0) += 1;
+        }
+        if let Some(dom) = active_domain.as_ref().filter(|d| !d.is_empty()) {
+            *c.url_secs.entry(dom.clone()).or_insert(0) += 1;
         }
         let elapsed = (Utc::now() - c.block_start).num_seconds();
         let mut due = Vec::new();
@@ -227,15 +333,7 @@ pub fn tick() {
                 due.push(off);
             }
         }
-        (
-            due,
-            c.backend.clone(),
-            c.token.clone(),
-            c.session_id.clone(),
-            c.blur,
-            c.seq,
-            elapsed >= c.block_secs,
-        )
+        (due, elapsed >= c.block_secs)
     };
 
     // Capture screenshots outside the lock (slow), then stash bytes.
@@ -249,11 +347,25 @@ pub fn tick() {
             }
         }
     }
-    let _ = (backend, token, session_id, blur, seq);
 
     if complete {
         finalize_block(false);
     }
+}
+
+#[cfg(windows)]
+fn browser_domain(app_name: &str) -> Option<String> {
+    let lower = app_name.to_lowercase();
+    if BROWSERS.iter().any(|b| lower.contains(b)) {
+        url_capture::foreground_domain()
+    } else {
+        None
+    }
+}
+
+#[cfg(not(windows))]
+fn browser_domain(_app_name: &str) -> Option<String> {
+    None
 }
 
 fn capture_all_monitors() -> Vec<(u32, Vec<u8>)> {
@@ -275,7 +387,7 @@ fn capture_all_monitors() -> Vec<(u32, Vec<u8>)> {
 }
 
 fn detect_jiggler() -> Option<String> {
-    let mut sys = sysinfo::System::new();
+    let mut sys = SYS.lock().ok()?;
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     for process in sys.processes().values() {
         let raw = process.name().to_string_lossy();
@@ -289,8 +401,8 @@ fn detect_jiggler() -> Option<String> {
     None
 }
 
-#[derive(serde::Serialize)]
-struct BlockPayload {
+#[derive(serde::Serialize, Clone)]
+pub struct BlockPayload {
     #[serde(rename = "blockStart")]
     block_start: String,
     #[serde(rename = "blockEnd")]
@@ -319,8 +431,8 @@ fn round2(v: f64) -> f64 {
 /// Finalize the current block: compute activity %, build the hash-chained payload,
 /// sync it, upload its screenshots. Then advance the chain (unless stopping).
 fn finalize_block(stopping: bool) {
-    // Build payload + drain shots under the lock.
-    let (payload, session_id, backend, token, blur, seq, shots, app_usage, block_start_iso) = {
+    // Build payload + drain shots/usage under the lock.
+    let (payload, session_id, backend, token, blur, seq, shots, app_usage, url_usage, block_start_iso) = {
         let mut guard = match CAPTURE.lock() {
             Ok(g) => g,
             Err(_) => return,
@@ -369,6 +481,7 @@ fn finalize_block(stopping: bool) {
         };
         let shots = std::mem::take(&mut c.pending_shots);
         let app_usage: Vec<(String, i64)> = c.app_secs.drain().collect();
+        let url_usage: Vec<(String, i64)> = c.url_secs.drain().collect();
         let block_start_iso = payload.block_start.clone();
         let seq = c.seq;
         let sid = c.session_id.clone();
@@ -385,83 +498,30 @@ fn finalize_block(stopping: bool) {
             c.mouse_secs.clear();
             c.plan_shots();
         }
-        (payload, sid, backend, token, blur, seq, shots, app_usage, block_start_iso)
+        (payload, sid, backend, token, blur, seq, shots, app_usage, url_usage, block_start_iso)
     };
 
     // Network I/O outside the lock.
-    let synced = sync_block(&backend, &token, &session_id, &payload);
+    let synced = sync::sync_block(&backend, &token, &session_id, &payload);
     if synced {
         for shot in &shots {
-            upload_shot(&backend, &token, &session_id, seq, shot, blur);
+            let taken = shot.taken_at.to_rfc3339_opts(SecondsFormat::Millis, true);
+            sync::upload_shot(&backend, &token, &session_id, seq, shot.monitor_index, &taken, &shot.bytes, blur);
         }
         if !app_usage.is_empty() {
-            sync_app_usage(&backend, &token, &session_id, &block_start_iso, &app_usage);
+            sync::sync_app_usage(&backend, &token, &session_id, &block_start_iso, &app_usage);
         }
-        flush_queue(&backend, &token);
+        if !url_usage.is_empty() {
+            sync::sync_url_usage(&backend, &token, &session_id, &block_start_iso, &url_usage);
+        }
+        sync::note_attempt_result(true, None);
+        if let Some(dir) = sync::queue_dir_for_current() {
+            let _ = sync::flush_queue_dir(&dir, &backend, &token, 20);
+        }
     } else {
-        enqueue_block(&session_id, &payload, &shots, blur, seq);
+        enqueue_block(&session_id, &payload, &shots, blur, seq, &app_usage, &url_usage);
+        sync::note_attempt_result(false, Some("offline".into()));
     }
-}
-
-fn sync_block(backend: &str, token: &str, session_id: &str, block: &BlockPayload) -> bool {
-    let client = match reqwest::blocking::Client::builder().timeout(Duration::from_secs(20)).build() {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let body = serde_json::json!({ "sessionId": session_id, "blocks": [block] });
-    match client.post(format!("{backend}/sync/activity")).bearer_auth(token).json(&body).send() {
-        Ok(r) => r.status().is_success(),
-        Err(_) => false,
-    }
-}
-
-fn sync_app_usage(backend: &str, token: &str, session_id: &str, block_start: &str, apps: &[(String, i64)]) {
-    let client = match reqwest::blocking::Client::builder().timeout(Duration::from_secs(20)).build() {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-    let apps_json: Vec<_> = apps.iter().map(|(n, s)| serde_json::json!({ "appName": n, "seconds": s })).collect();
-    let body = serde_json::json!({ "sessionId": session_id, "blockStart": block_start, "apps": apps_json });
-    let _ = client.post(format!("{backend}/sync/app-usage")).bearer_auth(token).json(&body).send();
-}
-
-fn upload_shot(backend: &str, token: &str, session_id: &str, seq: u32, shot: &PendingShot, blur: bool) -> bool {
-    let client = match reqwest::blocking::Client::builder().timeout(Duration::from_secs(30)).build() {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let taken = shot.taken_at.to_rfc3339_opts(SecondsFormat::Millis, true);
-    // 1) presign
-    let presign = client
-        .post(format!("{backend}/screenshots/presign"))
-        .bearer_auth(token)
-        .json(&serde_json::json!({ "sessionId": session_id, "monitorIndex": shot.monitor_index, "takenAt": taken }))
-        .send();
-    let (url, key) = match presign.and_then(|r| r.json::<serde_json::Value>()) {
-        Ok(v) => (
-            v.get("uploadUrl").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-            v.get("r2Key").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        ),
-        Err(_) => return false,
-    };
-    if url.is_empty() {
-        return false;
-    }
-    // 2) upload bytes to R2
-    if client.put(&url).header("Content-Type", "image/webp").body(shot.bytes.clone()).send().map(|r| r.status().is_success()).unwrap_or(false) {
-        // 3) confirm
-        return client
-            .post(format!("{backend}/screenshots/confirm"))
-            .bearer_auth(token)
-            .json(&serde_json::json!({
-                "sessionId": session_id, "sequenceNo": seq, "r2Key": key,
-                "monitorIndex": shot.monitor_index, "takenAt": taken, "blurred": blur
-            }))
-            .send()
-            .map(|r| r.status().is_success())
-            .unwrap_or(false);
-    }
-    false
 }
 
 // ---- offline queue (JSON block + .webp shot files under queue_dir) ----
@@ -470,53 +530,50 @@ fn queue_dir() -> Option<PathBuf> {
     CAPTURE.lock().ok().and_then(|g| g.as_ref().map(|c| c.queue_dir.clone()))
 }
 
-fn enqueue_block(session_id: &str, block: &BlockPayload, shots: &[PendingShot], blur: bool, seq: u32) {
+/// Write a block that couldn't sync to disk: one JSON manifest naming its shot
+/// files + embedded app/URL usage, plus the shot bytes. sync::flush_queue_dir
+/// reads this exact shape.
+fn enqueue_block(
+    session_id: &str,
+    block: &BlockPayload,
+    shots: &[PendingShot],
+    blur: bool,
+    seq: u32,
+    app_usage: &[(String, i64)],
+    url_usage: &[(String, i64)],
+) {
     let Some(dir) = queue_dir() else { return };
-    let stamp = format!("{}-{}", session_id, seq);
-    let block_json = serde_json::json!({ "sessionId": session_id, "block": block, "blur": blur, "seq": seq });
-    if let Ok(mut f) = fs::File::create(dir.join(format!("block-{stamp}.json"))) {
-        let _ = f.write_all(block_json.to_string().as_bytes());
-    }
+    let stamp = format!("{session_id}-{seq}");
+    let mut shot_meta = Vec::new();
     for (i, shot) in shots.iter().enumerate() {
-        let name = format!("shot-{stamp}-{i}-m{}-{}.webp", shot.monitor_index, shot.taken_at.timestamp_millis());
-        let _ = fs::write(dir.join(name), &shot.bytes);
-    }
-}
-
-fn flush_queue(backend: &str, token: &str) {
-    let Some(dir) = queue_dir() else { return };
-    flush_queue_dir(&dir, backend, token);
-}
-
-fn flush_queue_dir(dir: &Path, backend: &str, token: &str) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
-    let mut blocks: Vec<PathBuf> = entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.file_name().map(|n| n.to_string_lossy().starts_with("block-")).unwrap_or(false))
-        .collect();
-    blocks.sort();
-    for path in blocks {
-        let Ok(text) = fs::read_to_string(&path) else { continue };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
-        let session_id = v.get("sessionId").and_then(|x| x.as_str()).unwrap_or("");
-        let block = &v["block"];
-        let client = reqwest::blocking::Client::new();
-        let body = serde_json::json!({ "sessionId": session_id, "blocks": [block] });
-        let ok = client.post(format!("{backend}/sync/activity")).bearer_auth(token).json(&body).send().map(|r| r.status().is_success()).unwrap_or(false);
-        if ok {
-            let _ = fs::remove_file(&path);
-            // (queued shot files are best-effort; removed with their block)
-        } else {
-            break; // still offline; try again later
+        let file = format!("shot-{stamp}-{i}.webp");
+        if fs::write(dir.join(&file), &shot.bytes).is_ok() {
+            shot_meta.push(serde_json::json!({
+                "file": file,
+                "monitorIndex": shot.monitor_index,
+                "takenAt": shot.taken_at.to_rfc3339_opts(SecondsFormat::Millis, true),
+            }));
         }
     }
+    let app_json: Vec<_> = app_usage.iter().map(|(n, s)| serde_json::json!({ "appName": n, "seconds": s })).collect();
+    let url_json: Vec<_> = url_usage.iter().map(|(d, s)| serde_json::json!({ "domain": d, "seconds": s })).collect();
+    let manifest = serde_json::json!({
+        "sessionId": session_id,
+        "seq": seq,
+        "blur": blur,
+        "block": block,
+        "shots": shot_meta,
+        "appUsage": app_json,
+        "urlUsage": url_json,
+    });
+    let _ = fs::write(dir.join(format!("block-{stamp}.json")), manifest.to_string().as_bytes());
+    sync::emit_state();
 }
 
 fn hex(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
-        s.push_str(&format!("{:02x}", b));
+        s.push_str(&format!("{b:02x}"));
     }
     s
 }
@@ -526,26 +583,40 @@ pub fn spawn_workers(app: AppHandle) {
     if let Ok(mut guard) = APP_HANDLE.lock() {
         *guard = Some(app);
     }
-    // input listener
+    // Input listener, supervised: if rdev::listen returns or panics the hook is
+    // dead — flag it (UI warns activity % will read 0) and retry with backoff.
     std::thread::spawn(|| {
-        let _ = rdev::listen(|event| match event.event_type {
-            rdev::EventType::KeyPress(_) | rdev::EventType::KeyRelease(_) => on_input(true),
-            rdev::EventType::ButtonPress(_)
-            | rdev::EventType::ButtonRelease(_)
-            | rdev::EventType::MouseMove { .. }
-            | rdev::EventType::Wheel { .. } => on_input(false),
-        });
+        let mut backoff = 1u64;
+        loop {
+            let res = std::panic::catch_unwind(|| {
+                let _ = rdev::listen(|event| match event.event_type {
+                    rdev::EventType::KeyPress(_) | rdev::EventType::KeyRelease(_) => on_input(true),
+                    rdev::EventType::ButtonPress(_)
+                    | rdev::EventType::ButtonRelease(_)
+                    | rdev::EventType::MouseMove { .. }
+                    | rdev::EventType::Wheel { .. } => on_input(false),
+                });
+            });
+            // listen() only returns/panics on failure.
+            if INPUT_HOOK_OK.swap(false, Ordering::Relaxed) {
+                emit("trax:capture-health", serde_json::json!({ "inputHook": false }));
+            }
+            let _ = res;
+            std::thread::sleep(Duration::from_secs(backoff));
+            backoff = (backoff * 2).min(60);
+        }
     });
-    // worker loop
+    // worker loop — panic-guarded so a bad tick never kills tracking.
     std::thread::spawn(|| loop {
         std::thread::sleep(Duration::from_secs(1));
-        tick();
+        let _ = std::panic::catch_unwind(tick);
     });
 }
 
 // ---- Tauri commands ----
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn begin_capture(
     app: tauri::AppHandle,
     token: String,
@@ -554,10 +625,17 @@ pub fn begin_capture(
     screenshots_per_block: u32,
     blur: bool,
     idle_minutes: i64,
+    base_elapsed_secs: Option<i64>,
 ) -> Result<(), String> {
     use tauri::Manager;
+    if !sync::backend_allowed(&backend) {
+        return Err("backend not allowed".into());
+    }
+    if token.trim().is_empty() {
+        return Err("missing token".into());
+    }
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("queue");
-    begin(token, backend, session_id, screenshots_per_block, blur, idle_minutes, dir);
+    begin(token, backend, session_id, screenshots_per_block, blur, idle_minutes, dir, base_elapsed_secs.unwrap_or(0));
     Ok(())
 }
 
@@ -566,48 +644,20 @@ pub fn end_capture() {
     end();
 }
 
-fn resolve_queue_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
-    use tauri::Manager;
-    app.path().app_data_dir().ok().map(|d| d.join("queue"))
+/// Seconds elapsed in the running session (monotonic). The UI polls this on
+/// focus/visibility to correct a webview timer that was throttled while hidden.
+#[tauri::command]
+pub fn get_elapsed() -> i64 {
+    elapsed_secs()
 }
 
-fn count_blocks(dir: &Path) -> usize {
-    fs::read_dir(dir)
-        .map(|entries| {
-            entries
-                .flatten()
-                .filter(|e| e.file_name().to_string_lossy().starts_with("block-"))
-                .count()
-        })
-        .unwrap_or(0)
+/// Whether the input hook is currently delivering events (activity sampling).
+#[tauri::command]
+pub fn capture_health() -> bool {
+    INPUT_HOOK_OK.load(Ordering::Relaxed)
 }
 
 /// Whether a tracking session is currently live.
 pub fn is_capturing() -> bool {
     ACTIVE.load(Ordering::Relaxed)
-}
-
-/// Count pending queued activity blocks (used by the exit "uploading data" dialog).
-#[tauri::command]
-pub fn queue_count(app: tauri::AppHandle) -> usize {
-    resolve_queue_dir(&app).map(|d| count_blocks(&d)).unwrap_or(0)
-}
-
-/// Finalize the active session and drain the offline queue in one shot.
-/// Returns the number of blocks still pending afterwards (0 = fully synced).
-#[tauri::command]
-pub fn flush_now(app: tauri::AppHandle, token: String, backend: String) -> usize {
-    end();
-    if let Some(dir) = resolve_queue_dir(&app) {
-        flush_queue_dir(&dir, &backend, &token);
-        count_blocks(&dir)
-    } else {
-        0
-    }
-}
-
-// silence unused warning for iso_now helper on some targets
-#[allow(dead_code)]
-fn _keep() {
-    let _ = iso_now();
 }

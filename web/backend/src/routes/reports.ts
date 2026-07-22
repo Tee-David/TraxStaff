@@ -12,6 +12,13 @@ function seconds(startedAt: Date, endedAt: Date | null): number {
   return ((endedAt ?? new Date()).getTime() - startedAt.getTime()) / 1000;
 }
 
+// Worked time = wall-clock duration minus any discarded idle spans. Idle
+// discards are an accounting adjustment; ActivityBlocks are never mutated.
+function workedSeconds(s: { startedAt: Date; endedAt: Date | null; idleDiscards: { seconds: number }[] }): number {
+  const discarded = s.idleDiscards.reduce((sum, d) => sum + d.seconds, 0);
+  return Math.max(0, seconds(s.startedAt, s.endedAt) - discarded);
+}
+
 export default async function reportRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
 
@@ -39,6 +46,7 @@ export default async function reportRoutes(fastify: FastifyInstance) {
         task: { select: { id: true, title: true } },
         user: { select: { id: true, email: true } },
         activityBlocks: { select: { activityPct: true } },
+        idleDiscards: { select: { seconds: true } },
       },
       orderBy: { startedAt: "asc" },
     });
@@ -51,7 +59,7 @@ export default async function reportRoutes(fastify: FastifyInstance) {
     for (const s of sessions) {
       const day = s.startedAt.toISOString().slice(0, 10);
       const d = byDay.get(day) ?? { date: day, totalSeconds: 0, trackedSeconds: 0, manualSeconds: 0, sessions: 0 };
-      const secs = seconds(s.startedAt, s.endedAt);
+      const secs = workedSeconds(s);
       d.totalSeconds += secs;
       if (s.isManual) d.manualSeconds += secs;
       else d.trackedSeconds += secs;
@@ -74,7 +82,7 @@ export default async function reportRoutes(fastify: FastifyInstance) {
         activitySum: 0,
         activityN: 0,
       };
-      p.totalSeconds += seconds(s.startedAt, s.endedAt);
+      p.totalSeconds += workedSeconds(s);
       for (const blk of s.activityBlocks) {
         p.activitySum += blk.activityPct;
         p.activityN += 1;
@@ -108,12 +116,27 @@ export default async function reportRoutes(fastify: FastifyInstance) {
     return reply.send(out);
   });
 
+  // URL usage: total foreground seconds per domain across the caller's visible
+  // sessions in range.
+  fastify.get("/reports/url-usage", async (req, reply) => {
+    const sessions = await loadSessions(req);
+    const ids = sessions.map((s) => s.id);
+    if (ids.length === 0) return reply.send([]);
+    const usages = await prisma.urlUsage.findMany({ where: { sessionId: { in: ids } } });
+    const byDomain = new Map<string, number>();
+    for (const u of usages) byDomain.set(u.domain, (byDomain.get(u.domain) ?? 0) + u.seconds);
+    const out = [...byDomain.entries()]
+      .map(([domain, seconds]) => ({ domain, seconds }))
+      .sort((a, b) => b.seconds - a.seconds);
+    return reply.send(out);
+  });
+
   // Headline summary: total hours, avg activity %, session count, flags.
   fastify.get("/reports/summary", async (req, reply) => {
     const sessions = await loadSessions(req);
     let totalSeconds = 0, activitySum = 0, activityN = 0;
     for (const s of sessions) {
-      totalSeconds += seconds(s.startedAt, s.endedAt);
+      totalSeconds += workedSeconds(s);
       for (const blk of s.activityBlocks) {
         activitySum += blk.activityPct;
         activityN += 1;

@@ -1,18 +1,56 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import CircularTimer from "./CircularTimer";
 import LightRays from "./LightRays";
+import Consent from "./Consent";
 import {
   api,
   API_BASE,
   clearToken,
   getToken,
   setToken,
+  CONSENT_VERSION,
+  type Me,
   type Project,
   type Session,
 } from "./api";
+
+// Push the sync engine our credentials so the offline queue drains even when
+// no session is running. Empty token clears them (on sign-out).
+function pushSyncAuth() {
+  invoke("set_sync_auth", { token: getToken() ?? "", backend: API_BASE }).catch(() => {});
+}
+
+interface SyncState {
+  pending: number;
+  lastSyncedAt: string | null;
+  online: boolean;
+  lastError: string | null;
+}
+
+interface ReminderPrefs { idle: boolean; notTracking: boolean }
+function loadReminders(): ReminderPrefs {
+  try { return { idle: true, notTracking: false, ...JSON.parse(localStorage.getItem("trax_reminders") || "{}") }; }
+  catch { return { idle: true, notTracking: false }; }
+}
+
+// The app's real version (from Tauri); falls back in browser preview.
+async function getAppVersion(): Promise<string> {
+  try { return await (await import("@tauri-apps/api/app")).getVersion(); }
+  catch { return "0.0.0"; }
+}
+
+// Fire a native OS notification (best-effort; requests permission on first use).
+async function notify(title: string, body: string) {
+  try {
+    const n = await import("@tauri-apps/plugin-notification");
+    let granted = await n.isPermissionGranted();
+    if (!granted) granted = (await n.requestPermission()) === "granted";
+    if (granted) n.sendNotification({ title, body });
+  } catch { /* not under Tauri / denied — ignore */ }
+}
 
 const WEEK_TARGET_SECONDS = 40 * 3600; // 40h/week target
 const DAY_TARGET_SECONDS = 8 * 3600;
@@ -31,7 +69,40 @@ export default function App() {
   const [authed, setAuthed] = useState(Boolean(getToken()));
   useUpdateCheck();
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
-  return <Tracker onLogout={() => setAuthed(false)} />;
+  return <ConsentGate onLogout={() => setAuthed(false)} />;
+}
+
+// Gate the tracker behind the consent screen. Capture code (begin_capture) is
+// unreachable until the current CONSENT_VERSION is accepted for this user.
+function ConsentGate({ onLogout }: { onLogout: () => void }) {
+  const [state, setState] = useState<"checking" | "needed" | "ok">("checking");
+
+  useEffect(() => {
+    pushSyncAuth();
+    api<Me>("/auth/me")
+      .then((me) => setState(me.consentVersion != null && me.consentVersion >= CONSENT_VERSION ? "ok" : "needed"))
+      // Offline: if we've accepted before on this device, don't block; else ask.
+      .catch(() => setState(localStorage.getItem("trax_consent_v") === String(CONSENT_VERSION) ? "ok" : "needed"));
+  }, []);
+
+  function signOut() {
+    clearToken();
+    pushSyncAuth();
+    onLogout();
+  }
+
+  if (state === "checking") {
+    return <div className="app-loading"><div className="app-loading-mark" /></div>;
+  }
+  if (state === "needed") {
+    return (
+      <Consent
+        onAccept={() => { localStorage.setItem("trax_consent_v", String(CONSENT_VERSION)); setState("ok"); }}
+        onDecline={signOut}
+      />
+    );
+  }
+  return <Tracker onLogout={onLogout} />;
 }
 
 // Check for a newer signed release on startup; if found, download + relaunch.
@@ -103,47 +174,106 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [tab, setTab] = useState<DashTab>("dashboard");
   const [error, setError] = useState<string | null>(null);
-  const [idleMin, setIdleMin] = useState<number | null>(null);
-  const [closing, setClosing] = useState<number | null>(null); // remaining records while flushing on exit
+  const [idleBanner, setIdleBanner] = useState<number | null>(null); // "you're idle" hint while away
+  const [idlePrompt, setIdlePrompt] = useState<{ minutes: number; fromISO: string; toISO: string } | null>(null);
+  const [resumed, setResumed] = useState<number | null>(null); // suspend gap (minutes)
+  const [sync, setSync] = useState<SyncState | null>(null);
+  const [hookOk, setHookOk] = useState(true);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [closeInfo, setCloseInfo] = useState<{ capturing: boolean; pending: number } | null>(null);
+  const [closingRemaining, setClosingRemaining] = useState<number | null>(null);
   const deviceId = useRef<string | null>(null);
   const heartbeat = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reminders = useRef<ReminderPrefs>(loadReminders());
+  const [remPrefs, setRemPrefs] = useState<ReminderPrefs>(reminders.current);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Latest active session, readable from event listeners that register once.
   const activeRef = useRef<Session | null>(null);
   activeRef.current = active;
 
-  // Idle prompt from the native capture engine.
+  // "Not tracking" reminder: within work hours (Mon–Fri 9–17 local), if the app
+  // is open but no timer is running, nudge once an hour.
   useEffect(() => {
-    const un = listen<number>("trax:idle", (e) => setIdleMin(e.payload));
-    return () => { un.then((f) => f()); };
+    const lastNudge = { at: 0 };
+    const id = setInterval(() => {
+      if (!reminders.current.notTracking || activeRef.current) return;
+      const d = new Date();
+      const workHours = d.getDay() >= 1 && d.getDay() <= 5 && d.getHours() >= 9 && d.getHours() < 17;
+      if (workHours && Date.now() - lastNudge.at > 3600_000) {
+        lastNudge.at = Date.now();
+        notify("Not tracking", "You're not tracking time right now.");
+      }
+    }, 5 * 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Native capture engine → UI events. Registered once; read live state via refs.
+  useEffect(() => {
+    const uns = [
+      // Timer truth from the monotonic clock (immune to minimize/sleep throttling).
+      listen<{ elapsedSecs: number }>("trax:tick", (e) => setElapsed(e.payload.elapsedSecs)),
+      // Sync engine state → badge + toast.
+      listen<SyncState>("trax:sync-state", (e) => setSync(e.payload)),
+      // Input-hook health → "activity unavailable" banner.
+      listen<{ inputHook: boolean }>("trax:capture-health", (e) => setHookOk(e.payload.inputHook)),
+      // Machine woke from sleep.
+      listen<{ gapSecs: number }>("trax:resumed", (e) => setResumed(Math.round(e.payload.gapSecs / 60))),
+      // Idle threshold crossed (informational) and returned from idle (actionable).
+      listen<{ minutes: number }>("trax:idle", (e) => setIdleBanner(e.payload.minutes)),
+      listen<{ minutes: number; fromISO: string; toISO: string }>("trax:idle-ended", (e) => {
+        setIdleBanner(null);
+        if (e.payload.minutes >= 1) {
+          setIdlePrompt(e.payload);
+          if (reminders.current.idle) notify("You were away", `Idle for ~${e.payload.minutes} min while tracking.`);
+        }
+      }),
+    ];
+    invoke<boolean>("capture_health").then(setHookOk).catch(() => {});
+    return () => { uns.forEach((u) => u.then((f) => f())); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Exit flow: Rust holds the window open while a session is live or the sync
-  // queue isn't empty, and emits "app-closing". Like Hubstaff, closing the app
-  // stops tracking: we stop the session server-side, flush the local queue
-  // (finalizing the last block), show an "Uploading data" dialog, then close.
-  const onClosingRef = useRef<() => Promise<void>>(async () => {});
-  onClosingRef.current = async () => {
-    setClosing(await invoke<number>("queue_count").catch(() => 0));
-    try {
-      // Anchor the stop on the server so the timer doesn't resume on next launch.
-      if (activeRef.current) {
-        await api(`/sessions/${activeRef.current.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }).catch(() => {});
-      }
-      const remaining = await invoke<number>("flush_now", { token: getToken() ?? "", backend: API_BASE });
-      setClosing(remaining);
-    } catch { /* offline — close anyway; queue persists on disk for next launch */ }
+  // queue isn't empty, and emits "app-closing" with { capturing, pending }. We
+  // show a three-way dialog (stop & sync / quit anyway / cancel) instead of
+  // destroying the window and silently dropping unsynced records.
+  useEffect(() => {
+    const un = listen<{ capturing: boolean; pending: number }>("app-closing", (e) => setCloseInfo(e.payload));
+    const up = listen<{ remaining: number }>("trax:flush-progress", (e) => setClosingRemaining(e.payload.remaining));
+    return () => { un.then((f) => f()); up.then((f) => f()); };
+  }, []);
+
+  async function destroyWindow() {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     await getCurrentWindow().destroy();
-  };
-  useEffect(() => {
-    const un = listen("app-closing", () => onClosingRef.current());
-    return () => { un.then((f) => f()); };
-  }, []);
+  }
+  // "Stop & sync": stop server-side, then drain the queue with live progress.
+  async function closeStopAndSync() {
+    setClosingRemaining(await invoke<number>("queue_count").catch(() => 0));
+    if (activeRef.current) {
+      await api(`/sessions/${activeRef.current.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }).catch(() => {});
+    }
+    invoke("set_tracking_indicator", { active: false }).catch(() => {});
+    try { await invoke<number>("flush_now_async", { token: getToken() ?? "", backend: API_BASE }); }
+    catch { /* offline — queue persists for next launch */ }
+    await destroyWindow();
+  }
+  // "Quit anyway": finalize the block into the durable queue (no network) and go.
+  async function closeQuitAnyway() {
+    invoke("end_capture").catch(() => {});
+    invoke("set_tracking_indicator", { active: false }).catch(() => {});
+    await destroyWindow();
+  }
+  function closeCancel() {
+    invoke("cancel_close").catch(() => {});
+    setCloseInfo(null);
+    setClosingRemaining(null);
+  }
 
   // System-tray menu actions → app handlers (via a ref so listeners register once).
   const trayHandlers = useRef<Record<string, () => void>>({});
   useEffect(() => {
-    const events = ["start", "stop", "signout", "dashboard", "updates"];
+    const events = ["start", "stop", "signout", "dashboard", "updates", "note"];
     const uns = events.map((e) => listen(`tray:${e}`, () => trayHandlers.current[e]?.()));
     return () => { uns.forEach((u) => u.then((f) => f())); };
   }, []);
@@ -164,15 +294,18 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
 
   useEffect(() => { invoke<string>("get_device_id").then((id) => (deviceId.current = id)).catch(() => {}); load(); /* eslint-disable-next-line */ }, []);
 
+  // Rust drives the timer via trax:tick (monotonic, survives sleep/minimize).
+  // In browser-preview (no Tauri) fall back to a local clock; and on focus we
+  // hard-correct from Rust in case the webview throttled the tick stream.
   useEffect(() => {
-    if (!active) return;
-    const start = new Date(active.startedAt).getTime();
-    const tick = () => setElapsed((Date.now() - start) / 1000);
-    tick();
-    const id = setInterval(tick, 1000);
-    // Browsers throttle intervals in the background — recompute on focus/visibility
-    // so the clock never appears frozen after the window sleeps.
-    const onWake = () => tick();
+    if (!active) { setElapsed(0); return; }
+    const startMs = new Date(active.startedAt).getTime();
+    const localTick = () => setElapsed((Date.now() - startMs) / 1000);
+    const correct = () => invoke<number>("get_elapsed").then((s) => { if (s > 0) setElapsed(s); }).catch(localTick);
+    correct();
+    // Local interpolation between Rust ticks so the display is smooth at 1 Hz.
+    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
+    const onWake = () => correct();
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("focus", onWake);
     return () => {
@@ -192,7 +325,8 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     setProjectId(useProject);
     const firstTask = projects.find((p) => p.id === useProject)?.tasks?.find((t) => t.status !== "done")?.id;
     try {
-      const s = await api<Session>("/sessions/start", { method: "POST", body: JSON.stringify({ projectId: useProject, taskId: (pid ? firstTask : taskId) || undefined, deviceId: deviceId.current ?? undefined, platform: "windows", appVersion: "0.1.0" }) });
+      const appVersion = await getAppVersion();
+      const s = await api<Session>("/sessions/start", { method: "POST", body: JSON.stringify({ projectId: useProject, taskId: (pid ? firstTask : taskId) || undefined, deviceId: deviceId.current ?? undefined, platform: "windows", appVersion }) });
       setActive(s); beginHeartbeat(s.id);
       // Kick off native capture (activity sampling + screenshots + sync) in Rust.
       let perBlock = 1, blur = false, idleMinutes = 5;
@@ -200,19 +334,25 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         const o = await api<{ screenshotsPerBlock: number; blurScreenshots: boolean; idleTimeoutMinutes: number }>("/orgs/settings");
         perBlock = o.screenshotsPerBlock; blur = o.blurScreenshots; idleMinutes = o.idleTimeoutMinutes;
       } catch { /* use defaults */ }
-      invoke("begin_capture", {
-        token: getToken() ?? "",
-        backend: API_BASE,
-        sessionId: s.id,
-        screenshotsPerBlock: perBlock,
-        blur,
-        idleMinutes,
-      }).catch(() => {});
+      // Seed the monotonic timer from the server-anchored start (handles a
+      // session that was already open — the server is authoritative for duration).
+      const baseElapsedSecs = Math.max(0, Math.floor((Date.now() - new Date(s.startedAt).getTime()) / 1000));
+      try {
+        await invoke("begin_capture", {
+          token: getToken() ?? "", backend: API_BASE, sessionId: s.id,
+          screenshotsPerBlock: perBlock, blur, idleMinutes, baseElapsedSecs,
+        });
+        invoke("set_tracking_indicator", { active: true }).catch(() => {});
+      } catch (e) {
+        // Time still counts; warn that activity/screenshots may not be captured.
+        setError(`Tracking started, but capture failed to initialize: ${e instanceof Error ? e.message : e}`);
+      }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not start"); }
   }
   async function stop() {
     if (!active) return;
     invoke("end_capture").catch(() => {});
+    invoke("set_tracking_indicator", { active: false }).catch(() => {});
     try { await api(`/sessions/${active.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }); } catch { /* reconcile later */ }
     stopHeartbeat(); setActive(null); setElapsed(0); load();
   }
@@ -221,7 +361,37 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   async function signOut() {
     if (activeRef.current) { try { await stop(); } catch { /* stop best-effort */ } }
     clearToken();
+    pushSyncAuth(); // clear the sync engine's credentials
     onLogout();
+  }
+
+  // Save a note against the running session (queued server-side; offline notes
+  // simply fail here — they're a convenience, not tracked time).
+  async function saveNote(body: string) {
+    const id = activeRef.current?.id;
+    if (!id || !body.trim()) { setNoteOpen(false); return; }
+    try { await api(`/sessions/${id}/notes`, { method: "POST", body: JSON.stringify({ body: body.trim() }) }); load(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not save note"); }
+    setNoteOpen(false);
+  }
+
+  function updateReminders(next: Partial<ReminderPrefs>) {
+    const merged = { ...reminders.current, ...next };
+    reminders.current = merged;
+    setRemPrefs(merged);
+    try { localStorage.setItem("trax_reminders", JSON.stringify(merged)); } catch { /* ignore */ }
+  }
+
+  // Discard an idle stretch server-side (subtracts from worked time; never
+  // touches the activity hash-chain). Keep = just dismiss.
+  async function resolveIdle(discard: boolean) {
+    const p = idlePrompt;
+    setIdlePrompt(null);
+    if (!discard || !p || !activeRef.current) return;
+    try {
+      await api("/sync/discard-idle", { method: "POST", body: JSON.stringify({ sessionId: activeRef.current.id, fromISO: p.fromISO, toISO: p.toISO }) });
+      load();
+    } catch { /* best-effort */ }
   }
 
   const today = useMemo(() => week.filter((s) => new Date(s.startedAt) >= startOfToday()), [week]);
@@ -244,6 +414,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   trayHandlers.current = {
     start: () => start(),
     stop: () => stop(),
+    note: () => { if (activeRef.current) setNoteOpen(true); },
     signout: () => { signOut(); },
     dashboard: () => { if (!expanded) toggleExpand(); },
     updates: async () => {
@@ -258,25 +429,73 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
 
   return (
     <div className={`app-shell ${expanded ? "is-expanded" : "is-collapsed"}`}>
-      {closing !== null && (
+      {/* Exit: three-way dialog instead of silently dropping unsynced records. */}
+      {closeInfo && (
         <div className="close-overlay">
           <div className="close-dialog">
-            <div className="close-spinner" />
-            <h3 className="close-title">Uploading data…</h3>
-            <p className="close-sub">Saving your latest tracked time before closing.</p>
-            <div className="close-remaining">Remaining records: <strong>{closing}</strong></div>
+            {closingRemaining !== null ? (
+              <>
+                <div className="close-spinner" />
+                <h3 className="close-title">Uploading your data…</h3>
+                <p className="close-sub">Saving tracked time before closing.</p>
+                <div className="close-remaining">Records remaining: <strong>{closingRemaining}</strong></div>
+              </>
+            ) : (
+              <>
+                <h3 className="close-title">Close Trax?</h3>
+                <p className="close-sub">
+                  {closeInfo.capturing ? "A timer is still running. " : ""}
+                  {closeInfo.pending > 0 ? `${closeInfo.pending} record${closeInfo.pending > 1 ? "s" : ""} haven't synced yet.` : "Your tracked time will be saved."}
+                </p>
+                <div className="close-actions">
+                  <button className="close-primary" onClick={closeStopAndSync}>Stop &amp; sync</button>
+                  <button className="close-ghost" onClick={closeQuitAnyway}>Quit anyway</button>
+                  <button className="close-cancel" onClick={closeCancel}>Cancel</button>
+                </div>
+                {closeInfo.pending > 0 && <p className="close-fine">“Quit anyway” keeps your records — they upload next time you open Trax.</p>}
+              </>
+            )}
           </div>
         </div>
       )}
-      {idleMin !== null && active && (
+
+      {/* Idle keep/discard prompt on return from being away. */}
+      {idlePrompt && active && (
         <div className="idle-banner">
-          <span>You&rsquo;ve been idle for ~{idleMin} min. Keep tracking this time?</span>
+          <span>You were away for ~{idlePrompt.minutes} min. Keep that time or discard it?</span>
           <div className="idle-actions">
-            <button className="idle-keep" onClick={() => setIdleMin(null)}>Keep</button>
-            <button className="idle-stop" onClick={() => { setIdleMin(null); stop(); }}>Stop</button>
+            <button className="idle-keep" onClick={() => resolveIdle(false)}>Keep</button>
+            <button className="idle-stop" onClick={() => resolveIdle(true)}>Discard idle</button>
           </div>
         </div>
       )}
+
+      {/* Machine woke from sleep. */}
+      {resumed !== null && active && (
+        <div className="idle-banner">
+          <span>Your computer was asleep for ~{resumed} min.</span>
+          <div className="idle-actions">
+            <button className="idle-keep" onClick={() => setResumed(null)}>Keep tracking</button>
+            <button className="idle-stop" onClick={() => { setResumed(null); stop(); }}>Stop</button>
+          </div>
+        </div>
+      )}
+
+      {/* Informational: currently idle (the actionable prompt shows on return). */}
+      {idleBanner !== null && active && !idlePrompt && (
+        <div className="warn-banner subtle">You appear to be away (~{idleBanner} min idle).</div>
+      )}
+
+      {/* Activity sampling unavailable (input hook dead) — time still counts. */}
+      {!hookOk && active && (
+        <div className="warn-banner">Activity tracking is unavailable — your time still counts, but activity % will read 0.</div>
+      )}
+
+      {/* Add a note to the running session. */}
+      <AnimatePresence>
+        {noteOpen && <NoteModal onSave={saveNote} onClose={() => setNoteOpen(false)} />}
+      </AnimatePresence>
+
       <aside className="widget-pane">
         <TrackingWidget
           projects={projects} projectId={projectId}
@@ -284,6 +503,9 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
           today={today} onStart={start} onStop={stop} error={error}
           onSignOut={() => { clearToken(); onLogout(); }}
           onRefresh={load} lastUpdated={lastUpdated} expanded={expanded} onToggleExpand={toggleExpand}
+          sync={sync} onAddNote={() => setNoteOpen(true)}
+          settingsOpen={settingsOpen} onToggleSettings={() => setSettingsOpen((s) => !s)}
+          reminders={remPrefs} onUpdateReminders={updateReminders}
         />
       </aside>
       {expanded && (
@@ -307,8 +529,11 @@ function TrackingWidget(props: {
   active: Session | null; workedToday: number; workedWeek: number; today: Session[];
   onStart: (pid?: string) => void; onStop: () => void; error: string | null; onSignOut: () => void;
   onRefresh: () => void; lastUpdated: string | null; expanded: boolean; onToggleExpand: () => void;
+  sync: SyncState | null; onAddNote: () => void;
+  settingsOpen: boolean; onToggleSettings: () => void;
+  reminders: ReminderPrefs; onUpdateReminders: (n: Partial<ReminderPrefs>) => void;
 }) {
-  const { projects, active, workedToday, workedWeek, today, onStart, onStop, error, onSignOut, onRefresh, lastUpdated, expanded, onToggleExpand } = props;
+  const { projects, active, workedToday, workedWeek, today, onStart, onStop, error, onRefresh, lastUpdated, expanded, onToggleExpand, sync, onAddNote, settingsOpen, onToggleSettings, reminders, onUpdateReminders } = props;
   const [q, setQ] = useState("");
 
   const secsToday = (pid: string) =>
@@ -359,16 +584,82 @@ function TrackingWidget(props: {
         })}
       </div>
 
+      <SyncBadge sync={sync} />
+
       <div className="widget-foot">
         <button className="foot-refresh" onClick={onRefresh} title="Refresh">
           <span className="foot-refresh-ico">↻</span>
           {lastUpdated ? `Updated ${lastUpdated}` : "Refresh"}
         </button>
+        {active && (
+          <button className="foot-icon" onClick={onAddNote} title="Add a note" aria-label="Add a note">✎</button>
+        )}
+        <div className="foot-settings-wrap">
+          <button className="foot-icon" onClick={onToggleSettings} title="Reminders" aria-label="Reminders">⚙</button>
+          {settingsOpen && (
+            <div className="foot-settings">
+              <div className="foot-settings-title">Reminders</div>
+              <label className="foot-toggle">
+                <input type="checkbox" checked={reminders.idle} onChange={(e) => onUpdateReminders({ idle: e.target.checked })} />
+                <span>Notify when I go idle while tracking</span>
+              </label>
+              <label className="foot-toggle">
+                <input type="checkbox" checked={reminders.notTracking} onChange={(e) => onUpdateReminders({ notTracking: e.target.checked })} />
+                <span>Remind me if I&rsquo;m not tracking (work hours)</span>
+              </label>
+            </div>
+          )}
+        </div>
         <button className="foot-icon" onClick={onToggleExpand} title={expanded ? "Collapse" : "Expand"} aria-label={expanded ? "Collapse" : "Expand"}>
           {expanded ? "»" : "«"}
         </button>
       </div>
     </div>
+  );
+}
+
+// Sync status: green when synced, amber with a pending count when offline, red
+// on a sync error (tooltip shows the reason).
+function SyncBadge({ sync }: { sync: SyncState | null }) {
+  if (!sync) return null;
+  const cls = sync.lastError ? "err" : sync.pending > 0 ? "offline" : "ok";
+  const label = sync.lastError
+    ? "Sync error"
+    : sync.pending > 0
+      ? `Offline · ${sync.pending} pending`
+      : sync.lastSyncedAt
+        ? `Synced ${new Date(sync.lastSyncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        : "Synced";
+  return (
+    <div className={`sync-badge ${cls}`} title={sync.lastError ?? label}>
+      <span className="sync-dot" />
+      <span className="sync-label">{label}</span>
+    </div>
+  );
+}
+
+// Add-a-note modal for the running session.
+function NoteModal({ onSave, onClose }: { onSave: (body: string) => void; onClose: () => void }) {
+  const [body, setBody] = useState("");
+  return (
+    <motion.div className="note-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+      <motion.div
+        className="note-modal"
+        initial={{ scale: 0.96, y: 8 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 8 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="note-title">Add a time note</h3>
+        <textarea
+          className="note-input" autoFocus maxLength={500} value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="What are you working on?"
+        />
+        <div className="note-actions">
+          <button className="note-cancel" onClick={onClose}>Cancel</button>
+          <button className="note-save" onClick={() => onSave(body)} disabled={!body.trim()}>Save note</button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -803,14 +1094,17 @@ function ActivityPage() {
   const [freq, setFreq] = useState<"ten" | "all">("all");
   const [shots, setShots] = useState<{ id: string; url: string | null; takenAt: string; activityPct: number; project: string; monitorIndex: number }[]>([]);
   const [apps, setApps] = useState<{ appName: string; seconds: number }[]>([]);
+  const [urls, setUrls] = useState<{ domain: string; seconds: number }[]>([]);
   const [summary, setSummary] = useState<{ totalSeconds: number; avgActivityPct: number | null } | null>(null);
   useEffect(() => {
     const from = startOfWeek().toISOString();
     api<typeof shots>(`/screenshots?from=${from}`).then(setShots).catch(() => {});
     api<typeof apps>(`/reports/app-usage?from=${from}`).then(setApps).catch(() => {});
+    api<typeof urls>(`/reports/url-usage?from=${from}`).then(setUrls).catch(() => {});
     api<typeof summary>(`/reports/summary?from=${from}`).then(setSummary).catch(() => {});
   }, []);
   const maxApp = Math.max(1, ...apps.map((a) => a.seconds));
+  const maxUrl = Math.max(1, ...urls.map((u) => u.seconds));
 
   // group screenshots into hour blocks
   const blocks = useMemo(() => {
@@ -882,7 +1176,19 @@ function ActivityPage() {
           </div>
         )
       )}
-      {sub === "urls" && <div className="empty">URL tracking needs a browser extension — coming later.</div>}
+      {sub === "urls" && (
+        urls.length === 0 ? <div className="empty">No website activity captured yet.</div> : (
+          <div className="bars">
+            {urls.slice(0, 14).map((u) => (
+              <div className="bar-row" key={u.domain}>
+                <span className="bar-name">{u.domain}</span>
+                <div className="bar-track"><span style={{ width: `${(u.seconds / maxUrl) * 100}%` }} /></div>
+                <span className="bar-val">{fmtShort(u.seconds)}</span>
+              </div>
+            ))}
+          </div>
+        )
+      )}
     </div>
   );
 }

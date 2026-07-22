@@ -1,6 +1,10 @@
-// Backend base URL. Overridable at build time via VITE_BACKEND_URL.
+// Backend base URL. Overridable at build time via VITE_BACKEND_URL; otherwise
+// dev builds hit the local backend and release builds hit production. Never
+// let a release build silently fall back to localhost (that shipped a broken
+// exe once — every API call failed on end-user machines).
 export const API_BASE =
-  (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? "http://localhost:3099";
+  (import.meta.env.VITE_BACKEND_URL as string | undefined) ??
+  (import.meta.env.DEV ? "http://localhost:3099" : "https://trax-backend-ocaq.onrender.com");
 
 const TOKEN_KEY = "trax_desktop_token";
 
@@ -51,6 +55,21 @@ export interface Session {
   deviceId?: string;
   isManual?: boolean;
   tamperSuspected?: boolean;
+  discardedSeconds?: number;
   project: { id: string; name: string; clientTag: string | null };
   task?: { id: string; title: string } | null;
+  notes?: { id: string; body: string; createdAt: string }[];
 }
+
+export interface Me {
+  id: string;
+  email: string;
+  role: string;
+  orgId: string;
+  consentAcceptedAt: string | null;
+  consentVersion: number | null;
+}
+
+// The client's current disclosure version. Bump when what's collected changes,
+// which re-triggers the consent screen for everyone on next launch.
+export const CONSENT_VERSION = 1;

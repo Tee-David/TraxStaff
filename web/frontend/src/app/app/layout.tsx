@@ -83,7 +83,11 @@ function Shell({ children }: { children: React.ReactNode }) {
   const expandedNow = !collapsed || hovered;
 
   if (loading) {
-    return <div className="flex min-h-screen items-center justify-center text-muted">Loading…</div>;
+    return (
+      <div className="trax-loading" role="status" aria-label="Loading">
+        <div className="trax-loading-mark" />
+      </div>
+    );
   }
   if (!user) {
     if (typeof window !== "undefined") window.location.href = "/login";

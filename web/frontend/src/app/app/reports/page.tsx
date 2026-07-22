@@ -17,6 +17,7 @@ export default function ReportsPage() {
   const [days, setDays] = useState<TimesheetDay[]>([]);
   const [projects, setProjects] = useState<ByProjectRow[]>([]);
   const [apps, setApps] = useState<{ appName: string; seconds: number }[]>([]);
+  const [urls, setUrls] = useState<{ domain: string; seconds: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<DateRangeValue>({ type: "preset", preset: "week" });
   const [member, setMember] = useState("");
@@ -34,12 +35,14 @@ export default function ReportsPage() {
       api<TimesheetDay[]>(`/reports/timesheet${q}`),
       api<ByProjectRow[]>(`/reports/by-project${q}`),
       api<{ appName: string; seconds: number }[]>(`/reports/app-usage${q}`),
+      api<{ domain: string; seconds: number }[]>(`/reports/url-usage${q}`),
     ])
-      .then(([s, d, p, a]) => {
+      .then(([s, d, p, a, u]) => {
         setSummary(s);
         setDays(d);
         setProjects(p);
         setApps(a);
+        setUrls(u);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -136,34 +139,65 @@ export default function ReportsPage() {
             )}
           </Card>
 
-          <Card className="mb-6 p-5">
-            <h2 className="mb-4 text-lg">App &amp; website usage</h2>
-            {apps.length === 0 ? (
-              <p className="text-sm text-muted">No app usage captured yet (the desktop tracker records this while tracking).</p>
-            ) : (
-              <div className="space-y-3">
-                {apps.slice(0, 12).map((a) => {
-                  const maxApp = Math.max(1, ...apps.map((x) => x.seconds));
-                  return (
-                    <div key={a.appName}>
-                      <div className="mb-1 flex items-center justify-between text-sm">
-                        <span className="font-medium">{a.appName}</span>
-                        <span className="text-muted">{formatDurationShort(a.seconds)}</span>
+          <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <Card className="p-5">
+              <h2 className="mb-4 text-lg">App usage</h2>
+              {apps.length === 0 ? (
+                <p className="text-sm text-muted">No app usage captured yet (the desktop tracker records this while tracking).</p>
+              ) : (
+                <div className="space-y-3">
+                  {apps.slice(0, 12).map((a) => {
+                    const maxApp = Math.max(1, ...apps.map((x) => x.seconds));
+                    return (
+                      <div key={a.appName}>
+                        <div className="mb-1 flex items-center justify-between text-sm">
+                          <span className="font-medium">{a.appName}</span>
+                          <span className="text-muted">{formatDurationShort(a.seconds)}</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-canvas">
+                          <motion.div
+                            className="h-full rounded-full bg-accent"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(a.seconds / maxApp) * 100}%` }}
+                            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+                          />
+                        </div>
                       </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-canvas">
-                        <motion.div
-                          className="h-full rounded-full bg-accent"
-                          initial={{ width: 0 }}
-                          animate={{ width: `${(a.seconds / maxApp) * 100}%` }}
-                          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                        />
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+
+            <Card className="p-5">
+              <h2 className="mb-4 text-lg">Website usage</h2>
+              {urls.length === 0 ? (
+                <p className="text-sm text-muted">No website usage captured yet (the desktop tracker records this while tracking).</p>
+              ) : (
+                <div className="space-y-3">
+                  {urls.slice(0, 12).map((u) => {
+                    const maxUrl = Math.max(1, ...urls.map((x) => x.seconds));
+                    return (
+                      <div key={u.domain}>
+                        <div className="mb-1 flex items-center justify-between text-sm">
+                          <span className="font-medium">{u.domain}</span>
+                          <span className="text-muted">{formatDurationShort(u.seconds)}</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-canvas">
+                          <motion.div
+                            className="h-full rounded-full bg-brand"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(u.seconds / maxUrl) * 100}%` }}
+                            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          </div>
 
           <Card className="p-5">
             <h2 className="mb-4 text-lg">Daily timesheet</h2>

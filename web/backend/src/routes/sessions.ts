@@ -27,6 +27,10 @@ const manualSchema = z.object({
   manualReason: z.string().min(1),
 });
 
+const noteSchema = z.object({
+  body: z.string().min(1).max(500),
+});
+
 // Resolve (or lazily create) a device row for this user. The desktop app will
 // pass a stable deviceId once it has one; the first call registers the device.
 async function resolveDevice(
@@ -217,10 +221,28 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
         project: { select: { id: true, name: true, clientTag: true } },
         task: { select: { id: true, title: true } },
         user: { select: { id: true, email: true } },
+        notes: { select: { id: true, body: true, createdAt: true }, orderBy: { createdAt: "asc" } },
       },
       orderBy: { startedAt: "desc" },
       take: 500,
     });
     return reply.send(sessions);
+  });
+
+  // Attach a free-text note to a session (context for a tracked entry).
+  fastify.post("/sessions/:id/notes", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = noteSchema.parse(req.body);
+
+    const session = await prisma.trackingSession.findUnique({ where: { id } });
+    if (!session || session.userId !== req.user.userId) {
+      return reply.code(404).send({ error: "Session not found" });
+    }
+
+    const note = await prisma.timeNote.create({
+      data: { sessionId: id, userId: req.user.userId, body: body.body },
+      select: { id: true, body: true, createdAt: true },
+    });
+    return reply.code(201).send(note);
   });
 }

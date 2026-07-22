@@ -14,6 +14,7 @@ interface OrgSettings {
   screenshotsPerBlock: number;
   blurScreenshots: boolean;
   idleTimeoutMinutes: number;
+  keepIdleDefault: boolean;
 }
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -95,6 +96,7 @@ export default function SettingsPage() {
           screenshotsPerBlock: settings.screenshotsPerBlock,
           blurScreenshots: settings.blurScreenshots,
           idleTimeoutMinutes: settings.idleTimeoutMinutes,
+          keepIdleDefault: settings.keepIdleDefault,
         }),
       });
       setSettings(updated);
@@ -188,7 +190,6 @@ export default function SettingsPage() {
             <SettingRow
               title="Idle timeout"
               description="After this many consecutive idle minutes, the tracker prompts the member to keep or discard the idle time."
-              noBorder
             >
               <div className="flex items-center gap-2">
                 <input
@@ -201,6 +202,17 @@ export default function SettingsPage() {
                 />
                 <span className="text-[13px] text-muted">minutes</span>
               </div>
+            </SettingRow>
+
+            <SettingRow
+              title="Keep idle time by default"
+              description="When the idle prompt is dismissed or times out, keep the idle time instead of discarding it. Members can still choose per prompt."
+              noBorder
+            >
+              <Toggle
+                checked={settings.keepIdleDefault}
+                onChange={(v) => setSettings({ ...settings, keepIdleDefault: v })}
+              />
             </SettingRow>
           </Card>
         )}

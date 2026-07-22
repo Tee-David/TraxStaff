@@ -27,6 +27,10 @@ const acceptInviteSchema = z.object({
   password: z.string().min(8),
 });
 
+const consentSchema = z.object({
+  version: z.number().int().min(1),
+});
+
 export default async function authRoutes(fastify: FastifyInstance) {
   // Register a brand-new organization + its owner account.
   fastify.post("/auth/register", async (req, reply) => {
@@ -133,6 +137,23 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
   fastify.get("/auth/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user.userId } });
-    return reply.send({ id: user.id, email: user.email, role: user.role, orgId: user.orgId });
+    return reply.send({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      orgId: user.orgId,
+      consentAcceptedAt: user.consentAcceptedAt,
+      consentVersion: user.consentVersion,
+    });
+  });
+
+  // Record the user's acceptance of the monitoring consent notice.
+  fastify.post("/auth/consent", { preHandler: [fastify.authenticate] }, async (req, reply) => {
+    const body = consentSchema.parse(req.body);
+    await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { consentAcceptedAt: new Date(), consentVersion: body.version },
+    });
+    return reply.send({ ok: true });
   });
 }

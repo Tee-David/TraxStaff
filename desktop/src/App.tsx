@@ -347,21 +347,35 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     await getCurrentWindow().destroy();
   }
-  // "Stop & sync": stop server-side, then drain the queue with live progress.
-  async function closeStopAndSync() {
-    setClosingRemaining(await invoke<number>("queue_count").catch(() => 0));
-    if (activeRef.current) {
-      await api(`/sessions/${activeRef.current.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }).catch(() => {});
-    }
+  // Preserve a session's time locally so it's never lost on exit, whichever
+  // button the user picks (shows in totals next launch; queued blocks still sync).
+  function preserveOnExit(cur: Session | null) {
+    if (!cur) return;
+    stoppedIds.current.add(cur.id);
+    const finished: Session = { ...cur, endedAt: new Date().toISOString() };
+    setLocalSessions((prev) => { const next = mergeSessions([], [...prev, finished]); saveLocalSessions(next); return next; });
     invoke("set_tracking_indicator", { active: false }).catch(() => {});
-    try { await invoke<number>("flush_now_async", { token: getToken() ?? "", backend: API_BASE }); }
-    catch { /* offline — queue persists for next launch */ }
+  }
+  // "Stop & sync": save locally, tell the server, then try to drain the queue —
+  // but NEVER hang the close. Cap the flush; whatever's left drains next launch.
+  async function closeStopAndSync() {
+    const cur = activeRef.current;
+    preserveOnExit(cur);
+    setClosingRemaining(await invoke<number>("queue_count").catch(() => 0));
+    if (cur) api(`/sessions/${cur.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }).catch(() => {});
+    await Promise.race([
+      invoke<number>("flush_now_async", { token: getToken() ?? "", backend: API_BASE }).catch(() => 0),
+      new Promise((r) => setTimeout(r, 25_000)), // hard cap so a flaky network can't wedge the exit
+    ]);
     await destroyWindow();
   }
-  // "Quit anyway": finalize the block into the durable queue (no network) and go.
+  // "Quit anyway": save locally + finalize the block to the durable queue (no
+  // waiting on the network) and go. Your time is intact when you reopen.
   async function closeQuitAnyway() {
-    invoke("end_capture").catch(() => {});
-    invoke("set_tracking_indicator", { active: false }).catch(() => {});
+    const cur = activeRef.current;
+    preserveOnExit(cur);
+    if (cur) api(`/sessions/${cur.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }).catch(() => {}); // best-effort
+    await invoke("end_capture").catch(() => {});
     await destroyWindow();
   }
   function closeCancel() {
@@ -1195,32 +1209,83 @@ function DayTimeline({ list }: { list: Session[] }) {
   );
 }
 
+type RangeKey = "today" | "yesterday" | "week" | "last7" | "month" | "lastmonth" | "custom";
+function rangeFor(key: RangeKey, cf?: string, ct?: string): { from: Date; to: Date } {
+  const now = new Date();
+  const sod = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+  const eod = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
+  switch (key) {
+    case "today": return { from: sod(now), to: eod(now) };
+    case "yesterday": { const y = new Date(now); y.setDate(y.getDate() - 1); return { from: sod(y), to: eod(y) }; }
+    case "week": return { from: startOfWeek(), to: eod(now) };
+    case "last7": { const f = new Date(now); f.setDate(f.getDate() - 6); return { from: sod(f), to: eod(now) }; }
+    case "month": return { from: sod(new Date(now.getFullYear(), now.getMonth(), 1)), to: eod(now) };
+    case "lastmonth": return { from: sod(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: eod(new Date(now.getFullYear(), now.getMonth(), 0)) };
+    case "custom": return { from: cf ? sod(new Date(cf)) : sod(now), to: ct ? eod(new Date(ct)) : eod(now) };
+  }
+}
+
+// Responsive date-range filter: preset chips + a custom from/to picker.
+function DateRangePicker({ value, custom, onChange }: {
+  value: RangeKey; custom: { from?: string; to?: string };
+  onChange: (k: RangeKey, from?: string, to?: string) => void;
+}) {
+  const presets: { k: RangeKey; label: string }[] = [
+    { k: "today", label: "Today" }, { k: "yesterday", label: "Yesterday" }, { k: "week", label: "This week" },
+    { k: "last7", label: "Last 7 days" }, { k: "month", label: "This month" }, { k: "lastmonth", label: "Last month" },
+  ];
+  return (
+    <div className="range-picker">
+      <div className="range-chips">
+        {presets.map((p) => (
+          <button key={p.k} className={`range-chip ${value === p.k ? "on" : ""}`} onClick={() => onChange(p.k)}>{p.label}</button>
+        ))}
+        <button className={`range-chip ${value === "custom" ? "on" : ""}`} onClick={() => onChange("custom", custom.from, custom.to)}>Custom</button>
+      </div>
+      {value === "custom" && (
+        <div className="range-custom">
+          <input type="date" value={custom.from ?? ""} max={custom.to} onChange={(e) => onChange("custom", e.target.value || undefined, custom.to)} />
+          <span className="range-arrow">→</span>
+          <input type="date" value={custom.to ?? ""} min={custom.from} onChange={(e) => onChange("custom", custom.from, e.target.value || undefined)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TimesheetsPage({ week }: { week: Session[] }) {
   const [sub, setSub] = useState<"edit" | "approvals">("edit");
-  const [view, setView] = useState<"daily" | "weekly">("daily");
-  const [dayIdx, setDayIdx] = useState(() => (new Date().getDay() + 6) % 7); // 0=Mon
-  const weekStart = useMemo(() => startOfWeek(), []);
-  const days = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; }),
-    [weekStart],
-  );
+  const [rangeKey, setRangeKey] = useState<RangeKey>("week");
+  const [custom, setCustom] = useState<{ from?: string; to?: string }>({});
+  const range = useMemo(() => rangeFor(rangeKey, custom.from, custom.to), [rangeKey, custom]);
+  const [fetched, setFetched] = useState<Session[]>(week);
+  const [loading, setLoading] = useState(false);
 
-  const rows = sub === "approvals" ? week.filter((s) => s.isManual || s.tamperSuspected) : week;
-  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-  const dayRows = useMemo(
-    () => rows.filter((s) => sameDay(new Date(s.startedAt), days[dayIdx])).sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()),
-    [rows, days, dayIdx],
-  );
-  const weekTotal = rows.reduce((a, s) => a + secs(s), 0);
-  const dayTotal = dayRows.reduce((a, s) => a + secs(s), 0);
-  const manualTotal = dayRows.filter((s) => s.isManual).reduce((a, s) => a + secs(s), 0);
+  // "This week" reuses the already-loaded, merged (incl. local/unsynced) data;
+  // any other range fetches from the server for that window.
+  useEffect(() => {
+    if (rangeKey === "week") { setFetched(week); return; }
+    setLoading(true);
+    api<Session[]>(`/sessions?from=${range.from.toISOString()}&to=${range.to.toISOString()}`)
+      .then(setFetched).catch(() => setFetched([])).finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeKey, range.from.getTime(), range.to.getTime(), week]);
+
+  const inRange = (s: Session) => { const t = new Date(s.startedAt).getTime(); return t >= range.from.getTime() && t <= range.to.getTime(); };
+  const rows = (sub === "approvals" ? fetched.filter((s) => s.isManual || s.tamperSuspected) : fetched).filter(inRange);
+  const total = rows.reduce((a, s) => a + secs(s), 0);
+  const trackedTotal = rows.filter((s) => !s.isManual).reduce((a, s) => a + secs(s), 0);
+  const manualTotal = rows.filter((s) => s.isManual).reduce((a, s) => a + secs(s), 0);
 
   const byDay = useMemo(() => {
-    return days.map((d) => ({
-      date: d,
-      list: rows.filter((s) => sameDay(new Date(s.startedAt), d)).sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()),
-    }));
-  }, [rows, days]);
+    const g = new Map<string, Session[]>();
+    for (const s of [...rows].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())) {
+      const k = new Date(s.startedAt).toDateString();
+      (g.get(k) ?? g.set(k, []).get(k)!).push(s);
+    }
+    return [...g.entries()];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
 
   const Table = ({ list }: { list: Session[] }) => (
     <div className="ts-table">
@@ -1238,48 +1303,40 @@ function TimesheetsPage({ week }: { week: Session[] }) {
 
   return (
     <div className="page">
-      <div className="page-head"><h2>Timesheets</h2><span className="muted small">Week of {fmtD(weekStart.toISOString())} · {fmtShort(weekTotal)} total</span></div>
-      <div className="ts-controls">
-        <SubTabs tabs={[{ id: "edit", label: "View & edit" }, { id: "approvals", label: "Approvals" }]} value={sub} onChange={setSub} />
-        <SubTabs tabs={[{ id: "daily", label: "Daily" }, { id: "weekly", label: "Weekly" }]} value={view} onChange={setView} />
+      <div className="page-head">
+        <h2>Timesheets</h2>
+        <span className="muted small">{fmtD(range.from.toISOString())} – {fmtD(range.to.toISOString())} · {fmtShort(total)} total</span>
       </div>
 
-      {view === "daily" ? (
-        <>
-          <div className="ts-daypick">
-            {days.map((d, i) => {
-              const total = rows.filter((s) => sameDay(new Date(s.startedAt), d)).reduce((a, s) => a + secs(s), 0);
-              return (
-                <button key={i} className={`ts-daychip ${i === dayIdx ? "on" : ""}`} onClick={() => setDayIdx(i)}>
-                  <span className="ts-daychip-dow">{DOW[i]}</span>
-                  <span className="ts-daychip-num">{d.getDate()}</span>
-                  <span className="ts-daychip-bar" style={{ opacity: total > 0 ? 1 : 0.15 }} />
-                </button>
-              );
-            })}
-          </div>
-          <div className="ts-summary">
-            <div><div className="dc-label">Worked</div><div className="act-bench-val">{fmtShort(dayTotal)}</div></div>
-            <div><div className="dc-label">Manual</div><div className="act-bench-val">{manualTotal > 0 ? fmtShort(manualTotal) : "—"}</div></div>
-            <div><div className="dc-label">Entries</div><div className="act-bench-val">{dayRows.length}</div></div>
-            <div className="ts-summary-tl"><div className="dc-label mb">Timeline</div><DayTimeline list={dayRows} /></div>
-          </div>
-          {dayRows.length === 0 ? (
-            <div className="empty">{sub === "approvals" ? "Nothing awaiting review on this day." : "No time tracked on this day."}</div>
-          ) : <Table list={dayRows} />}
-        </>
+      <div className="ts-controls">
+        <SubTabs tabs={[{ id: "edit", label: "View & edit" }, { id: "approvals", label: "Approvals" }]} value={sub} onChange={setSub} />
+      </div>
+
+      <DateRangePicker
+        value={rangeKey}
+        custom={custom}
+        onChange={(k, f, t) => { setRangeKey(k); if (k === "custom") setCustom({ from: f, to: t }); }}
+      />
+
+      <div className="ts-summary">
+        <div><div className="dc-label">Total</div><div className="act-bench-val">{fmtShort(total)}</div></div>
+        <div><div className="dc-label">Tracked</div><div className="act-bench-val">{fmtShort(trackedTotal)}</div></div>
+        <div><div className="dc-label">Manual</div><div className="act-bench-val">{manualTotal > 0 ? fmtShort(manualTotal) : "—"}</div></div>
+        <div><div className="dc-label">Entries</div><div className="act-bench-val">{rows.length}</div></div>
+      </div>
+
+      {loading ? (
+        <div className="empty">Loading…</div>
+      ) : byDay.length === 0 ? (
+        <div className="empty">{sub === "approvals" ? "Nothing awaiting review in this range." : "No time tracked in this range."}</div>
       ) : (
-        byDay.every((d) => d.list.length === 0) ? (
-          <div className="empty">{sub === "approvals" ? "Nothing awaiting review." : "No time tracked this week."}</div>
-        ) : (
-          byDay.filter((d) => d.list.length > 0).map((d) => (
-            <div className="ts-day" key={d.date.toISOString()}>
-              <div className="ts-day-head"><span>{d.date.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}</span><span>{fmtShort(d.list.reduce((a, s) => a + secs(s), 0))}</span></div>
-              <DayTimeline list={d.list} />
-              <Table list={d.list} />
-            </div>
-          ))
-        )
+        byDay.map(([k, list]) => (
+          <div className="ts-day" key={k}>
+            <div className="ts-day-head"><span>{new Date(k).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}</span><span>{fmtShort(list.reduce((a, s) => a + secs(s), 0))}</span></div>
+            <DayTimeline list={list} />
+            <Table list={list} />
+          </div>
+        ))
       )}
     </div>
   );
@@ -1295,6 +1352,7 @@ function ActivityPage() {
   // Screenshots captured on THIS device, shown instantly from the local cache —
   // no waiting for a block boundary or upload.
   const [localShots, setLocalShots] = useState<{ takenAt: string; monitorIndex: number; dataUrl: string }[]>([]);
+  const [lightbox, setLightbox] = useState<string | null>(null); // full-size image src
   useEffect(() => {
     const from = startOfWeek().toISOString();
     api<typeof shots>(`/screenshots?from=${from}`).then(setShots).catch(() => {});
@@ -1346,7 +1404,7 @@ function ActivityPage() {
               <div className="shot-block-head"><span className="shot-block-time">On this device</span><span className="muted small">{localShots.length} recent · not yet uploaded shown here too</span></div>
               <div className="shot-grid">
                 {localShots.map((s, i) => (
-                  <div className="shot" key={`local-${i}`}>
+                  <div className="shot" key={`local-${i}`} onClick={() => setLightbox(s.dataUrl)}>
                     <div className="shot-proj">Local</div>
                     <img src={s.dataUrl} alt="" />
                     <div className="shot-foot"><span>{fmtT(s.takenAt)}</span><span className="muted small">mon {s.monitorIndex + 1}</span></div>
@@ -1361,7 +1419,7 @@ function ActivityPage() {
                 <div className="shot-block-head"><span className="shot-block-time">{label}</span><span className="muted small">{list.length} screenshot{list.length > 1 ? "s" : ""}</span></div>
                 <div className="shot-grid">
                   {list.map((s) => (
-                    <div className="shot" key={s.id}>
+                    <div className="shot" key={s.id} onClick={() => s.url && setLightbox(s.url)}>
                       <div className="shot-proj">{s.project}</div>
                       {s.url ? <img src={s.url} alt="" /> : <div className="shot-empty">n/a</div>}
                       <div className="shot-foot">
@@ -1403,6 +1461,16 @@ function ActivityPage() {
           </div>
         )
       )}
+
+      {/* Full-size screenshot viewer. */}
+      <AnimatePresence>
+        {lightbox && (
+          <motion.div className="lightbox" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setLightbox(null)}>
+            <motion.img src={lightbox} alt="Screenshot" initial={{ scale: 0.96 }} animate={{ scale: 1 }} exit={{ scale: 0.96 }} onClick={(e) => e.stopPropagation()} />
+            <button className="lightbox-close" onClick={() => setLightbox(null)} aria-label="Close">✕</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -56,51 +56,52 @@ export default async function syncRoutes(fastify: FastifyInstance) {
       return reply.code(404).send({ error: "Session not found" });
     }
 
-    // Establish the chain anchor from what's already stored.
-    const last = await prisma.activityBlock.findFirst({
-      where: { sessionId: body.sessionId },
-      orderBy: { sequenceNo: "desc" },
+    // Ingest EVERY block in the batch. Blocks legitimately arrive out of order
+    // in the offline-first model (a queued block flushes after later blocks
+    // already synced inline), so we must never drop one for having a lower
+    // sequenceNo than what's stored — that silently lost tracked time and then
+    // wedged the client's queue. The unique (sessionId, sequenceNo) index plus
+    // skipDuplicates makes this idempotent and order-independent.
+    await prisma.activityBlock.createMany({
+      data: body.blocks.map((b) => ({
+        sessionId: body.sessionId,
+        blockStart: new Date(b.blockStart),
+        blockEnd: new Date(b.blockEnd),
+        keyboardPct: b.keyboardPct,
+        mousePct: b.mousePct,
+        activityPct: b.activityPct,
+        idleSeconds: b.idleSeconds,
+        sequenceNo: b.sequenceNo,
+        prevHash: b.prevHash,
+        hash: b.hash,
+      })),
+      skipDuplicates: true,
     });
-    const startingPrev = last?.hash ?? GENESIS;
-    const startingSeq = last ? last.sequenceNo + 1 : 0;
 
-    // Only consider blocks we haven't stored yet (idempotent replay).
-    const fresh = body.blocks
-      .filter((b) => b.sequenceNo >= startingSeq)
-      .sort((a, b) => a.sequenceNo - b.sequenceNo);
-
-    let tamper = false;
-    const reasons: string[] = [];
-
-    if (fresh.length > 0) {
-      // sessionId lives at the batch level, but the hash canonical includes it —
-      // inject it into each block so the server recomputes the same digest.
-      const chainInput = fresh.map((b) => ({ ...b, sessionId: body.sessionId })) as (ChainBlock & {
-        prevHash: string;
-        hash: string;
-      })[];
-      const chain = verifyChain(chainInput, startingPrev, startingSeq);
-      if (!chain.ok) {
-        tamper = true;
-        reasons.push(...chain.reasons);
-      }
-
-      await prisma.activityBlock.createMany({
-        data: fresh.map((b) => ({
-          sessionId: body.sessionId,
-          blockStart: new Date(b.blockStart),
-          blockEnd: new Date(b.blockEnd),
-          keyboardPct: b.keyboardPct,
-          mousePct: b.mousePct,
-          activityPct: b.activityPct,
-          idleSeconds: b.idleSeconds,
-          sequenceNo: b.sequenceNo,
-          prevHash: b.prevHash,
-          hash: b.hash,
-        })),
-        skipDuplicates: true,
-      });
-    }
+    // Verify the WHOLE stored chain from genesis rather than just this batch, so
+    // a gap filled later doesn't false-positive as tampering. canonical()
+    // normalizes timestamps via new Date(...).toISOString(), so rebuilding the
+    // chain input from stored rows reproduces the client's digest exactly.
+    const stored = await prisma.activityBlock.findMany({
+      where: { sessionId: body.sessionId },
+      orderBy: { sequenceNo: "asc" },
+    });
+    const chainInput = stored.map((b) => ({
+      sessionId: body.sessionId,
+      sequenceNo: b.sequenceNo,
+      blockStart: b.blockStart.toISOString(),
+      blockEnd: b.blockEnd.toISOString(),
+      keyboardPct: b.keyboardPct,
+      mousePct: b.mousePct,
+      activityPct: b.activityPct,
+      idleSeconds: b.idleSeconds,
+      prevHash: b.prevHash,
+      hash: b.hash,
+    })) as (ChainBlock & { prevHash: string; hash: string })[];
+    const chain = verifyChain(chainInput, GENESIS, 0);
+    const tamper = !chain.ok;
+    const reasons: string[] = chain.reasons;
+    const fresh = body.blocks;
 
     // Client-reported jiggler process → immediate flag.
     const jiggler = body.blocks.find((b) => b.jigglerProcess);

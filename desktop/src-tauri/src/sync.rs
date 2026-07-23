@@ -58,6 +58,14 @@ pub fn backend_allowed(backend: &str) -> bool {
     ALLOWED_BACKENDS.contains(&backend)
 }
 
+/// Clear any backoff so the next loop iteration flushes immediately — called
+/// after a stop enqueues its final block so uploads start right away.
+pub fn wake() {
+    if let Ok(mut s) = SYNC.lock() {
+        s.next_attempt_at = 0;
+    }
+}
+
 pub fn queue_dir_for(app: &AppHandle) -> Option<PathBuf> {
     app.path().app_data_dir().ok().map(|d| d.join("queue"))
 }
@@ -268,6 +276,16 @@ pub fn upload_shot(
 /// then upload its queued screenshots (the block row must exist server-side
 /// before /screenshots/confirm), deleting files only after success. Stops at
 /// the first retryable failure.
+/// Read the numeric `seq` out of a queued block file (for correct ordering).
+/// Falls back to i64::MAX so an unreadable file sorts last rather than first.
+fn block_seq_of(path: &Path) -> i64 {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get("seq").and_then(|x| x.as_i64()))
+        .unwrap_or(i64::MAX)
+}
+
 pub fn flush_queue_dir(dir: &Path, backend: &str, token: &str, timeout_secs: u64) -> Result<(), String> {
     let Ok(entries) = fs::read_dir(dir) else { return Ok(()) };
     let mut blocks: Vec<PathBuf> = entries
@@ -282,7 +300,10 @@ pub fn flush_queue_dir(dir: &Path, backend: &str, token: &str, timeout_secs: u64
                 .unwrap_or(false)
         })
         .collect();
-    blocks.sort();
+    // Order by the block JSON's numeric seq, NOT lexicographically — filenames
+    // like "block-<uuid>-10.json" sort before "...-2.json" as strings, which
+    // pushed blocks to the server out of order.
+    blocks.sort_by_key(|p| block_seq_of(p));
     let Some(c) = client(timeout_secs) else { return Err("http client".into()) };
     for path in blocks {
         let Ok(text) = fs::read_to_string(&path) else { continue };

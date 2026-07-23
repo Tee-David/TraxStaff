@@ -152,7 +152,13 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let capturing = capture::is_capturing();
                 let pending = sync::queue_count(window.app_handle().clone());
-                if (capturing || pending > 0)
+                // Only intercept the close for a LIVE session (the tracker is
+                // mounted then, so the dialog has a listener). A non-empty queue
+                // with no live session drains on next launch — don't hold the
+                // window open on the login/consent screen where nothing listens.
+                let visible = window.is_visible().unwrap_or(true);
+                if capturing
+                    && visible
                     && !CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst)
                 {
                     api.prevent_close();
@@ -171,6 +177,7 @@ pub fn run() {
             capture::end_capture,
             capture::get_elapsed,
             capture::capture_health,
+            capture::local_shots,
             sync::set_sync_auth,
             sync::queue_count,
             sync::flush_now,

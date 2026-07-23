@@ -52,6 +52,35 @@ function getCachedOrgSettings(): OrgCaptureSettings {
   try { const v = JSON.parse(localStorage.getItem("trax_org_settings") || ""); if (v && typeof v.perBlock === "number") return v; } catch { /* ignore */ }
   return { perBlock: 1, blur: false, idleMinutes: 5 };
 }
+// Locally-tracked sessions, persisted so the total survives an app restart
+// before they've synced. Pruned to the last ~8 days.
+const LOCAL_SESSIONS_KEY = "trax_local_sessions";
+function loadLocalSessions(): Session[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(LOCAL_SESSIONS_KEY) || "[]") as Session[];
+    const cutoff = Date.now() - 8 * 86400000;
+    return Array.isArray(list) ? list.filter((s) => new Date(s.startedAt).getTime() >= cutoff) : [];
+  } catch { return []; }
+}
+function saveLocalSessions(list: Session[]) {
+  try { localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+}
+// Merge server + local sessions, de-duplicated by id (client & server share the
+// id, so a synced session is never counted twice). Prefer whichever copy is
+// marked ended: a stale still-open server row must not override a locally-closed
+// session, or secs() would keep growing and inflate the totals after a stop.
+function mergeSessions(server: Session[], local: Session[]): Session[] {
+  const byId = new Map<string, Session>();
+  for (const s of local) if (s.id) byId.set(s.id, s);
+  for (const s of server) {
+    if (!s.id) continue;
+    const existing = byId.get(s.id);
+    if (existing?.endedAt && !s.endedAt) continue; // keep the closed copy
+    byId.set(s.id, s);
+  }
+  return [...byId.values()];
+}
+
 // A locally-generated session id so tracking can begin with zero network.
 function newSessionId(): string {
   try { return crypto.randomUUID(); } catch {
@@ -204,6 +233,10 @@ function Login({ onLogin }: { onLogin: () => void }) {
 function Tracker({ onLogout }: { onLogout: () => void }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [week, setWeek] = useState<Session[]>([]);
+  // Sessions tracked on THIS device that may not have synced yet. Merged into
+  // the week totals (deduped by id) so switching projects / working offline
+  // never makes the on-screen total drop — the completed time still counts.
+  const [localSessions, setLocalSessions] = useState<Session[]>(() => loadLocalSessions());
   const [active, setActive] = useState<Session | null>(null);
   const [projectId, setProjectId] = useState("");
   const [taskId, setTaskId] = useState("");
@@ -220,9 +253,25 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [noteOpen, setNoteOpen] = useState(false);
   const [closeInfo, setCloseInfo] = useState<{ capturing: boolean; pending: number } | null>(null);
   const [closingRemaining, setClosingRemaining] = useState<number | null>(null);
+  const [shotsOk, setShotsOk] = useState(true);
+  const [shotCount, setShotCount] = useState(0); // screenshots this session
+  const [localShots, setLocalShots] = useState<{ takenAt: string; monitorIndex: number; dataUrl: string }[]>([]);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2600);
+  }, []);
+  const loadLocalShots = useCallback(() => {
+    invoke<{ takenAt: string; monitorIndex: number; dataUrl: string }[]>("local_shots").then(setLocalShots).catch(() => {});
+  }, []);
   const deviceId = useRef<string | null>(null);
   const heartbeat = useRef<ReturnType<typeof setInterval> | null>(null);
   const registerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ids we've stopped locally — so a `load()` that races the stop POST doesn't
+  // re-adopt the just-stopped session and restart the timer with no capture.
+  const stoppedIds = useRef<Set<string>>(new Set());
   const reminders = useRef<ReminderPrefs>(loadReminders());
   const [remPrefs, setRemPrefs] = useState<ReminderPrefs>(reminders.current);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -250,11 +299,23 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     const uns = [
       // Timer truth from the monotonic clock (immune to minimize/sleep throttling).
-      listen<{ elapsedSecs: number }>("trax:tick", (e) => setElapsed(e.payload.elapsedSecs)),
+      // Ignore non-positive values so a stray tick can't pin the clock to 0.
+      listen<{ elapsedSecs: number }>("trax:tick", (e) => { if (e.payload.elapsedSecs > 0) setElapsed(e.payload.elapsedSecs); }),
       // Sync engine state → badge + toast.
       listen<SyncState>("trax:sync-state", (e) => setSync(e.payload)),
-      // Input-hook health → "activity unavailable" banner.
-      listen<{ inputHook: boolean }>("trax:capture-health", (e) => setHookOk(e.payload.inputHook)),
+      // Capture health: input hook and/or screenshots.
+      listen<{ inputHook?: boolean; screenshots?: boolean }>("trax:capture-health", (e) => {
+        if (typeof e.payload.inputHook === "boolean") setHookOk(e.payload.inputHook);
+        if (typeof e.payload.screenshots === "boolean") setShotsOk(e.payload.screenshots);
+      }),
+      // A screenshot was just captured (persisted locally) — count it, toast it,
+      // and refresh the local gallery. No server round trip needed.
+      listen<{ takenAt: string }>("trax:shot-captured", () => {
+        setShotCount((n) => n + 1);
+        showToast("📸 Screenshot captured");
+        if (reminders.current.idle) { /* screenshots are always disclosed; no extra nag */ }
+        loadLocalShots();
+      }),
       // Machine woke from sleep.
       listen<{ gapSecs: number }>("trax:resumed", (e) => setResumed(Math.round(e.payload.gapSecs / 60))),
       // Idle threshold crossed (informational) and returned from idle (actionable).
@@ -326,12 +387,27 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       setProjects(p); setWeek(s);
       setLastUpdated(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
       if (p[0] && !projectId) setProjectId(p[0].id);
-      const open = s.find((x) => !x.endedAt);
-      if (open) { setActive(open); setProjectId(open.projectId); if (open.taskId) setTaskId(open.taskId); }
+      // Resume a genuinely-open session (e.g. after a crash) — but never when we
+      // already have a live local session, and never a session we just stopped.
+      const open = s.find((x) => !x.endedAt && !stoppedIds.current.has(x.id));
+      if (open && !activeRef.current) {
+        setActive(open); setProjectId(open.projectId); if (open.taskId) setTaskId(open.taskId);
+        // Restart native capture for the resumed session, seeding the timer from
+        // the server start time (without this the timer counted from 0 and
+        // nothing was captured on resume).
+        const cfg = getCachedOrgSettings();
+        const baseElapsedSecs = Math.max(0, Math.floor((Date.now() - new Date(open.startedAt).getTime()) / 1000));
+        invoke("begin_capture", {
+          token: getToken() ?? "", backend: API_BASE, sessionId: open.id,
+          screenshotsPerBlock: cfg.perBlock, blur: cfg.blur, idleMinutes: cfg.idleMinutes, baseElapsedSecs,
+        }).then(() => invoke("set_tracking_indicator", { active: true })).catch(() => {});
+        beginHeartbeat(open.id);
+      }
     } catch (e) { setError(e instanceof Error ? e.message : "Failed to load"); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  useEffect(() => { invoke<string>("get_device_id").then((id) => (deviceId.current = id)).catch(() => {}); load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { invoke<string>("get_device_id").then((id) => (deviceId.current = id)).catch(() => {}); load(); loadLocalShots(); /* eslint-disable-next-line */ }, []);
 
   // Rust drives the timer via trax:tick (monotonic, survives sleep/minimize).
   // In browser-preview (no Tauri) fall back to a local clock; and on focus we
@@ -374,6 +450,8 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     const taskForSession = (pid ? proj?.tasks?.find((t) => t.status !== "done")?.id : taskId) || undefined;
     const sid = newSessionId();
     const startedAt = new Date().toISOString();
+    setShotCount(0);
+    showToast(`▶ Tracking ${proj?.name ?? "project"}`);
     // Timer starts now, off the local monotonic clock — never waits on Render.
     setActive({
       id: sid, projectId: useProject, taskId: taskForSession ?? null, startedAt, endedAt: null,
@@ -396,7 +474,13 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     try {
       const appVersion = await getAppVersion();
       await api<Session>("/sessions/start", { method: "POST", body: JSON.stringify({ id: sid, startedAt, projectId: useProject, taskId: taskForSession, deviceId: deviceId.current ?? undefined, platform: "windows", appVersion }) });
-      if (activeRef.current?.id === sid) beginHeartbeat(sid);
+      if (activeRef.current?.id === sid) {
+        beginHeartbeat(sid);
+      } else {
+        // The user stopped/switched while registration was in flight — close the
+        // just-created session now so it doesn't linger open forever server-side.
+        api(`/sessions/${sid}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }).catch(() => {});
+      }
       api<{ screenshotsPerBlock: number; blurScreenshots: boolean; idleTimeoutMinutes: number }>("/orgs/settings").then(cacheOrgSettings).catch(() => {});
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -419,11 +503,17 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   async function stop() {
     const cur = activeRef.current;
     if (!cur) return;
+    if (cur.id) stoppedIds.current.add(cur.id); // guard load() from re-adopting it
     if (registerTimer.current) { clearTimeout(registerTimer.current); registerTimer.current = null; }
     await invoke("end_capture").catch(() => {}); // fast + local; awaited so a following start() can't race it
     invoke("set_tracking_indicator", { active: false }).catch(() => {});
     stopHeartbeat();
+    // Record the finished session locally so its time keeps counting toward the
+    // total even before it syncs (deduped against the server copy by id).
+    const finished: Session = { ...cur, endedAt: new Date().toISOString() };
+    setLocalSessions((prev) => { const next = mergeSessions([], [...prev, finished]); saveLocalSessions(next); return next; });
     setActive(null); setElapsed(0);
+    showToast("■ Stopped");
     if (cur.id) {
       api(`/sessions/${cur.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }).catch(() => {});
     }
@@ -467,10 +557,19 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     } catch { /* best-effort */ }
   }
 
-  const today = useMemo(() => week.filter((s) => new Date(s.startedAt) >= startOfToday()), [week]);
-  const workedToday = today.reduce((a, s) => a + secs(s), 0) + (active ? 0 : 0);
-  const liveToday = workedToday + (active ? elapsed - secs(active) : 0);
-  const workedWeek = week.reduce((a, s) => a + secs(s), 0);
+  // Server + local sessions, deduped by id, limited to this week. This is what
+  // every total below is computed from, so local/offline time always counts.
+  const mergedWeek = useMemo(() => {
+    const weekStartMs = startOfWeek().getTime();
+    return mergeSessions(week, localSessions).filter((s) => new Date(s.startedAt).getTime() >= weekStartMs);
+  }, [week, localSessions]);
+  // Completed sessions (exclude the live one — its time is added via `elapsed`,
+  // and it may also appear as an open row once it has registered server-side).
+  const notActive = (s: Session) => !active || s.id !== active.id;
+  const today = useMemo(() => mergedWeek.filter((s) => notActive(s) && new Date(s.startedAt) >= startOfToday()), [mergedWeek, active]);
+  const workedToday = today.reduce((a, s) => a + secs(s), 0);
+  const liveToday = workedToday + (active ? elapsed : 0);
+  const workedWeek = mergedWeek.filter(notActive).reduce((a, s) => a + secs(s), 0) + (active ? elapsed : 0);
 
   async function toggleExpand() {
     const next = !expanded;
@@ -564,6 +663,22 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         <div className="warn-banner">Activity tracking is unavailable — your time still counts, but activity % will read 0.</div>
       )}
 
+      {/* Screenshot capture failing (e.g. no display / denied) — time still counts. */}
+      {!shotsOk && active && (
+        <div className="warn-banner">Screenshots couldn&rsquo;t be captured on this screen — time and activity still record.</div>
+      )}
+
+      {/* Transient action toast (tracking started/stopped/switched, screenshot). */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            className="toast" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Add a note to the running session. */}
       <AnimatePresence>
         {noteOpen && <NoteModal onSave={saveNote} onClose={() => setNoteOpen(false)} />}
@@ -579,16 +694,17 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
           sync={sync} onAddNote={() => setNoteOpen(true)}
           settingsOpen={settingsOpen} onToggleSettings={() => setSettingsOpen((s) => !s)}
           reminders={remPrefs} onUpdateReminders={updateReminders}
+          shotCount={shotCount}
         />
       </aside>
       {expanded && (
         <main className="dash-pane">
           <DashNav tab={tab} setTab={setTab} onSignOut={signOut} />
           <div className="dash-scroll">
-            {tab === "dashboard" && <DesktopDashboard projects={projects} week={week} workedWeek={workedWeek} onViewActivity={() => setTab("activity")} />}
-            {tab === "timesheets" && <TimesheetsPage week={week} />}
+            {tab === "dashboard" && <DesktopDashboard projects={projects} week={mergedWeek} workedWeek={workedWeek} onViewActivity={() => setTab("activity")} />}
+            {tab === "timesheets" && <TimesheetsPage week={mergedWeek} />}
             {tab === "activity" && <ActivityPage />}
-            {tab === "reports" && <ReportsPage week={week} />}
+            {tab === "reports" && <ReportsPage week={mergedWeek} />}
             {tab === "projects" && <ProjectsPageDesktop projects={projects} onChange={load} />}
           </div>
         </main>
@@ -605,8 +721,9 @@ function TrackingWidget(props: {
   sync: SyncState | null; onAddNote: () => void;
   settingsOpen: boolean; onToggleSettings: () => void;
   reminders: ReminderPrefs; onUpdateReminders: (n: Partial<ReminderPrefs>) => void;
+  shotCount: number;
 }) {
-  const { projects, active, workedToday, workedWeek, today, onStart, onStop, error, onRefresh, lastUpdated, expanded, onToggleExpand, sync, onAddNote, settingsOpen, onToggleSettings, reminders, onUpdateReminders } = props;
+  const { projects, active, workedToday, workedWeek, today, onStart, onStop, error, onRefresh, lastUpdated, expanded, onToggleExpand, sync, onAddNote, settingsOpen, onToggleSettings, reminders, onUpdateReminders, shotCount } = props;
   const [q, setQ] = useState("");
 
   const secsToday = (pid: string) =>
@@ -622,6 +739,12 @@ function TrackingWidget(props: {
       <div className="widget-brand"><img src="/brand/icon-badge.svg" alt="Trax" className="brand-mark" /></div>
 
       <CircularTimer seconds={workedToday} targetSeconds={DAY_TARGET_SECONDS} active={Boolean(active)} onToggle={() => (active ? onStop() : onStart())} />
+
+      {active && (
+        <div className="track-chip">
+          <span className="track-dot" /> Tracking · screenshots on{shotCount > 0 ? ` · ${shotCount} this session` : ""}
+        </div>
+      )}
 
       <div className="widget-stats">
         <div className="ws-item"><span className="wm-label">This week</span><span className="wm-val">{fmtClock(workedWeek)}</span></div>
@@ -1169,12 +1292,16 @@ function ActivityPage() {
   const [apps, setApps] = useState<{ appName: string; seconds: number }[]>([]);
   const [urls, setUrls] = useState<{ domain: string; seconds: number }[]>([]);
   const [summary, setSummary] = useState<{ totalSeconds: number; avgActivityPct: number | null } | null>(null);
+  // Screenshots captured on THIS device, shown instantly from the local cache —
+  // no waiting for a block boundary or upload.
+  const [localShots, setLocalShots] = useState<{ takenAt: string; monitorIndex: number; dataUrl: string }[]>([]);
   useEffect(() => {
     const from = startOfWeek().toISOString();
     api<typeof shots>(`/screenshots?from=${from}`).then(setShots).catch(() => {});
     api<typeof apps>(`/reports/app-usage?from=${from}`).then(setApps).catch(() => {});
     api<typeof urls>(`/reports/url-usage?from=${from}`).then(setUrls).catch(() => {});
     api<typeof summary>(`/reports/summary?from=${from}`).then(setSummary).catch(() => {});
+    invoke<typeof localShots>("local_shots").then(setLocalShots).catch(() => {});
   }, []);
   const maxApp = Math.max(1, ...apps.map((a) => a.seconds));
   const maxUrl = Math.max(1, ...urls.map((u) => u.seconds));
@@ -1214,7 +1341,21 @@ function ActivityPage() {
               <SubTabs tabs={[{ id: "ten", label: "Every 10 min" }, { id: "all", label: "All screenshots" }]} value={freq} onChange={setFreq} />
             </div>
           </div>
-          {blocks.length === 0 ? <div className="empty">No screenshots captured yet — they appear while tracking.</div> : (
+          {localShots.length > 0 && (
+            <div className="shot-block">
+              <div className="shot-block-head"><span className="shot-block-time">On this device</span><span className="muted small">{localShots.length} recent · not yet uploaded shown here too</span></div>
+              <div className="shot-grid">
+                {localShots.map((s, i) => (
+                  <div className="shot" key={`local-${i}`}>
+                    <div className="shot-proj">Local</div>
+                    <img src={s.dataUrl} alt="" />
+                    <div className="shot-foot"><span>{fmtT(s.takenAt)}</span><span className="muted small">mon {s.monitorIndex + 1}</span></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {blocks.length === 0 && localShots.length === 0 ? <div className="empty">No screenshots captured yet — they appear within a minute of tracking.</div> : (
             blocks.map(([label, list]) => (
               <div className="shot-block" key={label}>
                 <div className="shot-block-head"><span className="shot-block-time">{label}</span><span className="muted small">{list.length} screenshot{list.length > 1 ? "s" : ""}</span></div>

@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://localhost:3099 https://trax-backend-ocaq.onrender.com; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:3099 https://trax-backend-ocaq.onrender.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

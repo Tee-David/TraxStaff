@@ -24,7 +24,22 @@ export async function api<T = unknown>(path: string, options: RequestInit = {}):
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  // Retry only on NETWORK failures (fetch rejects — DNS blip, dropped
+  // connection, Render cold start). HTTP error responses are returned as-is and
+  // never retried, since they're real (bad credentials, 404, etc.).
+  let res: Response | undefined;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+      break;
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  if (!res) throw new Error(lastErr instanceof Error ? lastErr.message : "Network error");
+
   if (!res.ok) {
     let msg = res.statusText;
     try {

@@ -46,9 +46,26 @@ async function resolveDevice(
 ) {
   if (deviceId) {
     const existing = await prisma.device.findUnique({ where: { id: deviceId } });
-    if (existing && existing.userId === userId) {
-      await prisma.device.update({ where: { id: deviceId }, data: { lastSeenAt: new Date() } });
-      return existing;
+    if (existing) {
+      if (existing.userId === userId) {
+        await prisma.device.update({ where: { id: deviceId }, data: { lastSeenAt: new Date() } });
+        return existing;
+      }
+      // id belongs to another user (shouldn't happen with uuids) — fall through
+      // and mint a fresh one rather than colliding on the primary key.
+    } else {
+      // First sighting of this client-generated id: PERSIST IT. Without this the
+      // lookup above never matches, a new Device row is created on every start,
+      // and `sameDevice` in the open-session guard is always false — which made
+      // switching projects fail with "already running on another device".
+      return prisma.device.create({
+        data: {
+          id: deviceId,
+          userId,
+          platform: platform ?? "unknown",
+          appVersion: appVersion ?? "0.0.0",
+        },
+      });
     }
   }
   return prisma.device.create({

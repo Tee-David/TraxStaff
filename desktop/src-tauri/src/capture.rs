@@ -25,6 +25,11 @@ use crate::sync;
 use crate::url_capture;
 
 const GENESIS: &str = "GENESIS";
+// Never shoot in the first few seconds (window still settling after start).
+const SHOT_MIN_OFFSET_SECS: i64 = 10;
+// The first screenshot of every block lands by this offset, so tracking always
+// produces visible evidence quickly rather than up to 10 minutes later.
+const FIRST_SHOT_BY_SECS: i64 = 60;
 // A wall-clock jump larger than this between 1 Hz ticks means the machine slept.
 const SUSPEND_GAP_SECS: i64 = 120;
 // A second counts toward app/URL attribution only if input landed this recently.
@@ -41,6 +46,8 @@ static LAST_TICK_WALL: AtomicI64 = AtomicI64::new(0);
 // Whether the rdev input hook is delivering events. Starts true; the supervisor
 // flips it false if the listener dies so the UI can warn that activity % is 0.
 static INPUT_HOOK_OK: AtomicBool = AtomicBool::new(true);
+// Whether the last screenshot attempt produced any image (see trax:capture-health).
+static SHOTS_OK: AtomicBool = AtomicBool::new(true);
 static CAPTURE: Lazy<Mutex<Option<Capture>>> = Lazy::new(|| Mutex::new(None));
 static APP_HANDLE: Lazy<Mutex<Option<AppHandle>>> = Lazy::new(|| Mutex::new(None));
 // Reused across blocks so the jiggler scan doesn't rebuild the process table each time.
@@ -118,6 +125,12 @@ impl Capture {
         c
     }
 
+    /// Plan this block's screenshot offsets: one per evenly-sized window, at a
+    /// random second within each window. Stratifying keeps shots unpredictable
+    /// (anti-gaming) while guaranteeing coverage — and the first window is
+    /// clamped to FIRST_SHOT_BY_SECS so a shot always lands early instead of a
+    /// uniform-random draw over the whole 10 minutes (which meant a short
+    /// session usually captured nothing at all).
     fn plan_shots(&mut self) {
         self.shot_offsets.clear();
         self.shots_taken.clear();
@@ -125,12 +138,24 @@ impl Capture {
             return;
         }
         let mut rng = rand::thread_rng();
-        let mut offs = HashSet::new();
-        // spread N screenshots across the block at distinct random seconds
-        while (offs.len() as u32) < self.screenshots_per_block {
-            offs.insert(rng.gen_range(5..self.block_secs.max(6)));
+        let n = self.screenshots_per_block as i64;
+        let block = self.block_secs.max(6);
+        let window = (block / n).max(1);
+        let mut offs = Vec::new();
+        for i in 0..n {
+            let lo = i * window;
+            let hi = if i == n - 1 { block } else { (i + 1) * window };
+            // First window: force an early shot so the user sees one quickly.
+            let (lo, hi) = if i == 0 {
+                (SHOT_MIN_OFFSET_SECS.min(block - 1), FIRST_SHOT_BY_SECS.min(block).max(SHOT_MIN_OFFSET_SECS + 1))
+            } else {
+                (lo.max(SHOT_MIN_OFFSET_SECS), hi.max(lo + 1))
+            };
+            offs.push(if hi > lo { rng.gen_range(lo..hi) } else { lo });
         }
-        self.shot_offsets = offs.into_iter().collect();
+        offs.sort_unstable();
+        offs.dedup();
+        self.shot_offsets = offs;
     }
 
     fn iso(dt: DateTime<Utc>) -> String {
@@ -211,20 +236,31 @@ pub fn begin(
     LAST_INPUT.store(now, Ordering::Relaxed);
     LAST_TICK_WALL.store(now, Ordering::Relaxed);
     IDLE_NOTIFIED.store(false, Ordering::Relaxed);
-    if let Ok(mut guard) = CAPTURE.lock() {
-        *guard = Some(Capture::new(
-            token,
-            backend,
-            session_id,
-            screenshots_per_block,
-            blur,
-            idle_minutes.clamp(1, 60) * 60,
-            queue_dir,
-            block_secs,
-            base_elapsed_secs.max(0),
-        ));
-    }
-    ACTIVE.store(true, Ordering::Relaxed);
+    // Recover from a poisoned mutex (a panic while a previous block finalized)
+    // instead of leaving CAPTURE empty — otherwise ACTIVE would be true with no
+    // state behind it and the timer would report 0 forever.
+    let stored = match CAPTURE.lock() {
+        Ok(mut guard) => {
+            *guard = Some(Capture::new(
+                token, backend, session_id, screenshots_per_block, blur,
+                idle_minutes.clamp(1, 60) * 60, queue_dir, block_secs,
+                base_elapsed_secs.max(0),
+            ));
+            true
+        }
+        Err(poisoned) => {
+            let mut guard = poisoned.into_inner();
+            *guard = Some(Capture::new(
+                token, backend, session_id, screenshots_per_block, blur,
+                idle_minutes.clamp(1, 60) * 60, queue_dir, block_secs,
+                base_elapsed_secs.max(0),
+            ));
+            CAPTURE.clear_poison();
+            true
+        }
+    };
+    // Only advertise "capturing" once the state actually exists.
+    ACTIVE.store(stored, Ordering::Relaxed);
 }
 
 /// Stop capturing: finalize the partial block and flush.
@@ -237,13 +273,18 @@ pub fn end() {
 }
 
 /// Seconds elapsed in the running session, from the monotonic anchor (immune to
-/// wall-clock changes and webview throttling). 0 when no session is active.
-fn elapsed_secs() -> i64 {
+/// wall-clock changes and webview throttling). `None` when there is no live
+/// capture state, so callers can distinguish "no session" from "zero seconds".
+fn live_elapsed_secs() -> Option<i64> {
     CAPTURE
         .lock()
         .ok()
         .and_then(|g| g.as_ref().map(|c| c.base_elapsed_secs + c.anchor.elapsed().as_secs() as i64))
-        .unwrap_or(0)
+}
+
+/// Same, but 0 when there's no session (for the `get_elapsed` command).
+fn elapsed_secs() -> i64 {
+    live_elapsed_secs().unwrap_or(0)
 }
 
 /// OS-reported idle seconds (Windows), independent of the rdev hook so idle
@@ -277,7 +318,11 @@ pub fn tick() {
     }
 
     // Drive the running timer from the monotonic clock (survives minimize/sleep).
-    emit("trax:tick", serde_json::json!({ "elapsedSecs": elapsed_secs() }));
+    // Only emit when a live Capture exists — otherwise elapsed_secs() returns 0
+    // (missing/poisoned state) and the UI would be pinned to 00:00:00 forever.
+    if let Some(secs) = live_elapsed_secs() {
+        emit("trax:tick", serde_json::json!({ "elapsedSecs": secs }));
+    }
 
     // A second counts toward app/URL only if the user was active in it.
     let rdev_idle = now_ts - LAST_INPUT.load(Ordering::Relaxed);
@@ -339,12 +384,38 @@ pub fn tick() {
     // Capture screenshots outside the lock (slow), then stash bytes.
     if !due.is_empty() {
         let shots = capture_all_monitors();
+        // Screen capture can fail silently (no monitors, denied permission,
+        // Wayland without a portal). Surface transitions so the UI can warn.
+        let ok = !shots.is_empty();
+        if ok != SHOTS_OK.swap(ok, Ordering::Relaxed) {
+            emit("trax:capture-health", serde_json::json!({ "screenshots": ok }));
+        }
+        let mut announced: Vec<serde_json::Value> = Vec::new();
         if let Ok(mut guard) = CAPTURE.lock() {
             if let Some(c) = guard.as_mut() {
+                let dir = shots_dir(&c.queue_dir);
+                let _ = fs::create_dir_all(&dir);
                 for (idx, bytes) in shots {
-                    c.pending_shots.push(PendingShot { monitor_index: idx, taken_at: Utc::now(), bytes });
+                    let taken = Utc::now();
+                    // Persist immediately: the shot then survives a crash and can be
+                    // shown locally right away, instead of sitting in RAM until the
+                    // block finalizes (up to 10 min) and the upload succeeds.
+                    let name = format!("{}-{}-m{}.webp", c.session_id, taken.timestamp_millis(), idx);
+                    let path = dir.join(&name);
+                    if fs::write(&path, &bytes).is_ok() {
+                        announced.push(serde_json::json!({
+                            "path": path.to_string_lossy(),
+                            "takenAt": taken.to_rfc3339_opts(SecondsFormat::Millis, true),
+                            "monitorIndex": idx,
+                        }));
+                    }
+                    c.pending_shots.push(PendingShot { monitor_index: idx, taken_at: taken, bytes });
                 }
             }
+        }
+        // Emit after releasing the lock.
+        for p in announced {
+            emit("trax:shot-captured", p);
         }
     }
 
@@ -431,6 +502,12 @@ fn round2(v: f64) -> f64 {
 /// Finalize the current block: compute activity %, build the hash-chained payload,
 /// sync it, upload its screenshots. Then advance the chain (unless stopping).
 fn finalize_block(stopping: bool) {
+    // Scan for a mouse-jiggler BEFORE taking the CAPTURE lock — it refreshes the
+    // whole process table (tens of ms) and holding CAPTURE that long starves
+    // on_input() (which locks CAPTURE on every mouse move); on Windows a slow
+    // low-level input hook gets silently uninstalled, wedging activity at 0%.
+    let jiggler = detect_jiggler();
+
     // Build payload + drain shots/usage under the lock.
     let (payload, session_id, backend, token, blur, seq, shots, app_usage, url_usage, block_start_iso) = {
         let mut guard = match CAPTURE.lock() {
@@ -464,8 +541,6 @@ fn finalize_block(stopping: bool) {
         hasher.update(c.prev_hash.as_bytes());
         hasher.update(canonical.as_bytes());
         let hash = hex(hasher.finalize().as_slice());
-
-        let jiggler = detect_jiggler();
 
         let payload = BlockPayload {
             block_start: start_iso,
@@ -527,7 +602,10 @@ fn finalize_block(stopping: bool) {
         }
     } else {
         enqueue_block(&session_id, &payload, &shots, blur, seq, &app_usage, &url_usage);
-        if !stopping {
+        if stopping {
+            // Clear any backoff so the loop uploads this final block promptly.
+            sync::wake();
+        } else {
             sync::note_attempt_result(false, Some("offline".into()));
         }
     }
@@ -537,6 +615,12 @@ fn finalize_block(stopping: bool) {
 
 fn queue_dir() -> Option<PathBuf> {
     CAPTURE.lock().ok().and_then(|g| g.as_ref().map(|c| c.queue_dir.clone()))
+}
+
+/// Directory where freshly-captured screenshots are written for instant local
+/// viewing (a sibling of the sync queue, under app_data_dir).
+fn shots_dir(queue_dir: &std::path::Path) -> PathBuf {
+    queue_dir.parent().map(|p| p.join("shots")).unwrap_or_else(|| queue_dir.join("shots"))
 }
 
 /// Write a block that couldn't sync to disk: one JSON manifest naming its shot
@@ -648,9 +732,12 @@ pub fn begin_capture(
     Ok(())
 }
 
+/// Stop tracking. `end()` finalizes the last block (process scan + multi-MB
+/// screenshot writes), so run it off the UI thread — a plain sync command would
+/// freeze the window on every stop/switch.
 #[tauri::command]
-pub fn end_capture() {
-    end();
+pub async fn end_capture() {
+    let _ = tauri::async_runtime::spawn_blocking(end).await;
 }
 
 /// Seconds elapsed in the running session (monotonic). The UI polls this on
@@ -658,6 +745,47 @@ pub fn end_capture() {
 #[tauri::command]
 pub fn get_elapsed() -> i64 {
     elapsed_secs()
+}
+
+/// The most recent screenshots captured on this device, newest first, as inline
+/// `data:` URLs so the in-app gallery shows them with no server round trip and
+/// no extra CSP/asset-protocol setup. Returns [{ takenAt, monitorIndex, dataUrl }].
+#[tauri::command]
+pub fn local_shots(app: tauri::AppHandle) -> Vec<serde_json::Value> {
+    use base64::Engine;
+    use tauri::Manager;
+    let Ok(base) = app.path().app_data_dir() else { return Vec::new() };
+    let dir = shots_dir(&base.join("queue"));
+    let Ok(entries) = fs::read_dir(&dir) else { return Vec::new() };
+    // Collect metadata first (cheap), sort newest-first, then read + encode a cap.
+    let mut metas: Vec<(i64, u32, PathBuf)> = entries
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            let stem = name.strip_suffix(".webp")?;
+            // name = "{sessionId}-{takenMs}-m{idx}"
+            let mono = stem.rsplit('-').next()?; // mN
+            let taken_ms: i64 = stem.rsplitn(2, '-').last()?.rsplit('-').next()?.parse().ok()?;
+            let idx: u32 = mono.trim_start_matches('m').parse().ok()?;
+            Some((taken_ms, idx, path))
+        })
+        .collect();
+    metas.sort_by(|a, b| b.0.cmp(&a.0));
+    metas
+        .into_iter()
+        .take(24)
+        .filter_map(|(taken_ms, idx, path)| {
+            let bytes = fs::read(&path).ok()?;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            let taken = DateTime::from_timestamp_millis(taken_ms).unwrap_or_else(Utc::now);
+            Some(serde_json::json!({
+                "takenAt": taken.to_rfc3339_opts(SecondsFormat::Millis, true),
+                "monitorIndex": idx,
+                "dataUrl": format!("data:image/webp;base64,{b64}"),
+            }))
+        })
+        .collect()
 }
 
 /// Whether the input hook is currently delivering events (activity sampling).

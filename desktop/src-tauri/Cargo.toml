@@ -34,6 +34,7 @@ rand = "0.8"
 sysinfo = "0.32"                                          # mouse-jiggler process blocklist check
 active-win-pos-rs = "0.8"                                 # foreground app usage sampling
 once_cell = "1"
+base64 = "0.22"                                          # inline data: URLs for the local screenshot gallery
 
 # Windows-only: OS idle time (GetLastInputInfo) + browser URL sampling (UI Automation).
 [target.'cfg(windows)'.dependencies]

@@ -1,11 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useInfiniteList } from "@/lib/use-infinite";
+import { useUrlState } from "@/lib/url-state";
+import { useMotionPresets } from "@/lib/motion";
 import { Badge, Card, EmptyState, PageHeader, Skeleton } from "@/components/ui";
-import { DateRange, MemberFilter, FilterBar, Pagination, paginate, rangeToParams, type DateRangeValue } from "@/components/filters";
+import {
+  DateRange,
+  DensityControl,
+  DENSITY_CLASS,
+  DENSITIES,
+  MemberFilter,
+  FilterBar,
+  rangeToParams,
+  rangeToQuery,
+  rangeFromQuery,
+  type Density,
+  type DateRangeValue,
+} from "@/components/filters";
 import { formatTime, formatDate } from "@/lib/format";
 
 interface Shot {
@@ -19,7 +34,9 @@ interface Shot {
   url: string | null;
 }
 
-const PER_PAGE = 18;
+const DEFAULT_RANGE: DateRangeValue = { type: "preset", preset: "week" };
+// One request per scroll boundary. Matches the server's default page size.
+const PAGE_SIZE = 48;
 
 function ActivityBar({ pct }: { pct: number }) {
   const color = pct >= 60 ? "bg-[var(--color-positive)]" : pct >= 30 ? "bg-accent" : "bg-border-strong";
@@ -30,91 +47,118 @@ function ActivityBar({ pct }: { pct: number }) {
   );
 }
 
+/** Placeholders shown while the next page is in flight, so the grid keeps its shape. */
+function ShotSkeletons({ count, className }: { count: number; className: string }) {
+  return (
+    <div className={`grid gap-3 ${className}`} aria-hidden>
+      {Array.from({ length: count }).map((_, i) => (
+        <Skeleton key={i} className="aspect-video rounded-xl" />
+      ))}
+    </div>
+  );
+}
+
 export default function ScreenshotsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "owner" || user?.role === "admin";
-  const [shots, setShots] = useState<Shot[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState<DateRangeValue>({ type: "preset", preset: "week" });
-  const [member, setMember] = useState("");
-  const [page, setPage] = useState(0);
+  const m = useMotionPresets();
+
+  const [q, setQ] = useUrlState({ range: "week", member: "", view: "grid", cols: "4" });
+
+  const range = useMemo(() => rangeFromQuery(q.range, DEFAULT_RANGE), [q.range]);
+  const view = q.view === "list" ? "list" : "grid";
+  const cols = (DENSITIES.includes(Number(q.cols) as Density) ? Number(q.cols) : 4) as Density;
+  const gridClass = DENSITY_CLASS[cols];
+
   const [lightbox, setLightbox] = useState<Shot | null>(null);
-  const [view, setView] = useState<"grid" | "list">("grid");
 
-  const load = useCallback(() => {
-    setLoading(true);
-    const { from, to } = rangeToParams(range);
-    const qs = new URLSearchParams();
-    if (from) qs.set("from", from);
-    if (to) qs.set("to", to);
-    if (member) qs.set("userId", member);
-    api<Shot[]>(`/screenshots?${qs.toString()}`)
-      .then(setShots)
-      .catch(() => setShots([]))
-      .finally(() => setLoading(false));
-  }, [range, member]);
+  // Rebuilt whenever a filter changes, which resets the infinite list.
+  const buildPath = useCallback(
+    (cursor: string | null) => {
+      const { from, to } = rangeToParams(range);
+      const params = new URLSearchParams();
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
+      if (q.member) params.set("userId", q.member);
+      params.set("limit", String(PAGE_SIZE));
+      if (cursor) params.set("cursor", cursor);
+      return `/screenshots?${params.toString()}`;
+    },
+    [range, q.member]
+  );
 
-  useEffect(() => { load(); setPage(0); }, [load]);
+  const { items: shots, setItems, loading, loadingMore, error, done, sentinelRef } = useInfiniteList<Shot>(buildPath);
+
+  // Escape closes the lightbox — it previously had no keyboard exit at all.
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setLightbox(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
 
   async function del(id: string) {
     await api(`/screenshots/${id}`, { method: "DELETE" });
-    setShots((s) => s.filter((x) => x.id !== id));
+    setItems((s) => s.filter((x) => x.id !== id));
     setLightbox(null);
   }
 
-  const pageShots = paginate(shots, page, PER_PAGE);
-  const onlineCount = shots.filter((s) => s.activityPct >= 50).length;
+  const viewButton = (kind: "grid" | "list", label: string, icon: React.ReactNode) => (
+    <button
+      onClick={() => setQ({ view: kind })}
+      aria-pressed={view === kind}
+      className={`rounded-lg p-2 transition ${view === kind ? "bg-brand text-white" : "border border-border text-muted hover:bg-canvas"}`}
+      title={label}
+    >
+      {icon}
+    </button>
+  );
 
   return (
-    <div>
+    <motion.div {...m.page}>
       <PageHeader
         title="Screenshots"
         subtitle={isAdmin ? "Review captured screenshots across your team" : "Your captured screenshots"}
         actions={
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setView("grid")}
-              className={`rounded-lg p-2 transition ${view === "grid" ? "bg-brand text-white" : "border border-border text-muted hover:bg-canvas"}`}
-              title="Grid view"
-            >
+            {view === "grid" && <DensityControl value={cols} onChange={(d) => setQ({ cols: String(d) })} />}
+            {viewButton(
+              "grid",
+              "Grid view",
               <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
                 <rect x="0" y="0" width="6" height="6" rx="1.5" />
                 <rect x="8" y="0" width="6" height="6" rx="1.5" />
                 <rect x="0" y="8" width="6" height="6" rx="1.5" />
                 <rect x="8" y="8" width="6" height="6" rx="1.5" />
               </svg>
-            </button>
-            <button
-              onClick={() => setView("list")}
-              className={`rounded-lg p-2 transition ${view === "list" ? "bg-brand text-white" : "border border-border text-muted hover:bg-canvas"}`}
-              title="List view"
-            >
+            )}
+            {viewButton(
+              "list",
+              "List view",
               <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
                 <rect x="0" y="1" width="14" height="2" rx="1" />
                 <rect x="0" y="6" width="14" height="2" rx="1" />
                 <rect x="0" y="11" width="14" height="2" rx="1" />
               </svg>
-            </button>
+            )}
           </div>
         }
       />
 
       <FilterBar>
-        <DateRange value={range} onChange={setRange} />
-        <MemberFilter value={member} onChange={setMember} enabled={isAdmin} />
+        <DateRange value={range} onChange={(v) => setQ({ range: rangeToQuery(v) })} />
+        <MemberFilter value={q.member} onChange={(id) => setQ({ member: id })} enabled={isAdmin} />
         {shots.length > 0 && (
-          <span className="ml-auto text-[13px] text-muted">
-            {shots.length} screenshot{shots.length !== 1 ? "s" : ""}
+          <span className="ml-auto text-[13px] text-muted tnum">
+            {shots.length} loaded{done ? "" : "…"}
           </span>
         )}
       </FilterBar>
 
       {loading ? (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-          {Array.from({ length: 12 }).map((_, i) => (
-            <Skeleton key={i} className="aspect-video rounded-xl" />
-          ))}
-        </div>
+        <ShotSkeletons count={cols * 3} className={gridClass} />
+      ) : error ? (
+        <EmptyState icon="⚠" title="Couldn't load screenshots" hint={error} />
       ) : shots.length === 0 ? (
         <EmptyState
           icon="🖼"
@@ -125,28 +169,23 @@ export default function ScreenshotsPage() {
         <>
           {/* ── Grid view ── */}
           {view === "grid" && (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-              {pageShots.map((s, i) => (
-                <motion.div
-                  key={s.id}
-                  initial={{ opacity: 0, scale: 0.96 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.2, delay: (i % PER_PAGE) * 0.02 }}
-                >
+            <motion.div key={`grid-${cols}`} className={`grid gap-3 ${gridClass}`} {...m.stagger()}>
+              {shots.map((s) => (
+                <motion.div key={s.id} {...m.item}>
                   <Card className="group overflow-hidden cursor-pointer hover:shadow-[var(--shadow-lift)] transition-shadow" hover>
-                    {/* Thumbnail */}
                     <button onClick={() => setLightbox(s)} className="relative block w-full aspect-video bg-canvas">
                       {s.url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={s.url}
                           alt="screenshot"
+                          loading="lazy"
+                          decoding="async"
                           className={`h-full w-full object-cover transition group-hover:scale-[1.02] ${s.blurred ? "blur-sm" : ""}`}
                         />
                       ) : (
                         <div className="flex h-full items-center justify-center text-xs text-faint">No image</div>
                       )}
-                      {/* Activity badge overlay */}
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 opacity-0 group-hover:opacity-100 transition">
                         <ActivityBar pct={Math.round(s.activityPct)} />
                       </div>
@@ -156,7 +195,6 @@ export default function ScreenshotsPage() {
                         </span>
                       </span>
                     </button>
-                    {/* Footer */}
                     <div className="px-2.5 py-2">
                       <div className="truncate text-[12px] font-semibold text-ink">{s.project}</div>
                       <div className="truncate text-[10px] text-muted">
@@ -174,7 +212,7 @@ export default function ScreenshotsPage() {
                   </Card>
                 </motion.div>
               ))}
-            </div>
+            </motion.div>
           )}
 
           {/* ── List view ── */}
@@ -195,7 +233,7 @@ export default function ScreenshotsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
-                    {pageShots.map((s) => (
+                    {shots.map((s) => (
                       <tr key={s.id} className="hover:bg-canvas/40 transition group">
                         <td className="px-5 py-3">
                           <button
@@ -204,7 +242,7 @@ export default function ScreenshotsPage() {
                           >
                             {s.url ? (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={s.url} alt="" className={`h-full w-full object-cover ${s.blurred ? "blur-sm" : ""}`} />
+                              <img src={s.url} alt="" loading="lazy" decoding="async" className={`h-full w-full object-cover ${s.blurred ? "blur-sm" : ""}`} />
                             ) : (
                               <div className="flex h-full items-center justify-center text-[9px] text-faint">N/A</div>
                             )}
@@ -222,7 +260,7 @@ export default function ScreenshotsPage() {
                                 style={{ width: `${s.activityPct}%` }}
                               />
                             </div>
-                            <span className="text-[12px] font-semibold text-muted w-8">{Math.round(s.activityPct)}%</span>
+                            <span className="text-[12px] font-semibold text-muted w-8 tnum">{Math.round(s.activityPct)}%</span>
                           </div>
                         </td>
                         <td className="px-4 py-3 text-center">
@@ -249,7 +287,19 @@ export default function ScreenshotsPage() {
             </Card>
           )}
 
-          <Pagination page={page} pageSize={PER_PAGE} total={shots.length} onPage={setPage} />
+          {/* Next-page skeletons, shown in place so the scroll position is stable. */}
+          {loadingMore && (
+            <div className="mt-3">
+              <ShotSkeletons count={view === "grid" ? cols : 3} className={view === "grid" ? gridClass : "grid-cols-1"} />
+            </div>
+          )}
+
+          {/* Sentinel: entering the viewport requests the next page. */}
+          {!done && <div ref={sentinelRef} className="h-px w-full" aria-hidden />}
+
+          {done && shots.length > 0 && (
+            <p className="mt-6 text-center text-[13px] text-muted">That&rsquo;s everything in this range.</p>
+          )}
         </>
       )}
 
@@ -258,22 +308,20 @@ export default function ScreenshotsPage() {
         {lightbox && (
           <motion.div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Screenshot detail"
+            {...m.backdrop}
             onClick={() => setLightbox(null)}
           >
             <motion.div
               className="relative max-h-[90vh] max-w-5xl w-full overflow-hidden rounded-2xl bg-surface shadow-2xl"
-              initial={{ scale: 0.94, y: 16 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.94, y: 16 }}
-              transition={{ type: "spring", damping: 24, stiffness: 260 }}
+              {...m.dialog}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Close */}
               <button
                 onClick={() => setLightbox(null)}
+                aria-label="Close"
                 className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70 transition"
               >
                 ×
@@ -301,7 +349,7 @@ export default function ScreenshotsPage() {
                   </div>
                   <div className="flex items-center gap-1.5 rounded-full bg-canvas px-3 py-1.5">
                     <div className={`h-2 w-2 rounded-full ${lightbox.activityPct >= 50 ? "bg-[var(--color-positive)]" : "bg-border-strong"}`} />
-                    <span className="text-[12px] font-semibold">{Math.round(lightbox.activityPct)}% active</span>
+                    <span className="text-[12px] font-semibold tnum">{Math.round(lightbox.activityPct)}% active</span>
                   </div>
                 </div>
                 {isAdmin && (
@@ -317,6 +365,6 @@ export default function ScreenshotsPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }

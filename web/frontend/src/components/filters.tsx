@@ -63,6 +63,25 @@ export function rangeToParams(val: DateRangeValue): { from?: string; to?: string
   }
 }
 
+/** Serialise a range for the query string: "week" or "2026-01-04..2026-01-11". */
+export function rangeToQuery(v: DateRangeValue): string {
+  if (v.type === "preset") return v.preset;
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return `${iso(v.from)}..${iso(v.to)}`;
+}
+
+export function rangeFromQuery(raw: string, fallback: DateRangeValue): DateRangeValue {
+  if (!raw) return fallback;
+  if (raw.includes("..")) {
+    const [a, b] = raw.split("..");
+    const from = new Date(`${a}T00:00:00`);
+    const to = new Date(`${b}T00:00:00`);
+    if (!isNaN(from.getTime()) && !isNaN(to.getTime())) return { type: "custom", from, to };
+    return fallback;
+  }
+  return { type: "preset", preset: raw as PresetKey };
+}
+
 export function DateRange({ value, onChange }: { value: DateRangeValue; onChange: (v: DateRangeValue) => void }) {
   return <DateRangePicker value={value} onChange={onChange} />;
 }
@@ -115,27 +134,50 @@ export function FilterBar({ children }: { children: React.ReactNode }) {
   return <div className="mb-5 flex flex-wrap items-center gap-3">{children}</div>;
 }
 
+export const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function Pagination({
   page,
   pageSize,
   total,
   onPage,
+  onPageSize,
 }: {
   page: number;
   pageSize: number;
   total: number;
   onPage: (p: number) => void;
+  /** Omit to hide the page-size selector (fixed-size grids). */
+  onPageSize?: (size: number) => void;
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  if (pages <= 1) return null;
+  // Still render when there's a single page: the size selector is how the user
+  // gets *back* to more rows per page, so hiding it at n<=pageSize traps them.
+  if (pages <= 1 && !onPageSize) return null;
   const from = total === 0 ? 0 : page * pageSize + 1;
   const to = Math.min(total, (page + 1) * pageSize);
   return (
-    <div className="mt-4 flex items-center justify-between text-sm text-muted">
-      <span>
-        {from}–{to} of {total}
-      </span>
-      <div className="flex gap-1">
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
+      <div className="flex items-center gap-3">
+        <span>
+          {from}–{to} of {total}
+        </span>
+        {onPageSize && (
+          <label className="flex items-center gap-1.5">
+            <span className="text-[13px]">Rows</span>
+            <select
+              value={pageSize}
+              onChange={(e) => { onPageSize(Number(e.target.value)); onPage(0); }}
+              className="rounded-lg border border-border bg-surface px-2 py-1 text-[13px] text-ink outline-none focus:border-brand"
+            >
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      <div className="flex items-center gap-1">
         <button
           disabled={page === 0}
           onClick={() => onPage(page - 1)}
@@ -143,6 +185,9 @@ export function Pagination({
         >
           Prev
         </button>
+        <span className="px-2 tnum text-[13px]">
+          {page + 1} / {pages}
+        </span>
         <button
           disabled={page >= pages - 1}
           onClick={() => onPage(page + 1)}
@@ -151,6 +196,38 @@ export function Pagination({
           Next
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Grid density — columns per row, not items per page. */
+export const DENSITIES = [3, 4, 5, 6] as const;
+export type Density = (typeof DENSITIES)[number];
+
+/** Tailwind can't see `grid-cols-${n}`, so the classes are spelled out. */
+export const DENSITY_CLASS: Record<Density, string> = {
+  3: "grid-cols-2 sm:grid-cols-3",
+  4: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4",
+  5: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5",
+  6: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6",
+};
+
+export function DensityControl({ value, onChange }: { value: Density; onChange: (d: Density) => void }) {
+  return (
+    <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-surface p-1" role="group" aria-label="Grid density">
+      {DENSITIES.map((d) => (
+        <button
+          key={d}
+          onClick={() => onChange(d)}
+          aria-pressed={value === d}
+          title={`${d} per row`}
+          className={`rounded-md px-2.5 py-1 text-[12px] font-semibold tnum transition ${
+            value === d ? "bg-brand text-white" : "text-muted hover:text-ink hover:bg-canvas"
+          }`}
+        >
+          ×{d}
+        </button>
+      ))}
     </div>
   );
 }

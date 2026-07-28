@@ -20,6 +20,32 @@ const confirmSchema = z.object({
   blurred: z.boolean().optional(),
 });
 
+const listQuery = z.object({
+  sessionId: z.string().uuid().optional(),
+  userId: z.string().uuid().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  // One screen of a ×6 grid is ~30 tiles; 48 gives a page of headroom without
+  // presigning hundreds of URLs the viewer will never scroll to.
+  limit: z.coerce.number().int().min(1).max(100).default(48),
+  cursor: z.string().optional(),
+});
+
+/** Opaque keyset cursor: the (takenAt, id) of the last row of the previous page. */
+function encodeCursor(takenAt: Date, id: string): string {
+  return Buffer.from(`${takenAt.getTime()}_${id}`).toString("base64url");
+}
+
+function decodeCursor(raw?: string): { takenAt: Date; id: string } | null {
+  if (!raw) return null;
+  const [ms, id] = Buffer.from(raw, "base64url").toString("utf8").split("_");
+  const t = Number(ms);
+  // A malformed cursor means "start from the beginning" rather than a 500 —
+  // stale links and truncated URLs shouldn't break the gallery.
+  if (!id || !Number.isFinite(t)) return null;
+  return { takenAt: new Date(t), id };
+}
+
 export default async function screenshotRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
 
@@ -66,10 +92,21 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
   });
 
   // 3) List screenshots (with short-lived view URLs). Members see own; admins all.
+  //
+  // Keyset ("cursor") paginated, newest first. The old implementation returned a
+  // flat `take: 200` slice with no indication that anything had been cut off, so
+  // a busy week silently disappeared and the client could only re-slice what it
+  // had already been given. Presigning every URL is the expensive part of this
+  // handler, so a real page boundary keeps that cost proportional to what the
+  // viewport actually shows.
+  //
+  // `takenAt` is not unique (multi-monitor captures share a timestamp), so the
+  // cursor is the (takenAt, id) pair and the comparison is lexicographic on that
+  // pair — otherwise rows at a tie boundary get skipped or repeated.
   fastify.get("/screenshots", async (req, reply) => {
-    const q = req.query as { sessionId?: string; userId?: string; from?: string; to?: string };
+    const q = listQuery.parse(req.query);
     const privileged = req.user.role === "owner" || req.user.role === "admin";
-    const where: Record<string, unknown> = { deletedAt: null };
+
     const sessionWhere: Record<string, unknown> = {};
     if (privileged) {
       sessionWhere.user = { orgId: req.user.orgId };
@@ -77,26 +114,44 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
     } else {
       sessionWhere.userId = req.user.userId;
     }
-    if (q.sessionId) where.sessionId = q.sessionId;
-    if (q.from || q.to) {
-      where.takenAt = {
-        ...(q.from ? { gte: new Date(q.from) } : {}),
-        ...(q.to ? { lte: new Date(q.to) } : {}),
-      };
-    }
-    where.session = sessionWhere;
 
-    const shots = await prisma.screenshot.findMany({
+    const and: Record<string, unknown>[] = [];
+    if (q.from) and.push({ takenAt: { gte: new Date(q.from) } });
+    if (q.to) and.push({ takenAt: { lte: new Date(q.to) } });
+
+    const cursor = decodeCursor(q.cursor);
+    if (cursor) {
+      and.push({
+        OR: [
+          { takenAt: { lt: cursor.takenAt } },
+          { takenAt: cursor.takenAt, id: { lt: cursor.id } },
+        ],
+      });
+    }
+
+    const where: Record<string, unknown> = {
+      deletedAt: null,
+      session: sessionWhere,
+      ...(q.sessionId ? { sessionId: q.sessionId } : {}),
+      ...(and.length ? { AND: and } : {}),
+    };
+
+    // Over-fetch by one to learn whether another page exists without a second
+    // count query (the count would be the slower half of this endpoint).
+    const rows = await prisma.screenshot.findMany({
       where,
       include: {
         session: { select: { id: true, user: { select: { email: true } }, project: { select: { name: true } } } },
         activityBlock: { select: { activityPct: true } },
       },
-      orderBy: { takenAt: "desc" },
-      take: 200,
+      orderBy: [{ takenAt: "desc" }, { id: "desc" }],
+      take: q.limit + 1,
     });
 
-    const withUrls = await Promise.all(
+    const hasMore = rows.length > q.limit;
+    const shots = hasMore ? rows.slice(0, q.limit) : rows;
+
+    const items = await Promise.all(
       shots.map(async (s) => ({
         id: s.id,
         takenAt: s.takenAt,
@@ -108,7 +163,12 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
         url: r2Configured ? await presignGet(s.r2Key) : null,
       }))
     );
-    return reply.send(withUrls);
+
+    const last = shots[shots.length - 1];
+    return reply.send({
+      items,
+      nextCursor: hasMore && last ? encodeCursor(last.takenAt, last.id) : null,
+    });
   });
 
   // 4) Delete (soft) — only owner/admin per policy.

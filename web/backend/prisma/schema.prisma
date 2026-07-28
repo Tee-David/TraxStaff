@@ -271,6 +271,9 @@ model Screenshot {
 
   @@index([sessionId])
   @@index([activityBlockId])
+  // Gallery paging is a keyset scan on (takenAt desc, id desc) — without this
+  // every page is a full sort of the org's screenshot history.
+  @@index([takenAt, id])
 }
 
 model UnusualActivityFlag {

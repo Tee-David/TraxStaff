@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import CircularTimer from "./CircularTimer";
 import LightRays from "./LightRays";
 import Consent from "./Consent";
 import { DatePicker } from "./DatePicker";
 import { Select } from "./Select";
+import { useInfiniteList } from "./useInfinite";
 import {
   api,
   API_BASE,
@@ -1185,7 +1186,11 @@ function DesktopDashboard({ projects, week, workedWeek, onViewActivity }: { proj
   useEffect(() => {
     api<{ email: string }>("/auth/me").then((u) => setName(u.email.split("@")[0])).catch(() => {});
     api<{ avgActivityPct: number | null }>(`/reports/summary?from=${startOfWeek().toISOString()}`).then((s) => setAvgActivity(s.avgActivityPct)).catch(() => {});
-    api<typeof shots>(`/screenshots?from=${startOfWeek().toISOString()}`).then((s) => setShots(s.slice(0, 6))).catch(() => {});
+    // Ask for exactly the six tiles this strip shows — the endpoint is paginated,
+    // so there's no reason to pull (and presign) a whole week of URLs for them.
+    api<{ items: typeof shots }>(`/screenshots?from=${startOfWeek().toISOString()}&limit=6`)
+      .then((r) => setShots(r.items))
+      .catch(() => {});
   }, [week]);
 
   const daily = useMemo(() => {
@@ -1640,10 +1645,28 @@ function TimesheetsPage({ week }: { week: Session[] }) {
   );
 }
 
+interface GalleryShot {
+  id: string;
+  url: string | null;
+  takenAt: string;
+  activityPct: number;
+  project: string;
+  monitorIndex: number;
+}
+
+const DENSITIES = [3, 4, 5, 6] as const;
+type Density = (typeof DENSITIES)[number];
+const SHOTS_PER_PAGE = 36;
+
 function ActivityPage() {
   const [sub, setSub] = useState<"screenshots" | "apps" | "urls">("screenshots");
   const [freq, setFreq] = useState<"ten" | "all">("all");
-  const [shots, setShots] = useState<{ id: string; url: string | null; takenAt: string; activityPct: number; project: string; monitorIndex: number }[]>([]);
+  const [view, setView] = useState<"grid" | "list">("grid");
+  const [cols, setCols] = useState<Density>(3);
+  const [rangeKey, setRangeKey] = useState<RangeKey>("week");
+  const [custom, setCustom] = useState<{ from?: string; to?: string }>({});
+  const range = useMemo(() => rangeFor(rangeKey, custom.from, custom.to), [rangeKey, custom]);
+
   const [apps, setApps] = useState<{ appName: string; seconds: number }[]>([]);
   const [urls, setUrls] = useState<{ domain: string; seconds: number }[]>([]);
   const [summary, setSummary] = useState<{ totalSeconds: number; avgActivityPct: number | null } | null>(null);
@@ -1651,30 +1674,53 @@ function ActivityPage() {
   // no waiting for a block boundary or upload.
   const [localShots, setLocalShots] = useState<{ takenAt: string; monitorIndex: number; dataUrl: string; status?: ShotStatus }[]>([]);
   const [lightbox, setLightbox] = useState<string | null>(null); // full-size image src
+
+  const reduce = useReducedMotion();
+
+  // Newest first, one page at a time. The gallery used to pull every shot in the
+  // week in a single request and slice it client-side, which meant the server
+  // presigned hundreds of R2 URLs nobody scrolled to.
+  const buildPath = useCallback(
+    (cursor: string | null) => {
+      const p = new URLSearchParams({
+        from: range.from.toISOString(),
+        to: range.to.toISOString(),
+        limit: String(SHOTS_PER_PAGE),
+      });
+      if (cursor) p.set("cursor", cursor);
+      return `/screenshots?${p.toString()}`;
+    },
+    [range.from, range.to]
+  );
+  const { items: shots, loading, loadingMore, error, done, sentinelRef } = useInfiniteList<GalleryShot>(buildPath);
+
   useEffect(() => {
-    const from = startOfWeek().toISOString();
-    api<typeof shots>(`/screenshots?from=${from}`).then(setShots).catch(() => {});
-    api<typeof apps>(`/reports/app-usage?from=${from}`).then(setApps).catch(() => {});
-    api<typeof urls>(`/reports/url-usage?from=${from}`).then(setUrls).catch(() => {});
-    api<typeof summary>(`/reports/summary?from=${from}`).then(setSummary).catch(() => {});
+    const from = range.from.toISOString();
+    const to = range.to.toISOString();
+    api<typeof apps>(`/reports/app-usage?from=${from}&to=${to}`).then(setApps).catch(() => {});
+    api<typeof urls>(`/reports/url-usage?from=${from}&to=${to}`).then(setUrls).catch(() => {});
+    api<typeof summary>(`/reports/summary?from=${from}&to=${to}`).then(setSummary).catch(() => {});
     invoke<typeof localShots>("local_shots").then(setLocalShots).catch(() => {});
-  }, []);
+  }, [range.from, range.to]);
+
   const maxApp = Math.max(1, ...apps.map((a) => a.seconds));
   const maxUrl = Math.max(1, ...urls.map((u) => u.seconds));
 
-  // group screenshots into hour blocks
+  // Group the loaded pages into hour blocks. Already newest-first from the
+  // server, so no re-sort is needed — appending a page just extends the tail.
   const blocks = useMemo(() => {
-    let list = [...shots].sort((a, b) => new Date(b.takenAt).getTime() - new Date(a.takenAt).getTime());
+    let list = shots;
     if (freq === "ten") {
       const seen = new Set<string>();
       list = list.filter((s) => {
-        const key = `${new Date(s.takenAt).toISOString().slice(0, 13)}-${Math.floor(new Date(s.takenAt).getMinutes() / 10)}-${s.monitorIndex}`;
+        const d = new Date(s.takenAt);
+        const key = `${d.toISOString().slice(0, 13)}-${Math.floor(d.getMinutes() / 10)}-${s.monitorIndex}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       });
     }
-    const g = new Map<string, typeof shots>();
+    const g = new Map<string, GalleryShot[]>();
     for (const s of list) {
       const d = new Date(s.takenAt);
       const k = `${d.toLocaleDateString([], { month: "short", day: "numeric" })} · ${d.getHours()}:00`;
@@ -1683,10 +1729,18 @@ function ActivityPage() {
     return [...g.entries()];
   }, [shots, freq]);
 
+  const gridStyle = { "--shot-cols": cols } as CSSProperties;
+
   return (
     <div className="page">
       <div className="page-head"><h2>Activity</h2></div>
       <SubTabs tabs={[{ id: "screenshots", label: "Screenshots" }, { id: "apps", label: "Apps" }, { id: "urls", label: "URLs" }]} value={sub} onChange={setSub} />
+
+      <DateRangePicker
+        value={rangeKey}
+        custom={custom}
+        onChange={(k, f, t) => { setRangeKey(k); if (k === "custom") setCustom({ from: f, to: t }); }}
+      />
 
       {sub === "screenshots" && (
         <>
@@ -1697,40 +1751,107 @@ function ActivityPage() {
               <SubTabs tabs={[{ id: "ten", label: "Every 10 min" }, { id: "all", label: "All screenshots" }]} value={freq} onChange={setFreq} />
             </div>
           </div>
+
+          <div className="gallery-controls">
+            <SubTabs tabs={[{ id: "grid", label: "Grid" }, { id: "list", label: "List" }]} value={view} onChange={setView} />
+            {view === "grid" && (
+              <div className="density" role="group" aria-label="Grid density">
+                {DENSITIES.map((d) => (
+                  <button
+                    key={d}
+                    className={`density-btn ${cols === d ? "on" : ""}`}
+                    aria-pressed={cols === d}
+                    title={`${d} per row`}
+                    onClick={() => setCols(d)}
+                  >
+                    ×{d}
+                  </button>
+                ))}
+              </div>
+            )}
+            <span className="muted small gallery-count">{shots.length} loaded{done ? "" : "…"}</span>
+          </div>
+
           {localShots.length > 0 && (
             <div className="shot-block">
               <div className="shot-block-head"><span className="shot-block-time">On this device</span><span className="muted small">{localShots.length} recent · not yet uploaded shown here too</span></div>
-              <div className="shot-grid">
+              <div className="shot-grid" style={gridStyle}>
                 {localShots.map((s, i) => (
                   <div className="shot" key={`local-${i}`} onClick={() => setLightbox(s.dataUrl)}>
                     <UploadTag status={s.status} />
-                    <img src={s.dataUrl} alt="" />
+                    <img src={s.dataUrl} alt="" loading="lazy" decoding="async" />
                     <div className="shot-foot"><span>{fmtT(s.takenAt)}</span><span className="muted small">mon {s.monitorIndex + 1}</span></div>
                   </div>
                 ))}
               </div>
             </div>
           )}
-          {blocks.length === 0 && localShots.length === 0 ? <div className="empty">No screenshots captured yet — they appear within a minute of tracking.</div> : (
+
+          {loading ? (
+            <div className="shot-block">
+              <div className="shot-grid" style={gridStyle}>
+                {Array.from({ length: cols * 2 }).map((_, i) => <div className="shot-skel" key={i} />)}
+              </div>
+            </div>
+          ) : error ? (
+            <div className="empty">Couldn&rsquo;t load screenshots — {error}</div>
+          ) : blocks.length === 0 && localShots.length === 0 ? (
+            <div className="empty">No screenshots captured yet — they appear within a minute of tracking.</div>
+          ) : view === "list" ? (
+            <div className="shot-list">
+              {shots.map((s) => (
+                <div className="shot-list-row" key={s.id} onClick={() => s.url && setLightbox(s.url)}>
+                  <div className="shot-list-thumb">
+                    {s.url ? <img src={s.url} alt="" loading="lazy" decoding="async" /> : <div className="shot-empty">n/a</div>}
+                  </div>
+                  <span className="shot-list-proj">{s.project}</span>
+                  <span className="muted small">{fmtD(s.takenAt)} · {fmtT(s.takenAt)}</span>
+                  <div className="shot-actbar"><span className={s.activityPct >= 50 ? "hi" : "lo"} style={{ width: `${s.activityPct}%` }} /></div>
+                  <span className="shot-list-pct">{Math.round(s.activityPct)}%</span>
+                  <span className="muted small">mon {s.monitorIndex + 1}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
             blocks.map(([label, list]) => (
               <div className="shot-block" key={label}>
                 <div className="shot-block-head"><span className="shot-block-time">{label}</span><span className="muted small">{list.length} screenshot{list.length > 1 ? "s" : ""}</span></div>
-                <div className="shot-grid">
-                  {list.map((s) => (
-                    <div className="shot" key={s.id} onClick={() => s.url && setLightbox(s.url)}>
+                <div className="shot-grid" style={gridStyle}>
+                  {list.map((s, i) => (
+                    <motion.div
+                      className="shot"
+                      key={s.id}
+                      onClick={() => s.url && setLightbox(s.url)}
+                      initial={reduce ? false : { opacity: 0, transform: "translateY(6px)" }}
+                      animate={{ opacity: 1, transform: "translateY(0px)" }}
+                      transition={{ duration: reduce ? 0 : 0.18, delay: reduce ? 0 : Math.min(i, 8) * 0.02 }}
+                    >
                       <div className="shot-proj">{s.project}</div>
-                      {s.url ? <img src={s.url} alt="" /> : <div className="shot-empty">n/a</div>}
+                      {s.url ? <img src={s.url} alt="" loading="lazy" decoding="async" /> : <div className="shot-empty">n/a</div>}
                       <div className="shot-foot">
                         <span>{fmtT(s.takenAt)}</span>
                         <div className="shot-actbar"><span className={s.activityPct >= 50 ? "hi" : "lo"} style={{ width: `${s.activityPct}%` }} /></div>
                         <span>{Math.round(s.activityPct)}%</span>
                       </div>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               </div>
             ))
           )}
+
+          {/* Next-page placeholders keep the scroll position stable while loading. */}
+          {loadingMore && (
+            <div className="shot-block">
+              <div className="shot-grid" style={gridStyle}>
+                {Array.from({ length: cols }).map((_, i) => <div className="shot-skel" key={i} />)}
+              </div>
+            </div>
+          )}
+
+          {/* Sentinel — entering the viewport requests the next page. */}
+          {!done && !loading && !error && <div ref={sentinelRef} className="scroll-sentinel" aria-hidden />}
+          {done && shots.length > 0 && <div className="muted small gallery-end">That&rsquo;s everything in this range.</div>}
         </>
       )}
       {sub === "apps" && (
@@ -1747,7 +1868,15 @@ function ActivityPage() {
         )
       )}
       {sub === "urls" && (
-        urls.length === 0 ? <div className="empty">No website activity captured yet.</div> : (
+        urls.length === 0 ? (
+          <div className="empty">
+            No website activity captured yet.
+            <div className="muted small" style={{ marginTop: 8 }}>
+              Domains are sampled from the address bar of a supported browser while it&rsquo;s the
+              foreground window. Windows only.
+            </div>
+          </div>
+        ) : (
           <div className="bars">
             {urls.slice(0, 14).map((u) => (
               <div className="bar-row" key={u.domain}>
@@ -1763,8 +1892,16 @@ function ActivityPage() {
       {/* Full-size screenshot viewer. */}
       <AnimatePresence>
         {lightbox && (
-          <motion.div className="lightbox" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setLightbox(null)}>
-            <motion.img src={lightbox} alt="Screenshot" initial={{ scale: 0.96 }} animate={{ scale: 1 }} exit={{ scale: 0.96 }} onClick={(e) => e.stopPropagation()} />
+          <motion.div className="lightbox" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : 0.15 }} onClick={() => setLightbox(null)}>
+            <motion.img
+              src={lightbox}
+              alt="Screenshot"
+              initial={reduce ? false : { opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
+              transition={{ duration: reduce ? 0 : 0.18 }}
+              onClick={(e) => e.stopPropagation()}
+            />
             <button className="lightbox-close" onClick={() => setLightbox(null)} aria-label="Close">✕</button>
           </motion.div>
         )}

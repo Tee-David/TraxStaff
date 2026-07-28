@@ -1846,41 +1846,113 @@ function ProjectsPageDesktop({ projects, onChange }: { projects: Project[]; onCh
     { key: "in_progress", label: "In Progress" },
     { key: "done", label: "Done" },
   ] as const;
+  const [busy, setBusy] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [err, setErr] = useState<string | null>(null);
+
   async function move(id: string, status: string) {
-    await api(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }).catch(() => {});
-    onChange();
+    setBusy(id);
+    setErr(null);
+    try {
+      await api(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      onChange();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't update the task");
+    } finally {
+      setBusy(null);
+    }
   }
+
+  async function addTask(projectId: string) {
+    const title = (draft[projectId] ?? "").trim();
+    if (!title) return;
+    setBusy(projectId);
+    setErr(null);
+    try {
+      await api(`/projects/${projectId}/tasks`, { method: "POST", body: JSON.stringify({ title }) });
+      setDraft((d) => ({ ...d, [projectId]: "" }));
+      onChange();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't create the task");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const active = projects.filter((p) => !p.archivedAt);
+
   return (
     <div className="page">
       <div className="page-head"><h2>Projects &amp; Tasks</h2></div>
-      {projects.filter((p) => !p.archivedAt).length === 0 && <div className="empty">No projects yet.</div>}
-      {projects.filter((p) => !p.archivedAt).map((p) => (
-        <div className="proj-card" key={p.id}>
-          <div className="proj-card-head">
-            <span className="proj-card-title">{p.name}</span>
-            <span className="muted small">{p.tasks?.length ?? 0} tasks</span>
-          </div>
-          <div className="kb">
-            {COLS.map((c) => {
-              const items = (p.tasks ?? []).filter((t) => t.status === c.key);
-              return (
-                <div className="kb-col" key={c.key}>
-                  <div className="kb-col-head">{c.label} <span>{items.length}</span></div>
-                  {items.map((t) => (
-                    <div className="kb-task" key={t.id}>
-                      <span>{t.title}</span>
-                      <div className="kb-move">
-                        {c.key !== "todo" && <button onClick={() => move(t.id, c.key === "done" ? "in_progress" : "todo")}>←</button>}
-                        {c.key !== "done" && <button onClick={() => move(t.id, c.key === "todo" ? "in_progress" : "done")}>→</button>}
+      {err && <div className="error" style={{ marginBottom: 10 }}>{err}</div>}
+      {active.length === 0 && <div className="empty">No projects yet.</div>}
+      {active.map((p) => {
+        const tasks = p.tasks ?? [];
+        const done = tasks.filter((t) => t.status === "done").length;
+        return (
+          <div className="proj-card" key={p.id}>
+            <div className="proj-card-head">
+              <span className="proj-card-title">{p.name}</span>
+              <span className="muted small">{done}/{tasks.length} done</span>
+            </div>
+
+            {/* Staff can add their own tasks — the API never required admin. */}
+            <form className="kb-add" onSubmit={(e) => { e.preventDefault(); addTask(p.id); }}>
+              <input
+                value={draft[p.id] ?? ""}
+                onChange={(e) => setDraft((d) => ({ ...d, [p.id]: e.target.value }))}
+                placeholder="Add a task…"
+                aria-label={`Add a task to ${p.name}`}
+              />
+              <button type="submit" disabled={busy === p.id || !(draft[p.id] ?? "").trim()} aria-label="Add task">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
+              </button>
+            </form>
+
+            <div className="kb">
+              {COLS.map((c) => {
+                const items = tasks.filter((t) => t.status === c.key);
+                return (
+                  <div className="kb-col" key={c.key}>
+                    <div className="kb-col-head">{c.label} <span>{items.length}</span></div>
+                    {items.map((t) => (
+                      <div className={`kb-task ${c.key === "done" ? "is-done" : ""}`} key={t.id}>
+                        {/* One-click complete/reopen, instead of stepping a task
+                            through every column just to mark it finished. */}
+                        <button
+                          className={`kb-check ${c.key === "done" ? "on" : ""}`}
+                          disabled={busy === t.id}
+                          onClick={() => move(t.id, c.key === "done" ? "todo" : "done")}
+                          aria-label={c.key === "done" ? `Reopen ${t.title}` : `Mark ${t.title} done`}
+                          title={c.key === "done" ? "Reopen" : "Mark done"}
+                        >
+                          {c.key === "done" && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 12.5l5 5L20 6.5" /></svg>
+                          )}
+                        </button>
+                        <span className="kb-task-title">{t.title}</span>
+                        <div className="kb-move">
+                          {c.key !== "todo" && (
+                            <button disabled={busy === t.id} onClick={() => move(t.id, c.key === "done" ? "in_progress" : "todo")} aria-label="Move left">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 6l-6 6 6 6" /></svg>
+                            </button>
+                          )}
+                          {c.key !== "done" && (
+                            <button disabled={busy === t.id} onClick={() => move(t.id, c.key === "todo" ? "in_progress" : "done")} aria-label="Move right">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
+                    ))}
+                    {items.length === 0 && <div className="kb-empty">—</div>}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { weightedActivity, type WeightedBlock } from "./reports";
 
 const PRESENCE_WINDOW_MS = 3 * 60 * 1000; // "online" if a device beat within 3 min
 
@@ -92,14 +93,16 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
       where,
       include: {
         user: { select: { id: true, email: true } },
-        activityBlocks: { select: { activityPct: true } },
+        // Duration is needed to weight the average — a plain mean of block
+        // percentages lets a 5-second block outweigh a full 10-minute one.
+        activityBlocks: { select: { activityPct: true, creditedSeconds: true, blockStart: true, blockEnd: true } },
       },
     });
-    const byUser = new Map<string, { userId: string; email: string; totalSeconds: number; aSum: number; aN: number }>();
+    const byUser = new Map<string, { userId: string; email: string; totalSeconds: number; blocks: WeightedBlock[] }>();
     for (const s of sessions) {
-      const u = byUser.get(s.userId) ?? { userId: s.userId, email: s.user.email, totalSeconds: 0, aSum: 0, aN: 0 };
+      const u = byUser.get(s.userId) ?? { userId: s.userId, email: s.user.email, totalSeconds: 0, blocks: [] as WeightedBlock[] };
       u.totalSeconds += seconds(s.startedAt, s.endedAt);
-      for (const b of s.activityBlocks) { u.aSum += b.activityPct; u.aN += 1; }
+      u.blocks.push(...s.activityBlocks);
       byUser.set(s.userId, u);
     }
     const board = [...byUser.values()]
@@ -107,7 +110,7 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
         userId: u.userId,
         email: u.email,
         totalSeconds: Math.round(u.totalSeconds),
-        avgActivityPct: u.aN ? +(u.aSum / u.aN).toFixed(1) : 0,
+        avgActivityPct: weightedActivity(u.blocks) ?? 0,
       }))
       .sort((a, b) => b.totalSeconds - a.totalSeconds);
     return reply.send(board);

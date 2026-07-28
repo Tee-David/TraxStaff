@@ -19,6 +19,39 @@ function workedSeconds(s: { startedAt: Date; endedAt: Date | null; idleDiscards:
   return Math.max(0, seconds(s.startedAt, s.endedAt) - discarded);
 }
 
+export type WeightedBlock = {
+  activityPct: number;
+  creditedSeconds: number | null;
+  blockStart: Date;
+  blockEnd: Date;
+};
+
+/**
+ * Duration-weighted mean activity, equivalent to
+ * `total active seconds / total tracked seconds`.
+ *
+ * A plain mean of per-block percentages is badly wrong here because blocks are
+ * NOT uniform: every pause, stop and project switch finalizes a short block, and
+ * a 5-second block scoring 90% (a stray mouse move) would otherwise carry the
+ * same weight as a full 600-second block at 15%. That is what made the number
+ * read ~81% during barely-active sessions.
+ *
+ * Weight by credited (monotonic) seconds where the client reported them, else by
+ * the block's wall-clock span. Blocks with no usable duration are skipped rather
+ * than silently counted as one unit.
+ */
+export function weightedActivity(blocks: WeightedBlock[]): number | null {
+  let num = 0;
+  let den = 0;
+  for (const b of blocks) {
+    const secs = b.creditedSeconds ?? (b.blockEnd.getTime() - b.blockStart.getTime()) / 1000;
+    if (!Number.isFinite(secs) || secs <= 0) continue;
+    num += b.activityPct * secs;
+    den += secs;
+  }
+  return den > 0 ? +(num / den).toFixed(1) : null;
+}
+
 export default async function reportRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
 
@@ -45,7 +78,8 @@ export default async function reportRoutes(fastify: FastifyInstance) {
         project: { select: { id: true, name: true, clientTag: true } },
         task: { select: { id: true, title: true } },
         user: { select: { id: true, email: true } },
-        activityBlocks: { select: { activityPct: true } },
+        // Duration is required to weight the activity average — see weightedActivity().
+        activityBlocks: { select: { activityPct: true, creditedSeconds: true, blockStart: true, blockEnd: true } },
         idleDiscards: { select: { seconds: true } },
       },
       orderBy: { startedAt: "asc" },
@@ -72,21 +106,17 @@ export default async function reportRoutes(fastify: FastifyInstance) {
   // Time grouped by project (+ task), with average activity %.
   fastify.get("/reports/by-project", async (req, reply) => {
     const sessions = await loadSessions(req);
-    const byProject = new Map<string, { projectId: string; project: string; clientTag: string | null; totalSeconds: number; activitySum: number; activityN: number }>();
+    const byProject = new Map<string, { projectId: string; project: string; clientTag: string | null; totalSeconds: number; blocks: WeightedBlock[] }>();
     for (const s of sessions) {
       const p = byProject.get(s.projectId) ?? {
         projectId: s.projectId,
         project: s.project.name,
         clientTag: s.project.clientTag,
         totalSeconds: 0,
-        activitySum: 0,
-        activityN: 0,
+        blocks: [] as WeightedBlock[],
       };
       p.totalSeconds += workedSeconds(s);
-      for (const blk of s.activityBlocks) {
-        p.activitySum += blk.activityPct;
-        p.activityN += 1;
-      }
+      p.blocks.push(...s.activityBlocks);
       byProject.set(s.projectId, p);
     }
     const out = [...byProject.values()]
@@ -95,7 +125,7 @@ export default async function reportRoutes(fastify: FastifyInstance) {
         project: p.project,
         clientTag: p.clientTag,
         totalSeconds: Math.round(p.totalSeconds),
-        avgActivityPct: p.activityN ? +(p.activitySum / p.activityN).toFixed(1) : null,
+        avgActivityPct: weightedActivity(p.blocks),
       }))
       .sort((a, b) => b.totalSeconds - a.totalSeconds);
     return reply.send(out);
@@ -134,17 +164,15 @@ export default async function reportRoutes(fastify: FastifyInstance) {
   // Headline summary: total hours, avg activity %, session count, flags.
   fastify.get("/reports/summary", async (req, reply) => {
     const sessions = await loadSessions(req);
-    let totalSeconds = 0, activitySum = 0, activityN = 0;
+    let totalSeconds = 0;
+    const blocks: WeightedBlock[] = [];
     for (const s of sessions) {
       totalSeconds += workedSeconds(s);
-      for (const blk of s.activityBlocks) {
-        activitySum += blk.activityPct;
-        activityN += 1;
-      }
+      blocks.push(...s.activityBlocks);
     }
     return reply.send({
       totalSeconds: Math.round(totalSeconds),
-      avgActivityPct: activityN ? +(activitySum / activityN).toFixed(1) : null,
+      avgActivityPct: weightedActivity(blocks),
       sessions: sessions.length,
       flaggedSessions: sessions.filter((s) => s.tamperSuspected).length,
     });

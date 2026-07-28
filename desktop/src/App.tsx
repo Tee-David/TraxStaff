@@ -32,10 +32,19 @@ interface SyncState {
   lastError: string | null;
 }
 
-interface ReminderPrefs { idle: boolean; notTracking: boolean }
+interface ReminderPrefs {
+  idle: boolean;
+  notTracking: boolean;
+  /** OS notification each time a screenshot is captured. On by default — the
+   *  product commitment is that capture is never silent. */
+  screenshots: boolean;
+  /** OS notification when the timer starts/stops. */
+  timer: boolean;
+}
+const REMINDER_DEFAULTS: ReminderPrefs = { idle: true, notTracking: false, screenshots: true, timer: true };
 function loadReminders(): ReminderPrefs {
-  try { return { idle: true, notTracking: false, ...JSON.parse(localStorage.getItem("trax_reminders") || "{}") }; }
-  catch { return { idle: true, notTracking: false }; }
+  try { return { ...REMINDER_DEFAULTS, ...JSON.parse(localStorage.getItem("trax_reminders") || "{}") }; }
+  catch { return { ...REMINDER_DEFAULTS }; }
 }
 
 // The app's real version (from Tauri); falls back in browser preview.
@@ -359,6 +368,30 @@ function ChevronIcon({ dir }: { dir: "left" | "right" }) {
   );
 }
 
+export type ShotStatus = "uploaded" | "uploading" | "pending";
+
+/** Per-screenshot upload state, so it's obvious what has reached the server. */
+function UploadTag({ status }: { status?: ShotStatus }) {
+  const s: ShotStatus = status ?? "pending";
+  const label = s === "uploaded" ? "Uploaded" : s === "uploading" ? "Uploading…" : "Not uploaded";
+  return (
+    <div className={`shot-tag ${s}`} title={
+      s === "uploaded" ? "Stored on the server"
+      : s === "uploading" ? "Uploading now"
+      : "Saved on this device — will upload automatically"
+    }>
+      {s === "uploaded" && (
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 12.5l5 5L20 6.5" /></svg>
+      )}
+      {s === "uploading" && <span className="shot-tag-spin" aria-hidden />}
+      {s === "pending" && (
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" aria-hidden><path d="M12 8v4l3 2" /><circle cx="12" cy="12" r="9" /></svg>
+      )}
+      {label}
+    </div>
+  );
+}
+
 const eyeProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 function EyeIcon() {
   return (
@@ -452,7 +485,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [closingRemaining, setClosingRemaining] = useState<number | null>(null);
   const [shotsOk, setShotsOk] = useState(true);
   const [shotCount, setShotCount] = useState(0); // screenshots this session
-  const [localShots, setLocalShots] = useState<{ takenAt: string; monitorIndex: number; dataUrl: string }[]>([]);
+  const [localShots, setLocalShots] = useState<{ takenAt: string; monitorIndex: number; dataUrl: string; status?: ShotStatus }[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -516,10 +549,15 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       // and refresh the local gallery. No server round trip needed.
       listen<{ takenAt: string }>("trax:shot-captured", () => {
         setShotCount((n) => n + 1);
-        showToast("📸 Screenshot captured");
-        if (reminders.current.idle) { /* screenshots are always disclosed; no extra nag */ }
+        showToast("Screenshot captured");
+        // Also notify at OS level: the in-app toast is invisible when the window
+        // is minimised or behind another app, and capture must never feel silent.
+        if (reminders.current.screenshots) notify("Trax", "Screenshot taken");
         loadLocalShots();
       }),
+      // Sync state changed — upload tags on the local gallery may have moved
+      // from pending → uploading → uploaded.
+      listen("trax:sync-state", () => loadLocalShots()),
       // Machine woke from sleep.
       listen<{ gapSecs: number }>("trax:resumed", (e) => setResumed(Math.round(e.payload.gapSecs / 60))),
       // Idle threshold crossed (informational) and returned from idle (actionable).
@@ -685,7 +723,8 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     const sid = newSessionId();
     const startedAt = new Date().toISOString();
     setShotCount(0);
-    showToast(`▶ Tracking ${proj?.name ?? "project"}`);
+    showToast(`Tracking ${proj?.name ?? "project"}`);
+    if (reminders.current.timer) notify("Trax", `Started timer for project ${proj?.name ?? "project"}`);
     // Timer starts now, off the local monotonic clock — never waits on Render.
     setActive({
       id: sid, projectId: useProject, taskId: taskForSession ?? null, startedAt, endedAt: null,
@@ -1610,7 +1649,7 @@ function ActivityPage() {
   const [summary, setSummary] = useState<{ totalSeconds: number; avgActivityPct: number | null } | null>(null);
   // Screenshots captured on THIS device, shown instantly from the local cache —
   // no waiting for a block boundary or upload.
-  const [localShots, setLocalShots] = useState<{ takenAt: string; monitorIndex: number; dataUrl: string }[]>([]);
+  const [localShots, setLocalShots] = useState<{ takenAt: string; monitorIndex: number; dataUrl: string; status?: ShotStatus }[]>([]);
   const [lightbox, setLightbox] = useState<string | null>(null); // full-size image src
   useEffect(() => {
     const from = startOfWeek().toISOString();
@@ -1664,7 +1703,7 @@ function ActivityPage() {
               <div className="shot-grid">
                 {localShots.map((s, i) => (
                   <div className="shot" key={`local-${i}`} onClick={() => setLightbox(s.dataUrl)}>
-                    <div className="shot-proj">Local</div>
+                    <UploadTag status={s.status} />
                     <img src={s.dataUrl} alt="" />
                     <div className="shot-foot"><span>{fmtT(s.takenAt)}</span><span className="muted small">mon {s.monitorIndex + 1}</span></div>
                   </div>

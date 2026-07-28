@@ -44,6 +44,22 @@ static SYNC: Lazy<Mutex<SyncState>> = Lazy::new(|| {
 });
 static APP: Lazy<Mutex<Option<AppHandle>>> = Lazy::new(|| Mutex::new(None));
 
+/// `(sessionId, seq)` of the block currently being flushed, so the local
+/// screenshot gallery can show "Uploading" rather than a flat "Pending" for the
+/// shots that are actually in flight right now.
+static UPLOADING: Lazy<Mutex<Option<(String, u32)>>> = Lazy::new(|| Mutex::new(None));
+
+/// The block being uploaded this instant, if any.
+pub fn uploading_block() -> Option<(String, u32)> {
+    UPLOADING.lock().ok().and_then(|g| g.clone())
+}
+
+fn set_uploading(v: Option<(String, u32)>) {
+    if let Ok(mut g) = UPLOADING.lock() {
+        *g = v;
+    }
+}
+
 #[derive(Clone, serde::Serialize)]
 struct SyncStatePayload {
     pending: usize,
@@ -162,6 +178,13 @@ fn post_block(
         Ok(true)
     } else if status.as_u16() == 400 {
         // Malformed/rejected payload will never succeed — don't wedge the queue.
+        Ok(false)
+    } else if status.as_u16() == 404 {
+        // "Session not found": the session was never registered server-side (its
+        // /sessions/start never succeeded before the app closed). The queued
+        // manifest carries no projectId, so it can't be created retroactively —
+        // retrying just wedges the queue behind a block that can never land, and
+        // pins a permanent "Sync error". Drop it and let the rest flush.
         Ok(false)
     } else {
         // 401/403 (stale token) and 5xx: keep the data, retry later.
@@ -315,13 +338,21 @@ pub fn flush_queue_dir(dir: &Path, backend: &str, token: &str, timeout_secs: u64
         let seq = v.get("seq").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
         let blur = v.get("blur").and_then(|x| x.as_bool()).unwrap_or(false);
 
-        match post_block(&c, backend, token, &session_id, &v["block"])? {
-            true => {}
-            false => {
-                // Permanently rejected — drop the block and its shots.
-                remove_block_files(dir, &path, &v);
-                continue;
+        set_uploading(Some((session_id.clone(), seq)));
+        // Any early exit below must clear the marker, or the gallery would show
+        // "Uploading" forever. `?` on post_block propagates, so clear first.
+        let posted = match post_block(&c, backend, token, &session_id, &v["block"]) {
+            Ok(p) => p,
+            Err(e) => {
+                set_uploading(None);
+                return Err(e);
             }
+        };
+        if !posted {
+            // Permanently rejected — drop the block and its shots.
+            remove_block_files(dir, &path, &v);
+            set_uploading(None);
+            continue;
         }
 
         // Block row exists server-side — now its screenshots can be confirmed.
@@ -340,6 +371,7 @@ pub fn flush_queue_dir(dir: &Path, backend: &str, token: &str, timeout_secs: u64
                 } else {
                     // Retryable (offline / cold start): the block re-POSTs next
                     // pass — /sync/activity is idempotent on (sessionId, seq).
+                    set_uploading(None);
                     return Err("screenshot upload failed".into());
                 }
             }
@@ -352,18 +384,22 @@ pub fn flush_queue_dir(dir: &Path, backend: &str, token: &str, timeout_secs: u64
             if let Some(apps) = v.get("appUsage").and_then(|x| x.as_array()) {
                 let pairs = json_usage_pairs(apps, "appName");
                 if !pairs.is_empty() && !sync_app_usage(backend, token, &session_id, block_start, &pairs) {
+                    set_uploading(None);
                     return Err("app-usage sync failed".into());
                 }
             }
             if let Some(urls) = v.get("urlUsage").and_then(|x| x.as_array()) {
                 let pairs = json_usage_pairs(urls, "domain");
                 if !pairs.is_empty() && !sync_url_usage(backend, token, &session_id, block_start, &pairs) {
+                    set_uploading(None);
                     return Err("url-usage sync failed".into());
                 }
             }
         }
         let _ = fs::remove_file(&path);
+        set_uploading(None);
     }
+    set_uploading(None);
     Ok(())
 }
 

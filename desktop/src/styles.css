@@ -315,6 +315,25 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .shot-block-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .shot-block-time { font-weight: 600; font-size: 14px; }
 .shot-proj { position: absolute; top: 6px; left: 6px; z-index: 1; background: rgba(255,255,255,0.92); color: var(--ink); font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Per-screenshot upload state, so it's clear what has reached the server. */
+.shot-tag {
+  position: absolute; top: 6px; left: 6px; z-index: 1;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px;
+  backdrop-filter: blur(4px); white-space: nowrap;
+}
+.shot-tag svg { flex-shrink: 0; }
+.shot-tag.uploaded { background: rgba(31, 157, 99, 0.92); color: #fff; }
+.shot-tag.uploading { background: rgba(255, 102, 0, 0.94); color: #fff; }
+.shot-tag.pending { background: rgba(255, 255, 255, 0.92); color: var(--muted); box-shadow: inset 0 0 0 1px var(--border); }
+.shot-tag-spin {
+  width: 9px; height: 9px; border-radius: 50%;
+  border: 1.6px solid rgba(255,255,255,0.45); border-top-color: #fff;
+  animation: shot-tag-spin 0.7s linear infinite;
+}
+@keyframes shot-tag-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .shot-tag-spin { animation: none; } }
+
 .shot-foot { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 10px; color: var(--muted); }
 .shot-actbar { flex: 1; height: 4px; background: var(--canvas); border-radius: 999px; overflow: hidden; }
 .shot-actbar span { display: block; height: 100%; border-radius: 999px; }

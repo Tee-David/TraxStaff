@@ -808,6 +808,15 @@ pub fn local_shots(app: tauri::AppHandle) -> Vec<serde_json::Value> {
         })
         .collect();
     metas.sort_by(|a, b| b.0.cmp(&a.0));
+
+    // Upload state per shot. A queued block manifest still on disk means its
+    // shots haven't been accepted by the server yet; the manifest is deleted
+    // only after a fully successful flush. Shots held in the current unfinalized
+    // block live in RAM and aren't queued yet, so they count as pending too.
+    let queue = base.join("queue");
+    let pending = pending_shot_index(&queue);
+    let in_flight = crate::sync::uploading_block();
+
     metas
         .into_iter()
         .take(24)
@@ -815,13 +824,71 @@ pub fn local_shots(app: tauri::AppHandle) -> Vec<serde_json::Value> {
             let bytes = fs::read(&path).ok()?;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
             let taken = DateTime::from_timestamp_millis(taken_ms).unwrap_or_else(Utc::now);
+            let key = (taken_ms, idx);
+            let status = match pending.get(&key) {
+                Some(owner) => match &in_flight {
+                    Some(cur) if cur == owner => "uploading",
+                    _ => "pending",
+                },
+                None if is_unqueued_local(taken_ms, idx) => "pending",
+                None => "uploaded",
+            };
             Some(serde_json::json!({
                 "takenAt": taken.to_rfc3339_opts(SecondsFormat::Millis, true),
                 "monitorIndex": idx,
                 "dataUrl": format!("data:image/webp;base64,{b64}"),
+                "status": status,
             }))
         })
         .collect()
+}
+
+/// Map `(takenAtMs, monitorIndex)` → owning `(sessionId, seq)` for every shot
+/// still referenced by a queued block manifest, i.e. not yet uploaded.
+fn pending_shot_index(queue: &std::path::Path) -> HashMap<(i64, u32), (String, u32)> {
+    let mut out = HashMap::new();
+    let Ok(entries) = fs::read_dir(queue) else { return out };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !(name.starts_with("block-") && name.ends_with(".json")) {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(e.path()) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+        let session_id = v.get("sessionId").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let seq = v.get("seq").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+        let Some(shots) = v.get("shots").and_then(|x| x.as_array()) else { continue };
+        for s in shots {
+            let monitor = s.get("monitorIndex").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+            let Some(taken) = s.get("takenAt").and_then(|x| x.as_str()) else { continue };
+            // The queue file itself must still exist — a partially-flushed block
+            // can have some shots uploaded and removed while the manifest remains.
+            let file = s.get("file").and_then(|x| x.as_str()).unwrap_or("");
+            if file.is_empty() || !queue.join(file).exists() {
+                continue;
+            }
+            if let Ok(dt) = DateTime::parse_from_rfc3339(taken) {
+                out.insert((dt.timestamp_millis(), monitor), (session_id.clone(), seq));
+            }
+        }
+    }
+    out
+}
+
+/// True when this shot belongs to the live, not-yet-finalized block — captured
+/// and saved locally, but not queued for upload yet.
+fn is_unqueued_local(taken_ms: i64, idx: u32) -> bool {
+    CAPTURE
+        .lock()
+        .ok()
+        .and_then(|g| {
+            g.as_ref().map(|c| {
+                c.pending_shots
+                    .iter()
+                    .any(|p| p.monitor_index == idx && p.taken_at.timestamp_millis() == taken_ms)
+            })
+        })
+        .unwrap_or(false)
 }
 
 /// Whether the input hook is currently delivering events (activity sampling).

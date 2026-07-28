@@ -7,6 +7,57 @@ import { prisma } from "../lib/prisma";
 // 150s tolerates one missed beat before allowing a handoff.
 const STALE_SESSION_MS = 150_000;
 
+// How far back a client may claim its session started. The desktop app tracks
+// offline-first, so a genuine claim can predate registration by however long the
+// device was offline — but it must be bounded, or a client with a rewound clock
+// can claim an arbitrarily old start and be credited the difference.
+const MAX_BACKDATE_MS = 72 * 60 * 60 * 1000; // 72h
+
+// Small tolerance for benign clock skew when a client claims a start slightly in
+// the future. Anything beyond this is clamped to server "now".
+const FUTURE_SKEW_TOLERANCE_MS = 2 * 60 * 1000; // 2min, matching the industry ±120s check
+
+/**
+ * Reconcile a client-claimed session start against the server clock.
+ *
+ * The server clock is authoritative: a claim is only honoured inside
+ * [now - MAX_BACKDATE_MS, now + FUTURE_SKEW_TOLERANCE_MS], and a future-dated
+ * claim is pulled back to `now` so that `endedAt - startedAt` can never be
+ * negative. The raw claim and the measured skew are returned so callers can
+ * record them — tampering is flagged for review, never silently dropped.
+ */
+export function reconcileStartedAt(
+  claimedISO: string | undefined,
+  now: Date = new Date()
+): { startedAt: Date; claimedAt: Date | null; skewMs: number; clamped: boolean } {
+  if (!claimedISO) return { startedAt: now, claimedAt: null, skewMs: 0, clamped: false };
+
+  const claimed = new Date(claimedISO);
+  if (Number.isNaN(claimed.getTime())) {
+    return { startedAt: now, claimedAt: null, skewMs: 0, clamped: true };
+  }
+
+  const skewMs = claimed.getTime() - now.getTime();
+
+  // Claimed in the future beyond tolerance → clamp to now (prevents negatives).
+  if (skewMs > FUTURE_SKEW_TOLERANCE_MS) {
+    return { startedAt: now, claimedAt: claimed, skewMs, clamped: true };
+  }
+  // Claimed further back than we allow → clamp to the backdate horizon.
+  if (-skewMs > MAX_BACKDATE_MS) {
+    return {
+      startedAt: new Date(now.getTime() - MAX_BACKDATE_MS),
+      claimedAt: claimed,
+      skewMs,
+      clamped: true,
+    };
+  }
+  // Within tolerance but still slightly ahead → use now, so duration starts at 0.
+  if (skewMs > 0) return { startedAt: now, claimedAt: claimed, skewMs, clamped: true };
+
+  return { startedAt: claimed, claimedAt: claimed, skewMs, clamped: false };
+}
+
 const startSchema = z.object({
   // Client-generated id + startedAt: the desktop app tracks fully locally and
   // registers the session here when a connection is available (offline-first).
@@ -124,25 +175,40 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
       }
       // Same device switching projects (close cleanly), or a device that went
       // dark without stopping (finalize at its last heartbeat) — then take over.
+      // Never finalize before the session started: a device that never got to
+      // heartbeat has a lastSeenAt predating its own startedAt, which would
+      // otherwise write a negative-duration session.
+      const takeoverEnd = sameDevice ? new Date() : open.device.lastSeenAt;
       await prisma.trackingSession.update({
         where: { id: open.id },
         data: {
-          endedAt: sameDevice ? new Date() : open.device.lastSeenAt,
+          endedAt: takeoverEnd < open.startedAt ? open.startedAt : takeoverEnd,
           endReason: sameDevice ? "stopped" : "abrupt_exit",
         },
       });
     }
 
+    // The client's startedAt is a *claim*, not authority. It's honoured only
+    // within a bounded window around the server clock, so a rewound device
+    // clock can't buy time. Large skew is logged for review.
+    const { startedAt, skewMs, clamped } = reconcileStartedAt(body.startedAt);
+    if (clamped) {
+      req.log.warn(
+        { userId: req.user.userId, deviceId: device.id, claimed: body.startedAt, skewMs },
+        "session start clamped: client clock disagrees with server"
+      );
+    }
+
     const session = await prisma.trackingSession.create({
       data: {
-        // Honor the client's id + startedAt when provided (a session that began
-        // locally, possibly offline); otherwise stamp server-side.
+        // Honor the client's id when provided (a session that began locally,
+        // possibly offline). startedAt is always server-reconciled.
         ...(body.id ? { id: body.id } : {}),
         userId: req.user.userId,
         projectId: body.projectId,
         taskId: body.taskId,
         deviceId: device.id,
-        startedAt: body.startedAt ? new Date(body.startedAt) : new Date(),
+        startedAt,
       },
     });
 
@@ -162,9 +228,16 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
       return reply.code(409).send({ error: "Session already stopped" });
     }
 
+    // Guard against a stored startedAt that is somehow ahead of server now
+    // (legacy rows written before start reconciliation existed). Duration must
+    // never be negative.
+    const now = new Date();
     const updated = await prisma.trackingSession.update({
       where: { id },
-      data: { endedAt: new Date(), endReason: body.endReason },
+      data: {
+        endedAt: now < session.startedAt ? session.startedAt : now,
+        endReason: body.endReason,
+      },
     });
     return reply.send(updated);
   });

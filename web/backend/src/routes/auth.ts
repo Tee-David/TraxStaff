@@ -1,10 +1,14 @@
-import type { FastifyInstance } from "fastify";
+﻿import type { FastifyInstance } from "fastify";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { hashPassword, verifyPassword } from "../lib/password";
 import { sendInviteEmail } from "../lib/mailer";
 import { env } from "../env";
+
+// Tokens must expire. Without a TTL a copied token stays valid forever, and
+// disabling a member has no effect on any session they already hold.
+const TOKEN_TTL = "7d";
 
 const registerSchema = z.object({
   orgName: z.string().min(1),
@@ -53,7 +57,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       },
     });
 
-    const token = fastify.jwt.sign({ userId: user.id, orgId: org.id, role: user.role });
+    const token = fastify.jwt.sign({ userId: user.id, orgId: org.id, role: user.role }, { expiresIn: TOKEN_TTL });
     return reply.code(201).send({ token, user: { id: user.id, email: user.email, role: user.role } });
   });
 
@@ -70,7 +74,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return reply.code(401).send({ error: "Invalid credentials" });
     }
 
-    const token = fastify.jwt.sign({ userId: user.id, orgId: user.orgId, role: user.role });
+    const token = fastify.jwt.sign({ userId: user.id, orgId: user.orgId, role: user.role }, { expiresIn: TOKEN_TTL });
     return reply.send({ token, user: { id: user.id, email: user.email, role: user.role } });
   });
 
@@ -131,12 +135,18 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return created;
     });
 
-    const token = fastify.jwt.sign({ userId: user.id, orgId: user.orgId, role: user.role });
+    const token = fastify.jwt.sign({ userId: user.id, orgId: user.orgId, role: user.role }, { expiresIn: TOKEN_TTL });
     return reply.send({ token, user: { id: user.id, email: user.email, role: user.role } });
   });
 
   fastify.get("/auth/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user.userId } });
+    // A disabled member must lose access immediately, not when their token
+    // eventually expires. Checked here because every client calls /auth/me to
+    // establish a session.
+    if (user.status === "disabled") {
+      return reply.code(401).send({ error: "Account disabled" });
+    }
     return reply.send({
       id: user.id,
       email: user.email,
@@ -157,3 +167,4 @@ export default async function authRoutes(fastify: FastifyInstance) {
     return reply.send({ ok: true });
   });
 }
+

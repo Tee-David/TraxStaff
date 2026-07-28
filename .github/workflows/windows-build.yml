@@ -37,12 +37,22 @@ jobs:
         with:
           workspaces: desktop/src-tauri
 
-      - name: Sync app version from tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Every build gets a version, not just tags. An untagged artifact left at
+      # the checked-in 0.1.0 sits *below* the published release in latest.json,
+      # so the updater installs that older release over it and loops. Untagged
+      # builds therefore get a prerelease suffix that sorts ABOVE the last tag.
+      - name: Sync app version
         shell: bash
         working-directory: desktop
         run: |
-          VER="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            LAST="$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)"
+            LAST="${LAST#v}"
+            # bump patch, then mark as a dev build of that upcoming version
+            VER="$(echo "$LAST" | awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}')-dev.${GITHUB_RUN_NUMBER}"
+          fi
           node -e "const fs=require('fs');for(const f of ['src-tauri/tauri.conf.json','package.json']){const j=JSON.parse(fs.readFileSync(f));j.version='$VER';fs.writeFileSync(f,JSON.stringify(j,null,2));}"
           echo "app version set to $VER"
 

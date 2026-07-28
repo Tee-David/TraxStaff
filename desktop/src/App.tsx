@@ -76,6 +76,10 @@ function mergeSessions(server: Session[], local: Session[]): Session[] {
     if (!s.id) continue;
     const existing = byId.get(s.id);
     if (existing?.endedAt && !s.endedAt) continue; // keep the closed copy
+    // A server row whose duration is negative (client/server clock disagreement)
+    // must not replace a sane local copy — that's how a bad clock turned into
+    // "-1:-1:-1" and a stuck 00:00:00 ring.
+    if (existing && rawSecs(s) < 0 && rawSecs(existing) >= 0) continue;
     byId.set(s.id, s);
   }
   return [...byId.values()];
@@ -105,9 +109,16 @@ const DAY_TARGET_SECONDS = 8 * 3600;
 
 function startOfToday(): Date { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
 function startOfWeek(): Date { const d = startOfToday(); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return d; }
-function secs(s: Session): number { const e = s.endedAt ? new Date(s.endedAt).getTime() : Date.now(); return (e - new Date(s.startedAt).getTime()) / 1000; }
-function fmtClock(sec: number): string { const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60); return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`; }
-function fmtShort(sec: number): string { const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; }
+// Signed duration — only for deciding which of two copies of a session to trust.
+function rawSecs(s: Session): number { const e = s.endedAt ? new Date(s.endedAt).getTime() : Date.now(); return (e - new Date(s.startedAt).getTime()) / 1000; }
+// Duration for display/aggregation. Clamped: a session can never have run for a
+// negative amount of time, and an unclamped value propagates into every total,
+// bar width and clock on the screen.
+function secs(s: Session): number { return Math.max(0, rawSecs(s)); }
+// Both formatters clamp too — Math.floor on a small negative yields -1 for each
+// component independently, which is where "-1:-1:-1" came from.
+function fmtClock(sec: number): string { const t = Math.max(0, sec); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = Math.floor(t % 60); return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`; }
+function fmtShort(sec: number): string { const t = Math.max(0, sec); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; }
 function fmtT(iso: string): string { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
 function fmtD(iso: string): string { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); }
 
@@ -153,20 +164,50 @@ function ConsentGate({ onLogout }: { onLogout: () => void }) {
   return <Tracker onLogout={onLogout} />;
 }
 
+// Compare dotted numeric versions. >0 if a is newer, <0 if older, 0 if equal.
+// Non-numeric/short parts are treated as 0 so "0.1.10" > "0.1.0" (10 > 0) rather
+// than comparing as strings, where "0.1.10" < "0.1.9".
+function cmpVersion(a: string, b: string): number {
+  const pa = a.split("."), pb = b.split(".");
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (parseInt(pa[i] ?? "0", 10) || 0) - (parseInt(pb[i] ?? "0", 10) || 0);
+    if (d !== 0) return d > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
 // Check for a newer signed release on startup; if found, download + relaunch.
+//
+// Guarded deliberately: the updater must NEVER install a version that isn't
+// strictly newer than what's running. Without this check a build whose version
+// trails the published `latest.json` (e.g. an untagged CI artifact stamped
+// 0.1.0 against a 0.1.10 release) installs the *older* release over itself,
+// relaunches, and loops — wiping newer code and resetting the timer each cycle.
+// Runs at most once per launch.
+let updateCheckStarted = false;
 function useUpdateCheck() {
   useEffect(() => {
+    if (updateCheckStarted) return;
+    updateCheckStarted = true;
     (async () => {
+      const current = await getAppVersion();
       try {
         const { check } = await import("@tauri-apps/plugin-updater");
         const update = await check();
-        if (update?.available) {
-          await update.downloadAndInstall();
-          const { relaunch } = await import("@tauri-apps/plugin-process");
-          await relaunch();
+        if (!update?.available) return;
+        const next = update.version;
+        if (cmpVersion(next, current) <= 0) {
+          console.warn(`[updater] refusing ${current} → ${next} (not newer)`);
+          return;
         }
-      } catch {
-        /* not running under Tauri, offline, or no update — ignore */
+        console.info(`[updater] updating ${current} → ${next}`);
+        await update.downloadAndInstall();
+        const { relaunch } = await import("@tauri-apps/plugin-process");
+        await relaunch();
+      } catch (e) {
+        // Not running under Tauri, offline, or the update failed. Not fatal —
+        // but log it, since a silently broken updater strands users on old builds.
+        console.warn("[updater] check failed:", e);
       }
     })();
   }, []);
@@ -241,6 +282,9 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [projectId, setProjectId] = useState("");
   const [taskId, setTaskId] = useState("");
   const [elapsed, setElapsed] = useState(0);
+  // Last authoritative elapsed value + the monotonic instant it arrived, so the
+  // 1 Hz interpolator counts on from Rust's clock instead of competing with it.
+  const elapsedAnchor = useRef<{ secs: number; at: number } | null>(null);
   const [expanded, setExpanded] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [tab, setTab] = useState<DashTab>("dashboard");
@@ -300,7 +344,14 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     const uns = [
       // Timer truth from the monotonic clock (immune to minimize/sleep throttling).
       // Ignore non-positive values so a stray tick can't pin the clock to 0.
-      listen<{ elapsedSecs: number }>("trax:tick", (e) => { if (e.payload.elapsedSecs > 0) setElapsed(e.payload.elapsedSecs); }),
+      // Re-anchors the local interpolator so it counts on from this value rather
+      // than racing it.
+      listen<{ elapsedSecs: number }>("trax:tick", (e) => {
+        if (e.payload.elapsedSecs > 0) {
+          elapsedAnchor.current = { secs: e.payload.elapsedSecs, at: performance.now() };
+          setElapsed(e.payload.elapsedSecs);
+        }
+      }),
       // Sync engine state → badge + toast.
       listen<SyncState>("trax:sync-state", (e) => setSync(e.payload)),
       // Capture health: input hook and/or screenshots.
@@ -427,13 +478,27 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   // In browser-preview (no Tauri) fall back to a local clock; and on focus we
   // hard-correct from Rust in case the webview throttled the tick stream.
   useEffect(() => {
-    if (!active) { setElapsed(0); return; }
+    if (!active) { elapsedAnchor.current = null; setElapsed(0); return; }
     const startMs = new Date(active.startedAt).getTime();
-    const localTick = () => setElapsed((Date.now() - startMs) / 1000);
-    const correct = () => invoke<number>("get_elapsed").then((s) => { if (s > 0) setElapsed(s); }).catch(localTick);
+    // Clamped: a startedAt slightly in the future (clock skew) must not show a
+    // negative or backwards-running timer.
+    const anchorTo = (secs: number) => {
+      elapsedAnchor.current = { secs, at: performance.now() };
+      setElapsed(secs);
+    };
+    // Clamped: a startedAt slightly in the future (clock skew) must not show a
+    // negative or backwards-running timer.
+    const localTick = () => anchorTo(Math.max(0, (Date.now() - startMs) / 1000));
+    const correct = () => invoke<number>("get_elapsed").then((s) => { if (s > 0) anchorTo(s); }).catch(localTick);
     correct();
     // Local interpolation between Rust ticks so the display is smooth at 1 Hz.
-    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
+    // Measured from the last authoritative anchor via performance.now() (a
+    // monotonic browser clock) rather than blindly adding 1 — a blind +1 races
+    // trax:tick and makes the clock jump forward then snap back each second.
+    const id = setInterval(() => {
+      const a = elapsedAnchor.current;
+      if (a) setElapsed(a.secs + (performance.now() - a.at) / 1000);
+    }, 1000);
     const onWake = () => correct();
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("focus", onWake);
@@ -702,7 +767,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         <TrackingWidget
           projects={projects} projectId={projectId}
           active={active} workedToday={liveToday} workedWeek={workedWeek}
-          today={today} onStart={start} onStop={stop} error={error}
+          today={today} elapsed={elapsed} onStart={start} onStop={stop} error={error}
           onSignOut={() => { clearToken(); onLogout(); }}
           onRefresh={load} lastUpdated={lastUpdated} expanded={expanded} onToggleExpand={toggleExpand}
           sync={sync} onAddNote={() => setNoteOpen(true)}
@@ -730,6 +795,8 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
 function TrackingWidget(props: {
   projects: Project[]; projectId: string;
   active: Session | null; workedToday: number; workedWeek: number; today: Session[];
+  /** Live seconds on the running session — added to the active project's own total. */
+  elapsed: number;
   onStart: (pid?: string) => void; onStop: () => void; error: string | null; onSignOut: () => void;
   onRefresh: () => void; lastUpdated: string | null; expanded: boolean; onToggleExpand: () => void;
   sync: SyncState | null; onAddNote: () => void;
@@ -737,7 +804,7 @@ function TrackingWidget(props: {
   reminders: ReminderPrefs; onUpdateReminders: (n: Partial<ReminderPrefs>) => void;
   shotCount: number;
 }) {
-  const { projects, active, workedToday, workedWeek, today, onStart, onStop, error, onRefresh, lastUpdated, expanded, onToggleExpand, sync, onAddNote, settingsOpen, onToggleSettings, reminders, onUpdateReminders, shotCount } = props;
+  const { projects, active, workedToday, workedWeek, today, elapsed, onStart, onStop, error, onRefresh, lastUpdated, expanded, onToggleExpand, sync, onAddNote, settingsOpen, onToggleSettings, reminders, onUpdateReminders, shotCount } = props;
   const [q, setQ] = useState("");
 
   const secsToday = (pid: string) =>
@@ -779,7 +846,6 @@ function TrackingWidget(props: {
           return (
             <motion.div
               key={p.id}
-              layout
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               whileHover={{ x: isActive ? 0 : 2 }}
@@ -788,7 +854,11 @@ function TrackingWidget(props: {
             >
               <PlayStop active={isActive} />
               <span className="proj-name">{p.name}</span>
-              <span className="proj-time tnum">{isActive ? fmtClock(workedToday) : fmtShort(secsToday(p.id)) || "0m"}</span>
+              {/* This project's own time — not the whole day's. The active row
+                  adds the live elapsed on top of what it already logged today. */}
+              <span className="proj-time tnum">
+                {isActive ? fmtClock(secsToday(p.id) + elapsed) : fmtShort(secsToday(p.id)) || "0m"}
+              </span>
             </motion.div>
           );
         })}

@@ -50,13 +50,15 @@ export default function CircularTimer({
       </svg>
       <div className="ring-center">
         <div className={`ring-status ${active ? "on" : "paused"}`}>
-          <span className="ring-dot" /> {active ? "Tracking" : "Paused"}
+          <span className="ring-dot" /> {active ? "Tracking" : "Not tracking"}
         </div>
         <div className="ring-time">{time}</div>
         <div className="ring-sub">{Math.round(pct * 100)}% of daily goal</div>
-        <button className={`ring-toggle ${active ? "on" : ""}`} onClick={onToggle} aria-label={active ? "Pause" : "Start"}>
+        {/* This control ends the session — it does not pause it. Labelled and
+            drawn as Stop so the destructive action isn't disguised as a pause. */}
+        <button className={`ring-toggle ${active ? "on" : ""}`} onClick={onToggle} aria-label={active ? "Stop tracking" : "Start tracking"}>
           {active ? (
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="3.5" y="3" width="3" height="10" rx="1.2" /><rect x="9.5" y="3" width="3" height="10" rx="1.2" /></svg>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="3.5" y="3.5" width="9" height="9" rx="1.6" /></svg>
           ) : (
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5v9l7.5-4.5z" /></svg>
           )}

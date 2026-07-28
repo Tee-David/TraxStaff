@@ -1,53 +1,17 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "@/lib/api";
-import type { Project, Member } from "@/lib/types";
+import type { Project } from "@/lib/types";
 import { Badge, Button, Card, EmptyState, Input } from "@/components/ui";
 import { SearchInput } from "@/components/filters";
 import { Select } from "@/components/Select";
 
-const DOTS = ["#000065", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b"];
-const AVATAR_COLORS = ["bg-blue-600", "bg-emerald-600", "bg-amber-600", "bg-fuchsia-600", "bg-rose-600", "bg-indigo-600", "bg-cyan-600"];
+const DOTS = ["var(--color-cat-focus)", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b"];
 
 type Tab = "active" | "archived";
-
-function AvatarGroup({ members, max = 7 }: { members: Member[], max?: number }) {
-  const visible = members.slice(0, max);
-  const hiddenCount = members.length - visible.length;
-
-  return (
-    <div className="flex -space-x-2 overflow-hidden">
-      {visible.map((m, i) => {
-        const initials = m.email.substring(0, 2).toUpperCase();
-        const color = AVATAR_COLORS[i % AVATAR_COLORS.length];
-        return (
-          <div 
-            key={m.id} 
-            title={m.email}
-            className={`inline-flex items-center justify-center h-7 w-7 rounded-full border-2 border-surface ${color} text-[10px] font-bold text-white shadow-sm ring-1 ring-black/5`}
-            style={{ zIndex: visible.length - i }}
-          >
-            {initials}
-          </div>
-        );
-      })}
-      {hiddenCount > 0 && (
-        <div 
-          className="inline-flex items-center justify-center h-7 w-7 rounded-full border-2 border-surface bg-canvas text-[10px] font-bold text-muted shadow-sm ring-1 ring-black/5"
-          style={{ zIndex: 0 }}
-        >
-          +{hiddenCount}
-        </div>
-      )}
-      {members.length === 0 && (
-        <span className="text-[12px] text-muted italic">Unassigned</span>
-      )}
-    </div>
-  );
-}
 
 function ActionMenu({ project, onRefresh }: { project: Project, onRefresh: () => void }) {
   const [open, setOpen] = useState(false);
@@ -75,7 +39,7 @@ function ActionMenu({ project, onRefresh }: { project: Project, onRefresh: () =>
         onClick={() => setOpen(!open)}
         className="text-muted hover:text-ink hover:bg-canvas rounded-lg px-2 py-1 transition focus:outline-none focus:ring-2 focus:ring-brand"
       >
-        ⋯
+        â‹¯
       </button>
 
       <AnimatePresence>
@@ -110,7 +74,6 @@ function ActionMenu({ project, onRefresh }: { project: Project, onRefresh: () =>
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("active");
   const [search, setSearch] = useState("");
@@ -122,14 +85,8 @@ export default function ProjectsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    Promise.all([
-      api<Project[]>(`/projects${tab === "archived" ? "?archived=1" : ""}`),
-      api<Member[]>("/members")
-    ])
-      .then(([p, m]) => {
-        setProjects(p);
-        setMembers(m.filter(x => x.status === "active"));
-      })
+    api<Project[]>(`/projects${tab === "archived" ? "?archived=1" : ""}`)
+      .then(setProjects)
       .catch(() => {
         setProjects([]);
       })
@@ -210,7 +167,7 @@ export default function ProjectsPage() {
             />
           </div>
           <div className="w-48 relative">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search…" />
+            <SearchInput value={search} onChange={setSearch} placeholder="Searchâ€¦" />
           </div>
         </div>
       </div>
@@ -219,7 +176,7 @@ export default function ProjectsPage() {
         <div className="space-y-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-16 rounded-xl bg-canvas animate-pulse" />)}</div>
       ) : visible.length === 0 ? (
         <EmptyState
-          icon="🗂"
+          icon="ðŸ—‚"
           title={search ? "No projects match your search" : `No ${tab} projects`}
           hint={tab === "active" ? "Create your first project above." : undefined}
         />
@@ -232,7 +189,6 @@ export default function ProjectsPage() {
                   <th className="px-6 py-4">Name</th>
                   <th className="px-4 py-4 w-32">Status</th>
                   <th className="px-4 py-4 w-64">Summary</th>
-                  <th className="px-4 py-4 w-36">Members</th>
                   <th className="px-4 py-4 w-48">Progress</th>
                   <th className="px-4 py-4 text-center w-16">Action</th>
                 </tr>
@@ -268,13 +224,6 @@ export default function ProjectsPage() {
 
                   const dotColor = DOTS[i % DOTS.length];
 
-                  // Fake assignments: in a real app these come from the database.
-                  // Since we only have org members, assign a random subset of members to the project visually.
-                  // We'll use the project ID's first char code to determine how many and which ones.
-                  const numMembers = (p.id.charCodeAt(0) % 9) + 1; // 1 to 9
-                  const offset = p.id.charCodeAt(1) % members.length;
-                  const assignedMembers = [...members, ...members].slice(offset, offset + Math.min(numMembers, members.length));
-
                   return (
                     <tr key={p.id} className="border-b border-border/60 last:border-0 hover:bg-canvas/40 transition">
                       <td className="px-6 py-4">
@@ -298,9 +247,6 @@ export default function ProjectsPage() {
                       <td className="px-4 py-4">
                         <div className="font-medium text-[13px] text-ink truncate max-w-[220px]">{summary}</div>
                         <div className="text-[12px] text-muted truncate max-w-[220px]">{subSummary}</div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <AvatarGroup members={assignedMembers} max={7} />
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-3">
@@ -330,3 +276,4 @@ export default function ProjectsPage() {
     </div>
   );
 }
+

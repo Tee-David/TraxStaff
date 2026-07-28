@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -25,7 +25,7 @@ const FLAG_COLORS: Record<string, string> = {
   jiggler_process_detected: "red",
 };
 
-const PROJ_COLORS = ["#000065", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b", "#0ea5e9", "#84cc16"];
+const PROJ_COLORS = ["var(--color-cat-focus)", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b", "#0ea5e9", "#84cc16"];
 
 function initials(email: string) {
   return email.substring(0, 2).toUpperCase();
@@ -111,18 +111,18 @@ export default function InsightsPage() {
 
   return (
     <div>
-      <PageHeader title="Insights" subtitle="Admin overview — productivity, presence, and risk signals" />
+      <PageHeader title="Insights" subtitle="Admin overview â€” productivity, presence, and risk signals" />
 
       <FilterBar>
         <DateRange value={range} onChange={setRange} />
       </FilterBar>
 
-      {/* ── KPI stat row ── */}
+      {/* â”€â”€ KPI stat row â”€â”€ */}
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatTile icon="🟢" tone="teal" label="Online now" value={String(onlineCount)} />
-        <StatTile icon="⏱" tone="brand" label="Tracking now" value={String(trackingCount)} />
-        <StatTile icon="📊" tone="teal" label="Avg activity" value={`${avgActivity}%`} />
-        <StatTile icon="🚨" tone={openFlags > 0 ? "accent" : "muted"} label="Open flags" value={String(openFlags)} />
+        <StatTile icon="ðŸŸ¢" tone="teal" label="Online now" value={String(onlineCount)} />
+        <StatTile icon="â±" tone="brand" label="Tracking now" value={String(trackingCount)} />
+        <StatTile icon="ðŸ“Š" tone="teal" label="Avg activity" value={`${avgActivity}%`} />
+        <StatTile icon="ðŸš¨" tone={openFlags > 0 ? "accent" : "muted"} label="Open flags" value={String(openFlags)} />
       </div>
 
       {loading ? (
@@ -132,7 +132,7 @@ export default function InsightsPage() {
       ) : (
         <div className="space-y-5">
 
-          {/* ── Row 1: Presence + Leaderboard ── */}
+          {/* â”€â”€ Row 1: Presence + Leaderboard â”€â”€ */}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
 
             {/* Live presence */}
@@ -173,14 +173,14 @@ export default function InsightsPage() {
             <Card className="p-5">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="font-heading text-base font-semibold">Productivity Ranking</h2>
-                <span className="text-[11px] text-muted">Hours · Activity%</span>
+                <span className="text-[11px] text-muted">Hours Â· Activity%</span>
               </div>
               <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                 {board.length === 0 && <p className="text-sm text-muted">No tracked time in this period.</p>}
                 {board.map((r, i) => {
                   const maxSecs = board[0]?.totalSeconds || 1;
                   const barPct = (r.totalSeconds / maxSecs) * 100;
-                  const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
+                  const medal = i === 0 ? "ðŸ¥‡" : i === 1 ? "ðŸ¥ˆ" : i === 2 ? "ðŸ¥‰" : null;
                   return (
                     <div key={r.userId} className="group rounded-xl px-3 py-2.5 hover:bg-canvas transition">
                       <div className="flex items-center justify-between mb-1.5">
@@ -209,7 +209,7 @@ export default function InsightsPage() {
             </Card>
           </div>
 
-          {/* ── Row 2: Daily trend chart + Project time breakdown ── */}
+          {/* â”€â”€ Row 2: Daily trend chart + Project time breakdown â”€â”€ */}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
 
             {/* Daily hours area chart */}
@@ -293,7 +293,7 @@ export default function InsightsPage() {
             </Card>
           </div>
 
-          {/* ── Row 3: Activity per member bar chart + Risk signals ── */}
+          {/* â”€â”€ Row 3: Activity per member bar chart + Risk signals â”€â”€ */}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
 
             {/* Activity% bar chart */}
@@ -348,7 +348,7 @@ export default function InsightsPage() {
               </div>
               {flags.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
-                  <span className="text-3xl">🎉</span>
+                  <span className="text-3xl">ðŸŽ‰</span>
                   <p className="text-sm font-medium text-ink">All clear</p>
                   <p className="text-xs text-muted">No unusual activity detected in your team.</p>
                 </div>
@@ -368,7 +368,7 @@ export default function InsightsPage() {
                           </Badge>
                         </div>
                         <div className="text-[12px] text-ink font-medium truncate">{f.session.user.email.split("@")[0]}</div>
-                        <div className="text-[11px] text-muted">{f.session.project.name} · {new Date(f.detectedAt).toLocaleDateString()}</div>
+                        <div className="text-[11px] text-muted">{f.session.project.name} Â· {new Date(f.detectedAt).toLocaleDateString()}</div>
                       </div>
                       <div className="shrink-0 pt-0.5">
                         {f.acknowledgedAt ? (
@@ -389,7 +389,7 @@ export default function InsightsPage() {
             </Card>
           </div>
 
-          {/* ── Row 4: Project health overview ── */}
+          {/* â”€â”€ Row 4: Project health overview â”€â”€ */}
           {projects.length > 0 && (
             <Card className="p-5">
               <div className="mb-4 flex items-center justify-between">
@@ -436,3 +436,4 @@ export default function InsightsPage() {
     </div>
   );
 }
+

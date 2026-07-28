@@ -51,6 +51,12 @@
   --color-faint: #6a7391;
   --color-brand: #5468ff;      /* lit navy for legible accents/active states */
   --color-brand-600: #6d7dff;
+  /* Chart marks must follow the theme too. #000065 on the dark canvas is about
+     1.3:1 — effectively invisible — so the categorical ramp lightens here. */
+  --color-cat-focus: #5468ff;
+  --color-cat-break: #3d4763;
+  --color-positive: #35c281;
+  --color-negative: #f4685f;
 }
 
 * {

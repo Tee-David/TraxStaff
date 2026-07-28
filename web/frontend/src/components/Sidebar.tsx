@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -28,7 +28,7 @@ const SECONDARY: Item[] = [
   { href: "/app/settings", label: "Settings", icon: IconSettings, roles: ["owner", "admin"] },
 ];
 
-const DOTS = ["#000065", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b"];
+const DOTS = ["var(--color-cat-focus)", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b"];
 
 export function Sidebar({
   user,
@@ -137,7 +137,7 @@ export function Sidebar({
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search…"
+              placeholder="Searchâ€¦"
               className="w-full bg-transparent outline-none placeholder:text-faint"
             />
           </div>
@@ -167,7 +167,7 @@ export function Sidebar({
 
       </div>
 
-      {/* Theme toggle — hidden when collapsed (reachable on hover-expand) */}
+      {/* Theme toggle â€” hidden when collapsed (reachable on hover-expand) */}
       {!collapsed && (
         <div className="px-4 py-3 flex justify-center">
           <div className="inline-flex rounded-full border border-border bg-canvas p-1 w-full max-w-[200px]">
@@ -211,3 +211,4 @@ export function Sidebar({
     </div>
   );
 }
+

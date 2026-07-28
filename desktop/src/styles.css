@@ -1,4 +1,4 @@
-/* Bundled variable fonts (local woff2 — no external requests, works offline
+﻿/* Bundled variable fonts (local woff2 â€” no external requests, works offline
    under the app's strict CSP). Latin + latin-ext subsets. */
 @font-face {
   font-family: "Space Grotesk";
@@ -39,13 +39,24 @@
   --accent: #ff6600;
   --ink: #1a1f36;
   --muted: #6d7d93;
+  --faint: #7d879a;
   --border: #edeef4;
+  --border-strong: #c3cad9;
   --card: #ffffff;
   --canvas: #f4f6fb;
-  font-family: "Outfit", system-ui, sans-serif;
+  /* Space Grotesk = headings/large display. Outfit = body/secondary. Use these
+     tokens rather than naming the families inline, so the fallback chain stays
+     consistent and the display face can be swapped in one place. */
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-body: "Outfit", system-ui, sans-serif;
+  font-family: var(--font-body);
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--canvas); color: var(--ink); }
+body { margin: 0; background: var(--canvas); color: var(--ink); font-family: var(--font-body); }
+h1, h2, h3, h4, h5, h6 { font-family: var(--font-display); }
+/* Form controls don't inherit font-family from an ancestor â€” they must be told
+   explicitly, or they fall back to the platform UI font (Segoe UI on Windows). */
+input, select, textarea { font-family: inherit; }
 button { border: none; border-radius: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 .error { color: #dc2626; font-size: 13px; }
@@ -58,24 +69,26 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .login-bg { position: absolute; inset: 0; z-index: 1; }
 .login-card { position: relative; z-index: 2; width: 100%; max-width: 320px; background: rgba(255,255,255,0.97); border-radius: 20px; padding: 28px 24px; box-shadow: 0 24px 60px -20px rgba(0,0,0,0.6); text-align: center; }
 .login-badge { width: 56px; height: 56px; }
-.login-title { font-family: "Space Grotesk", system-ui; font-size: 24px; font-weight: 700; margin: 12px 0 4px; }
+.login-title { font-family: var(--font-display); font-size: 24px; font-weight: 700; margin: 12px 0 4px; }
 .login-sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
 .stack { display: flex; flex-direction: column; gap: 12px; width: 100%; }
-.stack input { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; font-size: 14px; background: #fff; outline: none; }
+.stack input { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; font-size: 14px; font-family: inherit; background: #fff; outline: none; }
 .stack input:focus { border-color: var(--brand); }
 .pw-wrap { position: relative; }
 .pw-wrap input { padding-right: 40px; }
-/* Scoped under .pw-wrap so it out-specifies `.stack button` (which otherwise
-   paints this toggle with the brand navy background). */
+/* A plain icon button â€” no chip, no fill, no hover pill. Scoped under .pw-wrap
+   so it out-specifies the submit-button rule below. */
 .pw-wrap .pw-toggle {
-  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
   display: inline-flex; align-items: center; justify-content: center;
-  background: transparent; border: none; padding: 4px; cursor: pointer; line-height: 0;
-  color: var(--muted); border-radius: 8px; transition: color 0.15s, background 0.15s;
+  background: none; border: none; padding: 2px; cursor: pointer; line-height: 0;
+  color: var(--muted); border-radius: 4px; transition: color 0.15s;
 }
-.pw-wrap .pw-toggle:hover { color: var(--ink); background: var(--canvas); }
-.pw-wrap .pw-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
-.stack button { padding: 12px; background: var(--brand); color: #fff; font-size: 15px; }
+.pw-wrap .pw-toggle:hover { color: var(--ink); background: none; }
+.pw-wrap .pw-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* Target the submit button only. Styling every `button` in the form by element
+   type is what painted the password toggle brand-navy in the first place. */
+.stack button[type="submit"] { padding: 12px; background: var(--brand); color: #fff; font-size: 15px; }
 
 /* ---------- app shell (two-pane responsive) ---------- */
 .app-shell { display: flex; min-height: 100vh; }
@@ -91,7 +104,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .widget-brand { display: flex; align-items: center; gap: 8px; }
 .brand-mark { width: 44px; height: 44px; }
 .wm-label { font-size: 12px; color: var(--muted); }
-.wm-val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; font-family: "Space Grotesk", system-ui; }
+.wm-val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; font-family: var(--font-display); }
 
 /* circular timer ring */
 .ring-wrap { position: relative; width: 208px; height: 208px; margin: 6px auto 2px; display: grid; place-items: center; --track: #eceef5; }
@@ -103,7 +116,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .ring-toggle { margin-top: 10px; width: 40px; height: 40px; border-radius: 50%; background: var(--brand); color: #fff; display: grid; place-items: center; box-shadow: 0 6px 16px -6px rgba(0,0,101,0.5); transition: transform 0.15s; }
 .ring-toggle:hover { transform: scale(1.06); }
 .ring-toggle.on { background: var(--accent); box-shadow: 0 6px 16px -6px rgba(255,102,0,0.5); }
-.ring-time { font-family: "Space Grotesk", system-ui; font-size: 34px; font-weight: 700; color: var(--brand); font-variant-numeric: tabular-nums; letter-spacing: -0.5px; margin-top: 3px; }
+.ring-time { font-family: var(--font-display); font-size: 34px; font-weight: 700; color: var(--brand); font-variant-numeric: tabular-nums; letter-spacing: -0.5px; margin-top: 3px; }
 .ring-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .widget-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 .ws-item { display: flex; flex-direction: column; gap: 2px; }
@@ -147,8 +160,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .dash { padding: 22px 26px; display: flex; flex-direction: column; gap: 16px; }
 .dash-greet { display: flex; align-items: center; justify-content: space-between; }
 .dash-greet-l { display: flex; align-items: center; gap: 12px; }
-.dash-avatar { width: 42px; height: 42px; border-radius: 50%; background: color-mix(in srgb, var(--brand) 12%, transparent); color: var(--brand); display: grid; place-items: center; font-weight: 700; font-family: "Space Grotesk"; }
-.dash-hi { font-family: "Space Grotesk"; font-size: 20px; font-weight: 700; }
+.dash-avatar { width: 42px; height: 42px; border-radius: 50%; background: color-mix(in srgb, var(--brand) 12%, transparent); color: var(--brand); display: grid; place-items: center; font-weight: 700; font-family: var(--font-display); }
+.dash-hi { font-family: var(--font-display); font-size: 20px; font-weight: 700; }
 .dash-logout { display: inline-flex; align-items: center; gap: 6px; background: #dc2626; border: none; color: #fff; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 10px; }
 .dash-logout:hover { background: #b91c1c; }
 .dash-logout-ico { font-size: 14px; }
@@ -157,7 +170,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .dash-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 15px; position: relative; }
 .dc-label { font-size: 12px; color: var(--muted); }
 .dc-label.mb { margin-bottom: 10px; }
-.dc-value { font-size: 24px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; font-family: "Space Grotesk"; }
+.dc-value { font-size: 24px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; font-family: var(--font-display); }
 .dc-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .minibars { display: flex; align-items: flex-end; gap: 3px; height: 26px; margin-top: 10px; }
 .minibars span { flex: 1; border-radius: 3px 3px 0 0; opacity: 0.85; }
@@ -166,7 +179,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .dash-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .dash-chart, .dash-gauge, .dash-heat, .dash-table { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
 .dash-gauge { display: flex; flex-direction: column; justify-content: center; }
-.gauge-val { font-family: "Space Grotesk"; font-size: 22px; font-weight: 700; fill: var(--ink); }
+.gauge-val { font-family: var(--font-display); font-size: 22px; font-weight: 700; fill: var(--ink); }
 .center { text-align: center; }
 .chart-x { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
 .perf-wrap { position: relative; }
@@ -208,7 +221,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .idle-stop { background: #fff; color: var(--accent); }
 
 /* ---------- staff dashboard tabs (right pane) ---------- */
-.dash-pane { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+/* Layout only — `display` is owned by the shell rules above (hidden by default,
+   shown at >=760px). Re-declaring `display: flex` here overrode the media query
+   at every viewport, so the narrow 420px window rendered both panes and
+   overflowed horizontally. */
+.dash-pane { flex-direction: column; height: 100vh; overflow: hidden; }
+@media (min-width: 760px) { .dash-pane { display: flex; } }
 .dash-scroll { flex: 1; overflow-y: auto; }
 .dashnav { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--card); position: sticky; top: 0; z-index: 5; }
 .dashnav .dash-logout { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); }
@@ -220,7 +238,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .page { padding: 22px 26px; display: flex; flex-direction: column; gap: 14px; }
 .page-head { display: flex; align-items: baseline; justify-content: space-between; }
-.page-head h2 { font-family: "Space Grotesk"; font-size: 20px; margin: 0; }
+.page-head h2 { font-family: var(--font-display); font-size: 20px; margin: 0; }
 .empty { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 40px; text-align: center; color: var(--muted); font-size: 14px; }
 .subtabs { display: inline-flex; gap: 2px; background: var(--canvas); border: 1px solid var(--border); border-radius: 12px; padding: 3px; align-self: flex-start; }
 .subtab { background: transparent; padding: 6px 14px; font-size: 13px; font-weight: 600; color: var(--muted); border-radius: 9px; }
@@ -253,7 +271,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 /* projects (kanban-lite) */
 .proj-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
 .proj-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.proj-card-title { font-weight: 600; font-family: "Space Grotesk"; }
+.proj-card-title { font-weight: 600; font-family: var(--font-display); }
 .kb { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .kb-col { background: var(--canvas); border-radius: 12px; padding: 10px; }
 .kb-col-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 700; margin-bottom: 8px; display: flex; justify-content: space-between; }
@@ -264,7 +282,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* activity benchmarks + hourly screenshot blocks */
 .act-bench { display: grid; grid-template-columns: 1fr 1fr auto; align-items: center; gap: 20px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px 20px; }
-.act-bench-val { font-family: "Space Grotesk"; font-size: 24px; font-weight: 700; margin-top: 4px; }
+.act-bench-val { font-family: var(--font-display); font-size: 24px; font-weight: 700; margin-top: 4px; }
 .act-toggle { justify-self: end; }
 .shot-block { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; }
 .shot-block-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -275,13 +293,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .shot-actbar span { display: block; height: 100%; border-radius: 999px; }
 .shot-actbar span.hi { background: #1f9d63; } .shot-actbar span.lo { background: var(--accent); }
 
-/* timesheets — controls, day picker, timeline, table */
+/* timesheets â€” controls, day picker, timeline, table */
 .ts-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .ts-daypick { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .ts-daychip { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 0 6px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; color: var(--muted); }
 .ts-daychip.on { background: var(--brand); border-color: var(--brand); color: #fff; }
 .ts-daychip-dow { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-.ts-daychip-num { font-family: "Space Grotesk"; font-size: 17px; font-weight: 700; }
+.ts-daychip-num { font-family: var(--font-display); font-size: 17px; font-weight: 700; }
 .ts-daychip-bar { width: 16px; height: 3px; border-radius: 999px; background: var(--accent); }
 .ts-summary { display: grid; grid-template-columns: repeat(3, auto) 1fr; align-items: center; gap: 20px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px 20px; }
 .ts-summary-tl { min-width: 0; }
@@ -296,7 +314,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .ts-client { color: var(--muted); font-style: normal; font-weight: 400; }
 .ts-day .ts-timeline { margin: 10px 0; }
 
-/* reports — legend, stacked day bars, group select */
+/* reports â€” legend, stacked day bars, group select */
 .rp-legend { font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
 .rp-legend .dot { width: 8px; height: 8px; border-radius: 3px; display: inline-block; margin-left: 6px; }
 .dot.tracked { background: var(--brand); } .dot.manual { background: var(--accent); }
@@ -315,10 +333,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .close-spinner { width: 40px; height: 40px; margin: 0 auto 16px; border: 4px solid var(--canvas); border-top-color: var(--brand); border-radius: 50%; animation: close-spin 0.8s linear infinite; }
 @keyframes close-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .close-spinner { animation-duration: 2s; } }
-.close-title { font-family: "Space Grotesk"; font-size: 18px; margin: 0 0 6px; }
+.close-title { font-family: var(--font-display); font-size: 18px; margin: 0 0 6px; }
 .close-sub { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
 .close-remaining { font-size: 13px; color: var(--ink); background: var(--canvas); border-radius: 12px; padding: 10px; }
-.close-remaining strong { font-family: "Space Grotesk"; color: var(--brand); }
+.close-remaining strong { font-family: var(--font-display); color: var(--brand); }
 
 /* ---------- app loading (auth/consent check) ---------- */
 .app-loading { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: radial-gradient(120% 120% at 50% 30%, #12126b 0%, #000065 45%, #05052e 100%); }
@@ -349,7 +367,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 /* ---------- note modal ---------- */
 .note-overlay { position: fixed; inset: 0; z-index: 55; display: grid; place-items: center; background: rgba(5,5,30,0.5); backdrop-filter: blur(3px); padding: 20px; }
 .note-modal { width: 100%; max-width: 380px; background: var(--card); border-radius: 18px; padding: 22px; box-shadow: 0 30px 70px -20px rgba(0,0,0,0.5); }
-.note-title { font-family: "Space Grotesk", system-ui, sans-serif; font-size: 17px; margin: 0 0 12px; }
+.note-title { font-family: var(--font-display); font-size: 17px; margin: 0 0 12px; }
 .note-input { width: 100%; min-height: 96px; resize: vertical; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; font-family: inherit; font-size: 14px; outline: none; }
 .note-input:focus { border-color: var(--brand); }
 .note-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
@@ -359,7 +377,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 /* ---------- reminders popover ---------- */
 .foot-settings-wrap { position: relative; }
 .foot-settings { position: absolute; bottom: 40px; right: 0; width: 250px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: 0 20px 50px -18px rgba(0,0,0,0.4); z-index: 20; }
-.foot-settings-title { font-family: "Space Grotesk", system-ui, sans-serif; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.foot-settings-title { font-family: var(--font-display); font-size: 13px; font-weight: 600; margin-bottom: 10px; }
 .foot-toggle { display: flex; align-items: flex-start; gap: 9px; font-size: 12.5px; color: var(--ink); padding: 6px 0; cursor: pointer; line-height: 1.35; }
 .foot-toggle input { margin-top: 2px; accent-color: var(--brand); }
 
@@ -367,7 +385,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .consent-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: linear-gradient(150deg, #000065 0%, #12126b 45%, #05052e 100%); overflow-y: auto; }
 .consent-card { width: 100%; max-width: 440px; background: rgba(255,255,255,0.98); border-radius: 22px; padding: 30px 28px; box-shadow: 0 30px 80px -24px rgba(0,0,0,0.6); }
 .consent-badge { width: 48px; height: 48px; }
-.consent-title { font-family: "Space Grotesk", system-ui, sans-serif; font-size: 22px; font-weight: 700; margin: 14px 0 8px; }
+.consent-title { font-family: var(--font-display); font-size: 22px; font-weight: 700; margin: 14px 0 8px; }
 .consent-sub { font-size: 13.5px; color: var(--muted); line-height: 1.5; margin: 0 0 18px; }
 .consent-list { list-style: none; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 13px; }
 .consent-list li { display: flex; gap: 12px; font-size: 13.5px; line-height: 1.45; }

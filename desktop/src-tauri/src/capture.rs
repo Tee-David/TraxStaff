@@ -295,17 +295,12 @@ fn elapsed_secs() -> i64 {
     live_elapsed_secs().unwrap_or(0)
 }
 
-/// OS-reported idle seconds (Windows), independent of the rdev hook so idle
-/// detection survives a dead input listener. `None` on other platforms.
+/// OS-reported idle seconds, independent of the rdev hook so idle detection
+/// survives a dead input listener. Windows uses GetLastInputInfo; Linux queries
+/// the screensaver / Mutter idle monitor. `None` means "no opinion" — callers
+/// must not read it as "not idle".
 fn os_idle_secs() -> Option<i64> {
-    #[cfg(windows)]
-    {
-        crate::os_idle::idle_seconds()
-    }
-    #[cfg(not(windows))]
-    {
-        None
-    }
+    crate::os_idle::idle_seconds()
 }
 
 /// Background worker: called ~every second. Handles screenshot timing, block

@@ -102,9 +102,15 @@ export function DatePicker({
   }, [view]);
 
   const today = new Date();
+
+  // Bounds precomputed ONCE. `Date.prototype.setHours` mutates the receiver and
+  // returns a timestamp, so calling it inside the per-cell predicate silently
+  // walked minDate/maxDate forward on every render — days drifted in and out of
+  // range as the grid drew.
+  const minMs = minDate ? new Date(minDate).setHours(0, 0, 0, 0) : null;
+  const maxMs = maxDate ? new Date(maxDate).setHours(23, 59, 59, 999) : null;
   const disabled = (d: Date) =>
-    (!!minDate && d.getTime() < minDate.setHours(0, 0, 0, 0)) ||
-    (!!maxDate && d.getTime() > maxDate.setHours(23, 59, 59, 999));
+    (minMs !== null && d.getTime() < minMs) || (maxMs !== null && d.getTime() > maxMs);
 
   const shift = (months: number) =>
     setView(new Date(view.getFullYear(), view.getMonth() + months, 1));
@@ -144,7 +150,9 @@ export function DatePicker({
           <div className="dp-grid">
             {cells.map((d, i) =>
               d === null ? (
-                <span key={`e${i}`} className="dp-cell empty" />
+                // Leading blanks are pure spacers — they must NOT carry .dp-cell,
+                // whose sizing/hover/outline rules made them render as boxes.
+                <span key={`e${i}`} className="dp-pad" aria-hidden />
               ) : (
                 <button
                   key={toISO(d)}

@@ -541,24 +541,31 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   display: grid; place-items: center; transition: background 0.14s, color 0.14s;
 }
 .dp-nav:hover { background: var(--canvas); color: var(--ink); }
+/* Identical track sizing on both grids keeps the headers above their columns. */
 .dp-dow, .dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
-.dp-dow { margin-bottom: 4px; }
+.dp-dow { margin-bottom: 6px; }
 .dp-dow span {
-  text-align: center; font-size: 11px; font-weight: 600; color: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.03em;
+  display: grid; place-items: center; height: 22px;
+  font-size: 10.5px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
 }
+/* Every grid slot is the same fixed square, so weeks line up under their
+   weekday headers regardless of how many leading blanks a month has. */
+.dp-cell, .dp-pad {
+  height: 34px; width: 100%; box-sizing: border-box;
+  display: grid; place-items: center;
+}
+.dp-pad { background: none; border: none; pointer-events: none; }
 .dp-cell {
-  height: 32px; border-radius: 9px; background: transparent; color: var(--ink);
-  font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums;
-  display: grid; place-items: center; transition: background 0.12s, color 0.12s;
+  border-radius: 9px; background: transparent; color: var(--ink); border: none;
+  font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums;
+  padding: 0; cursor: pointer; transition: background 0.12s, color 0.12s;
 }
-.dp-cell.empty { background: none; cursor: default; }
-.dp-cell:not(.empty):not(:disabled):hover { background: var(--canvas); }
-.dp-cell:disabled { color: var(--border-strong); cursor: not-allowed; }
-/* Today is outlined; the selected day is filled. Both at once reads as selected. */
+.dp-cell:hover:not(:disabled) { background: var(--canvas); }
+.dp-cell:disabled { color: var(--border); cursor: not-allowed; }
+/* Today is outlined, the selected day is filled — filled always wins. */
 .dp-cell.today { box-shadow: inset 0 0 0 1.5px var(--border-strong); }
-.dp-cell.sel { background: var(--brand); color: #fff; font-weight: 700; box-shadow: none; }
-.dp-cell.sel:hover { background: var(--brand); }
+.dp-cell.sel, .dp-cell.sel:hover { background: var(--brand); color: #fff; font-weight: 700; box-shadow: none; }
 .dp-foot {
   display: flex; align-items: center; justify-content: space-between;
   margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);

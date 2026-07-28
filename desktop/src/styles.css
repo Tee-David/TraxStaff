@@ -164,7 +164,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .dash-hi { font-family: var(--font-display); font-size: 20px; font-weight: 700; }
 .dash-logout { display: inline-flex; align-items: center; gap: 6px; background: #dc2626; border: none; color: #fff; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 10px; }
 .dash-logout:hover { background: #b91c1c; }
-.dash-logout-ico { font-size: 14px; }
+.dash-logout svg { flex-shrink: 0; }
 
 .dash-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .dash-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 15px; position: relative; }

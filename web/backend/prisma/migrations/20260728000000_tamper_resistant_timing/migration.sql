@@ -15,8 +15,17 @@ ALTER TYPE "FlagType" ADD VALUE IF NOT EXISTS 'clock_skew_detected';
 ALTER TYPE "FlagType" ADD VALUE IF NOT EXISTS 'exceeds_elapsed_cap';
 ALTER TYPE "FlagType" ADD VALUE IF NOT EXISTS 'block_outside_session_window';
 
+-- These tables are schema_locked (a CockroachDB changefeed optimisation), which
+-- blocks DDL. Unlock, alter, then restore the lock so changefeed performance is
+-- unaffected. See cockroachlabs.com/docs/v26.2/changefeed-best-practices.
+ALTER TABLE "TrackingSession" SET (schema_locked = false);
+
 -- Server-witnessed sync anchor. Set from the server clock only.
 ALTER TABLE "TrackingSession" ADD COLUMN IF NOT EXISTS "lastSyncAt" TIMESTAMP(3);
+
+ALTER TABLE "TrackingSession" SET (schema_locked = true);
+
+ALTER TABLE "ActivityBlock" SET (schema_locked = false);
 
 -- Monotonic timing per activity block.
 --   creditedSeconds  — awake time only; immune to system-clock changes
@@ -25,3 +34,5 @@ ALTER TABLE "TrackingSession" ADD COLUMN IF NOT EXISTS "lastSyncAt" TIMESTAMP(3)
 ALTER TABLE "ActivityBlock" ADD COLUMN IF NOT EXISTS "creditedSeconds" INT;
 ALTER TABLE "ActivityBlock" ADD COLUMN IF NOT EXISTS "suspendedSeconds" INT;
 ALTER TABLE "ActivityBlock" ADD COLUMN IF NOT EXISTS "clockSkewSeconds" INT;
+
+ALTER TABLE "ActivityBlock" SET (schema_locked = true);

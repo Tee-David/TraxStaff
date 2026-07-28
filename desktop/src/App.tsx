@@ -213,6 +213,26 @@ function useUpdateCheck() {
   }, []);
 }
 
+// Inline SVG icons. Glyph characters (⏻ » «) are NOT present in Space Grotesk or
+// Outfit, so they fall through to the platform symbol font — or render as a tofu
+// box when it lacks them too, which is what happened to the sign-out icon.
+function PowerIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" aria-hidden>
+      <path d="M12 3v9" />
+      <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ dir }: { dir: "left" | "right" }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {dir === "right" ? <path d="M9 6l6 6-6 6" /> : <path d="M15 6l-6 6 6 6" />}
+    </svg>
+  );
+}
+
 const eyeProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 function EyeIcon() {
   return (
@@ -285,7 +305,10 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   // Last authoritative elapsed value + the monotonic instant it arrived, so the
   // 1 Hz interpolator counts on from Rust's clock instead of competing with it.
   const elapsedAnchor = useRef<{ secs: number; at: number } | null>(null);
-  const [expanded, setExpanded] = useState(true);
+  // Must match the window size tauri.conf.json actually opens at (420x640).
+  // Starting this `true` meant the first click on the chevron *shrank* an
+  // already-narrow window, so the control looked dead.
+  const [expanded, setExpanded] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [tab, setTab] = useState<DashTab>("dashboard");
   const [error, setError] = useState<string | null>(null);
@@ -914,7 +937,7 @@ function TrackingWidget(props: {
           )}
         </div>
         <button className="foot-icon" onClick={onToggleExpand} title={expanded ? "Collapse" : "Expand"} aria-label={expanded ? "Collapse" : "Expand"}>
-          {expanded ? "»" : "«"}
+          <ChevronIcon dir={expanded ? "left" : "right"} />
         </button>
       </div>
     </div>
@@ -1258,7 +1281,7 @@ function DashNav({ tab, setTab, onSignOut }: { tab: DashTab; setTab: (t: DashTab
           </button>
         ))}
       </div>
-      <button className="dash-logout" onClick={onSignOut}><span className="dash-logout-ico">⏻</span> Sign out</button>
+      <button className="dash-logout" onClick={onSignOut}><PowerIcon /> Sign out</button>
     </div>
   );
 }

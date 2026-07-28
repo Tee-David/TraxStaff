@@ -1,4 +1,5 @@
 mod capture;
+mod clock;
 mod sync;
 #[cfg(windows)]
 mod os_idle;

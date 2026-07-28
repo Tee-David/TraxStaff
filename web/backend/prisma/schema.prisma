@@ -41,6 +41,15 @@ enum FlagType {
   low_variance_robotic
   input_channel_imbalance
   jiggler_process_detected
+  // The device's wall clock moved out of step with its own monotonic clock —
+  // i.e. the system time was changed during tracking.
+  clock_skew_detected
+  // A batch claimed more work time than actually elapsed on the server between
+  // two contacts. The client cannot see or influence either endpoint, so this is
+  // the strongest signal available.
+  exceeds_elapsed_cap
+  // Activity blocks timestamped outside their own session's window.
+  block_outside_session_window
 }
 
 model Organization {
@@ -149,6 +158,10 @@ model TrackingSession {
   isManual        Boolean           @default(false)
   manualReason    String?
   tamperSuspected Boolean           @default(false)
+  // Last time this session's device successfully synced. The server-witnessed
+  // elapsed cap is measured from here, so it must be set from the server clock
+  // only — never from anything the client sends.
+  lastSyncAt      DateTime?
   createdAt       DateTime          @default(now())
   activityBlocks  ActivityBlock[]
   screenshots     Screenshot[]
@@ -226,6 +239,14 @@ model ActivityBlock {
   sequenceNo  Int
   prevHash    String
   hash        String
+  // Monotonic timing from the client's tamper-resistant clock. `creditedSeconds`
+  // is awake time only and is immune to system-clock changes; `suspendedSeconds`
+  // is time asleep (recorded, never credited); `clockSkewSeconds` is how far the
+  // wall clock drifted against the monotonic counter. Nullable for blocks synced
+  // by clients predating this.
+  creditedSeconds  Int?
+  suspendedSeconds Int?
+  clockSkewSeconds Int?
   createdAt   DateTime        @default(now())
   screenshots Screenshot[]
 

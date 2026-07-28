@@ -16,6 +16,9 @@ const FLAG_LABELS: Record<string, string> = {
   low_variance_robotic: "Robotic / low variance",
   input_channel_imbalance: "Input channel imbalance",
   jiggler_process_detected: "Mouse-jiggler detected",
+  clock_skew_detected: "System clock changed",
+  exceeds_elapsed_cap: "Claimed more time than elapsed",
+  block_outside_session_window: "Activity outside session window",
 };
 
 const FLAG_COLORS: Record<string, string> = {
@@ -23,6 +26,9 @@ const FLAG_COLORS: Record<string, string> = {
   low_variance_robotic: "red",
   input_channel_imbalance: "red",
   jiggler_process_detected: "red",
+  clock_skew_detected: "accent",
+  exceeds_elapsed_cap: "red",
+  block_outside_session_window: "accent",
 };
 
 const PROJ_COLORS = ["var(--color-cat-focus)", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b", "#0ea5e9", "#84cc16"];

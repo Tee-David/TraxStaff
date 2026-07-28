@@ -20,6 +20,7 @@ use rand::Rng;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 
+use crate::clock::ClockSample;
 use crate::sync;
 #[cfg(windows)]
 use crate::url_capture;
@@ -84,6 +85,11 @@ struct Capture {
     // (non-zero when resuming an already-open session).
     anchor: Instant,
     base_elapsed_secs: i64,
+    // Tamper-resistant clock samples. `session_clock` is taken once at session
+    // start, `block_clock` at each block boundary. Credited duration comes from
+    // these — never from Utc::now() arithmetic, which the user controls.
+    session_clock: ClockSample,
+    block_clock: ClockSample,
 }
 
 impl Capture {
@@ -120,6 +126,8 @@ impl Capture {
             queue_dir,
             anchor: Instant::now(),
             base_elapsed_secs,
+            session_clock: ClockSample::now(),
+            block_clock: ClockSample::now(),
         };
         c.plan_shots();
         c
@@ -493,6 +501,18 @@ pub struct BlockPayload {
     hash: String,
     #[serde(rename = "jigglerProcess", skip_serializing_if = "Option::is_none")]
     jiggler_process: Option<String>,
+    // --- tamper-resistant timing (not part of the hash-chain contract) ---
+    /// Seconds of awake time this block actually covered, from the monotonic
+    /// clock. The server credits this, not blockEnd - blockStart.
+    #[serde(rename = "creditedSeconds")]
+    credited_seconds: u64,
+    /// Seconds the machine spent suspended during this block. Never credited.
+    #[serde(rename = "suspendedSeconds")]
+    suspended_seconds: u64,
+    /// How far the wall clock drifted relative to the monotonic clock during
+    /// this block. Non-zero means the system clock was changed.
+    #[serde(rename = "clockSkewSeconds")]
+    clock_skew_seconds: i64,
 }
 
 fn round2(v: f64) -> f64 {
@@ -519,7 +539,17 @@ fn finalize_block(stopping: bool) {
             None => return,
         };
         let end = Utc::now();
-        let block_secs = (end - c.block_start).num_seconds().max(1);
+        // Block duration comes from the monotonic clock, NOT from
+        // `end - c.block_start`. A wall-clock subtraction can be inflated by
+        // moving the clock forward, or driven negative by moving it back —
+        // which then clamped to 1 and produced a perfect 100.00% activity block.
+        let clock_now = ClockSample::now();
+        let delta = clock_now.since(&c.block_clock);
+        // Fall back to the wall-clock span only if the monotonic delta is
+        // implausibly small (first sample in a block, or a counter glitch).
+        let block_secs = (delta.credited_secs() as i64)
+            .max((end - c.block_start).num_seconds())
+            .max(1);
         let denom = block_secs as f64;
         let kb = c.kb_secs.len() as f64;
         let mouse = c.mouse_secs.len() as f64;
@@ -553,6 +583,9 @@ fn finalize_block(stopping: bool) {
             prev_hash: c.prev_hash.clone(),
             hash: hash.clone(),
             jiggler_process: jiggler,
+            credited_seconds: delta.credited_secs(),
+            suspended_seconds: delta.suspended_secs(),
+            clock_skew_seconds: delta.clock_skew_secs(),
         };
         let shots = std::mem::take(&mut c.pending_shots);
         let app_usage: Vec<(String, i64)> = c.app_secs.drain().collect();
@@ -569,6 +602,9 @@ fn finalize_block(stopping: bool) {
             c.seq += 1;
             c.prev_hash = hash.clone();
             c.block_start = end;
+            // Re-anchor the monotonic sample too, so the next block measures
+            // from here rather than from session start.
+            c.block_clock = clock_now;
             c.kb_secs.clear();
             c.mouse_secs.clear();
             c.plan_shots();

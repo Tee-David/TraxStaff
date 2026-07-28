@@ -294,6 +294,10 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [resumed, setResumed] = useState<number | null>(null); // suspend gap (minutes)
   const [sync, setSync] = useState<SyncState | null>(null);
   const [hookOk, setHookOk] = useState(true);
+  // True when the native capture engine refused to start. The timer keeps
+  // running, but screenshots/activity are NOT being recorded — the user must be
+  // told rather than shown a false "screenshots on".
+  const [captureFailed, setCaptureFailed] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [closeInfo, setCloseInfo] = useState<{ capturing: boolean; pending: number } | null>(null);
   const [closingRemaining, setClosingRemaining] = useState<number | null>(null);
@@ -465,7 +469,9 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         invoke("begin_capture", {
           token: getToken() ?? "", backend: API_BASE, sessionId: open.id,
           screenshotsPerBlock: cfg.perBlock, blur: cfg.blur, idleMinutes: cfg.idleMinutes, baseElapsedSecs,
-        }).then(() => invoke("set_tracking_indicator", { active: true })).catch(() => {});
+        })
+          .then(() => { setCaptureFailed(false); return invoke("set_tracking_indicator", { active: true }); })
+          .catch((e) => { console.error("[capture] begin_capture failed on resume:", e); setCaptureFailed(true); });
         beginHeartbeat(open.id);
       }
     } catch (e) { setError(e instanceof Error ? e.message : "Failed to load"); }
@@ -541,8 +547,17 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       token: getToken() ?? "", backend: API_BASE, sessionId: sid,
       screenshotsPerBlock: s.perBlock, blur: s.blur, idleMinutes: s.idleMinutes, baseElapsedSecs: 0,
     })
-      .then(() => invoke("set_tracking_indicator", { active: true }))
-      .catch(() => { /* capture worker not up (e.g. browser preview) — timer still runs */ });
+      .then(() => {
+        setCaptureFailed(false);
+        return invoke("set_tracking_indicator", { active: true });
+      })
+      .catch((e) => {
+        // The timer still runs — but nothing is being captured. Previously this
+        // was swallowed, so the UI claimed "Tracking · screenshots on" while
+        // taking zero screenshots and recording zero activity.
+        console.error("[capture] begin_capture failed:", e);
+        setCaptureFailed(true);
+      });
     void registerSession(sid, useProject, taskForSession, startedAt);
   }
 
@@ -737,8 +752,16 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         <div className="warn-banner subtle">You appear to be away (~{idleBanner} min idle).</div>
       )}
 
+      {/* The native capture engine refused to start. Time is being counted but
+          NOTHING is being recorded — this must never be silent. */}
+      {captureFailed && active && (
+        <div className="warn-banner">
+          Monitoring didn&rsquo;t start — your time is counting, but no screenshots or activity are being recorded. Restart Trax to retry.
+        </div>
+      )}
+
       {/* Activity sampling unavailable (input hook dead) — time still counts. */}
-      {!hookOk && active && (
+      {!hookOk && active && !captureFailed && (
         <div className="warn-banner">Activity tracking is unavailable — your time still counts, but activity % will read 0.</div>
       )}
 

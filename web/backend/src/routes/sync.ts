@@ -16,12 +16,28 @@ const blockSchema = z.object({
   prevHash: z.string(),
   hash: z.string(),
   jigglerProcess: z.string().optional(), // client-detected blocklisted process
+  // Monotonic timing, reported by the client's tamper-resistant clock. Optional
+  // so older clients keep syncing; when absent we fall back to the wall-clock
+  // span, which is what the pre-fix behaviour was.
+  creditedSeconds: z.number().int().min(0).optional(),
+  suspendedSeconds: z.number().int().min(0).optional(),
+  clockSkewSeconds: z.number().int().optional(),
 });
 
 const syncSchema = z.object({
   sessionId: z.string().uuid(),
   blocks: z.array(blockSchema).min(1),
 });
+
+// How far the client's wall clock may drift from its own monotonic clock before
+// we flag it. Generous on purpose: a genuine NTP step after a long offline
+// period can be several seconds, and a small drift buys nothing anyway now that
+// credited duration comes from the monotonic counter.
+const CLOCK_SKEW_TOLERANCE_SECONDS = 120;
+
+// Slack on the server-witnessed cap, covering request latency, block-boundary
+// rounding and a cold-started backend.
+const CAP_TOLERANCE_SECONDS = 300;
 
 const appUsageSchema = z.object({
   sessionId: z.string().uuid(),
@@ -74,6 +90,9 @@ export default async function syncRoutes(fastify: FastifyInstance) {
         sequenceNo: b.sequenceNo,
         prevHash: b.prevHash,
         hash: b.hash,
+        creditedSeconds: b.creditedSeconds ?? null,
+        suspendedSeconds: b.suspendedSeconds ?? null,
+        clockSkewSeconds: b.clockSkewSeconds ?? null,
       })),
       skipDuplicates: true,
     });
@@ -102,6 +121,75 @@ export default async function syncRoutes(fastify: FastifyInstance) {
     const tamper = !chain.ok;
     const reasons: string[] = chain.reasons;
     const fresh = body.blocks;
+
+    // --- Clock-tamper reconciliation -------------------------------------
+    // The client reports monotonic timing alongside each block. Two independent
+    // checks, both flag-only — ingestion is never blocked, per the product rule
+    // that tamper signals mark a session for review rather than dropping data.
+
+    // 1) The client's own monotonic-vs-wall divergence. Non-zero means the
+    //    system clock moved during the block. Sleep does NOT trigger this.
+    const skewed = body.blocks
+      .filter((b) => typeof b.clockSkewSeconds === "number")
+      .reduce((worst, b) => {
+        const s = Math.abs(b.clockSkewSeconds!);
+        return s > Math.abs(worst) ? b.clockSkewSeconds! : worst;
+      }, 0);
+    if (Math.abs(skewed) > CLOCK_SKEW_TOLERANCE_SECONDS) {
+      await upsertFlag(body.sessionId, "clock_skew_detected", { skewSeconds: skewed });
+      await notifyOrg(session.userId, "unusual_activity", {
+        sessionId: body.sessionId,
+        type: "clock_skew_detected",
+        skewSeconds: skewed,
+      });
+    }
+
+    // 2) Server-witnessed cap. Credited time between two server contacts can
+    //    never exceed the time that actually elapsed on OUR clock. This is the
+    //    load-bearing control: it needs no trust in the client at all, because
+    //    the client never sees or influences either endpoint.
+    const claimedSeconds = body.blocks.reduce(
+      (sum, b) =>
+        sum +
+        (typeof b.creditedSeconds === "number"
+          ? b.creditedSeconds
+          : Math.max(0, (new Date(b.blockEnd).getTime() - new Date(b.blockStart).getTime()) / 1000)),
+      0
+    );
+    const lastContact = session.lastSyncAt ?? session.startedAt;
+    const elapsedServerSeconds = (Date.now() - lastContact.getTime()) / 1000;
+    if (claimedSeconds > elapsedServerSeconds + CAP_TOLERANCE_SECONDS) {
+      await upsertFlag(body.sessionId, "exceeds_elapsed_cap", {
+        claimedSeconds: Math.round(claimedSeconds),
+        elapsedServerSeconds: Math.round(elapsedServerSeconds),
+      });
+      await notifyOrg(session.userId, "unusual_activity", {
+        sessionId: body.sessionId,
+        type: "exceeds_elapsed_cap",
+        claimedSeconds: Math.round(claimedSeconds),
+        elapsedServerSeconds: Math.round(elapsedServerSeconds),
+      });
+    }
+
+    // 3) Plausibility: blocks must fall inside the session's own window.
+    const outOfWindow = body.blocks.filter(
+      (b) =>
+        new Date(b.blockEnd).getTime() < session.startedAt.getTime() - CAP_TOLERANCE_SECONDS * 1000 ||
+        (session.endedAt &&
+          new Date(b.blockStart).getTime() > session.endedAt.getTime() + CAP_TOLERANCE_SECONDS * 1000)
+    );
+    if (outOfWindow.length > 0) {
+      await upsertFlag(body.sessionId, "block_outside_session_window", {
+        count: outOfWindow.length,
+        sequenceNos: outOfWindow.map((b) => b.sequenceNo),
+      });
+    }
+
+    // Record this contact so the next batch is capped against it.
+    await prisma.trackingSession.update({
+      where: { id: body.sessionId },
+      data: { lastSyncAt: new Date() },
+    });
 
     // Client-reported jiggler process → immediate flag.
     const jiggler = body.blocks.find((b) => b.jigglerProcess);

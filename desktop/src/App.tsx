@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "motion/react";
 import CircularTimer from "./CircularTimer";
 import LightRays from "./LightRays";
 import Consent from "./Consent";
+import { DatePicker } from "./DatePicker";
+import { Select } from "./Select";
 import {
   api,
   API_BASE,
@@ -126,9 +128,16 @@ type DashTab = "dashboard" | "timesheets" | "activity" | "reports" | "projects";
 
 export default function App() {
   const [authed, setAuthed] = useState(Boolean(getToken()));
-  useUpdateCheck();
-  if (!authed) return <Login onLogin={() => setAuthed(true)} />;
-  return <ConsentGate onLogout={() => setAuthed(false)} />;
+  const [pendingUpdate, setPendingUpdate] = useState<PendingUpdate | null>(null);
+  useUpdateCheck(setPendingUpdate);
+  return (
+    <>
+      {pendingUpdate && (
+        <UpdateDialog update={pendingUpdate} onDismiss={() => setPendingUpdate(null)} />
+      )}
+      {!authed ? <Login onLogin={() => setAuthed(true)} /> : <ConsentGate onLogout={() => setAuthed(false)} />}
+    </>
+  );
 }
 
 // Gate the tracker behind the consent screen. Capture code (begin_capture) is
@@ -184,12 +193,70 @@ function cmpVersion(a: string, b: string): number {
 // 0.1.0 against a 0.1.10 release) installs the *older* release over itself,
 // relaunches, and loops — wiping newer code and resetting the timer each cycle.
 // Runs at most once per launch.
+export type PendingUpdate = {
+  version: string;
+  current: string;
+  notes: string;
+  install: () => Promise<void>;
+};
+
+/** Versions the user chose to skip — never offered again. */
+function isSkipped(v: string): boolean {
+  try { return (JSON.parse(localStorage.getItem("trax_skipped_updates") ?? "[]") as string[]).includes(v); }
+  catch { return false; }
+}
+function skipVersion(v: string) {
+  try {
+    const list = JSON.parse(localStorage.getItem("trax_skipped_updates") ?? "[]") as string[];
+    if (!list.includes(v)) list.push(v);
+    localStorage.setItem("trax_skipped_updates", JSON.stringify(list));
+  } catch { /* storage unavailable — worst case we offer it again */ }
+}
+
 let updateCheckStarted = false;
-function useUpdateCheck() {
+function useUpdateCheck(onFound: (u: PendingUpdate) => void) {
   useEffect(() => {
     if (updateCheckStarted) return;
     updateCheckStarted = true;
     (async () => {
+      const current = await getAppVersion();
+      try {
+        const { check } = await import("@tauri-apps/plugin-updater");
+        const update = await check();
+        if (!update?.available) return;
+        const next = update.version;
+        if (cmpVersion(next, current) <= 0) {
+          console.warn(`[updater] refusing ${current} → ${next} (not newer)`);
+          return;
+        }
+        if (isSkipped(next)) {
+          console.info(`[updater] ${next} was skipped by the user`);
+          return;
+        }
+        // Ask rather than install silently. An unannounced restart mid-session is
+        // alarming, and users deserve to see what changed before it happens.
+        console.info(`[updater] ${next} available (running ${current})`);
+        onFound({
+          version: next,
+          current,
+          notes: update.body?.trim() || "",
+          install: async () => {
+            await update.downloadAndInstall();
+            const { relaunch } = await import("@tauri-apps/plugin-process");
+            await relaunch();
+          },
+        });
+        return;
+      } catch (e) {
+        console.warn("[updater] check failed:", e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
+// Kept for the tray "Check for updates" action, which installs immediately.
+async function installUpdateNow(): Promise<void> {
       const current = await getAppVersion();
       try {
         const { check } = await import("@tauri-apps/plugin-updater");
@@ -209,8 +276,67 @@ function useUpdateCheck() {
         // but log it, since a silently broken updater strands users on old builds.
         console.warn("[updater] check failed:", e);
       }
-    })();
-  }, []);
+}
+
+/** Hubstaff-style update prompt: what's new, and an explicit choice. */
+function UpdateDialog({ update, onDismiss }: { update: PendingUpdate; onDismiss: () => void }) {
+  const [installing, setInstalling] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function install() {
+    setInstalling(true);
+    setFailed(false);
+    try {
+      await update.install();
+    } catch (e) {
+      console.error("[updater] install failed:", e);
+      setInstalling(false);
+      setFailed(true);
+    }
+  }
+
+  return (
+    <div className="modal-scrim">
+      <div className="upd-card" role="dialog" aria-modal="true" aria-labelledby="upd-title">
+        <h3 className="upd-title" id="upd-title">A new version of Trax is available</h3>
+        <p className="upd-sub">
+          Trax <strong>{update.version}</strong> is ready to install — you have {update.current}.
+        </p>
+
+        {update.notes && (
+          <>
+            <div className="upd-notes-label">What&rsquo;s new</div>
+            <div className="upd-notes">{update.notes}</div>
+          </>
+        )}
+
+        {failed && (
+          <div className="upd-error">
+            The update couldn&rsquo;t be installed. Check your connection and try again.
+          </div>
+        )}
+
+        <div className="upd-actions">
+          <button
+            className="upd-ghost"
+            disabled={installing}
+            onClick={() => { skipVersion(update.version); onDismiss(); }}
+          >
+            Skip this version
+          </button>
+          <button className="upd-ghost" disabled={installing} onClick={onDismiss}>
+            Remind me later
+          </button>
+          <button className="upd-primary" disabled={installing} onClick={install}>
+            {installing ? "Installing…" : "Install and restart"}
+          </button>
+        </div>
+        <p className="upd-foot">
+          Trax will close and reopen. Any tracked time is saved first.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 // Inline SVG icons. Glyph characters (⏻ » «) are NOT present in Space Grotesk or
@@ -706,13 +832,18 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     note: () => { if (activeRef.current) setNoteOpen(true); },
     signout: () => { signOut(); },
     dashboard: () => { if (!expanded) toggleExpand(); },
+    // Tray "Check for updates" is an explicit user request, so install directly
+    // rather than routing back through the prompt.
     updates: async () => {
       try {
         const { check } = await import("@tauri-apps/plugin-updater");
         const u = await check();
-        if (u?.available) { await u.downloadAndInstall(); const { relaunch } = await import("@tauri-apps/plugin-process"); await relaunch(); }
+        if (u?.available) await installUpdateNow();
         else setError("You're on the latest version.");
-      } catch { /* ignore */ }
+      } catch (e) {
+        console.warn("[updater] manual check failed:", e);
+        setError("Couldn't check for updates. Check your connection.");
+      }
     },
   };
 
@@ -1360,9 +1491,21 @@ function DateRangePicker({ value, custom, onChange }: {
       </div>
       {value === "custom" && (
         <div className="range-custom">
-          <input type="date" value={custom.from ?? ""} max={custom.to} onChange={(e) => onChange("custom", e.target.value || undefined, custom.to)} />
-          <span className="range-arrow">→</span>
-          <input type="date" value={custom.to ?? ""} min={custom.from} onChange={(e) => onChange("custom", custom.from, e.target.value || undefined)} />
+          <DatePicker
+            value={custom.from}
+            max={custom.to}
+            placeholder="Start date"
+            onChange={(v) => onChange("custom", v, custom.to)}
+          />
+          <span className="range-arrow" aria-hidden>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </span>
+          <DatePicker
+            value={custom.to}
+            min={custom.from}
+            placeholder="End date"
+            onChange={(v) => onChange("custom", custom.from, v)}
+          />
         </div>
       )}
     </div>
@@ -1672,11 +1815,16 @@ function ReportsPage({ week }: { week: Session[] }) {
       <div className="dash-table" style={{ marginTop: 14 }}>
         <div className="dash-card-head">
           <span className="dc-label">Data grouped by</span>
-          <select className="rp-select" value={group} onChange={(e) => setGroup(e.target.value as GroupBy)}>
-            <option value="project">Project</option>
-            <option value="day">Day</option>
-            <option value="task">Task</option>
-          </select>
+          <Select<GroupBy>
+            value={group}
+            onChange={setGroup}
+            ariaLabel="Group data by"
+            options={[
+              { value: "project", label: "Project" },
+              { value: "day", label: "Day" },
+              { value: "task", label: "Task" },
+            ]}
+          />
         </div>
         {grouped.length === 0 ? <div className="empty">No tracked time this week.</div> : grouped.map((r) => (
           <div className="proj-line" key={r.label}>

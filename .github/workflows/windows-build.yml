@@ -21,6 +21,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history + tags: the untagged-build version is derived from the
+          # most recent tag via `git describe`, which sees nothing in a shallow
+          # clone and would silently fall back to 0.0.0.
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v4

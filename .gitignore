@@ -6,6 +6,9 @@
 # working docs / reference screenshots — never commit
 plans/
 
+# local agent guidance — kept out of the repo deliberately
+CLAUDE.md
+
 # node
 node_modules/
 .pnpm-store/

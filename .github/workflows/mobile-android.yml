@@ -1,0 +1,236 @@
+name: Build Mobile App
+
+# Builds the Trax Android APK. Sibling of desktop-build.yml — same triggers,
+# same version-stamping rule, same artifact retention, and it attaches to the
+# same GitHub Release that desktop-build.yml publishes for a v* tag.
+#
+# Why a real native build and not EAS: mobile/modules/trax-tracker is a custom
+# Kotlin Expo module (foreground service, boot/clock receivers), so Expo Go
+# cannot run it and there is no prebuilt binary to download. EAS Build is also
+# an account-gated hosted service with paid tiers, which the repo's free-tier
+# cost guardrails rule out. So: `expo prebuild` + Gradle, in the runner.
+on:
+  push:
+    branches: [main, dev, staging]
+    tags: ["v*"]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile-android.yml"
+  workflow_dispatch:
+
+# app.config.ts falls back to this same URL, but pin it explicitly so a release
+# APK can never inherit a stray EXPO_PUBLIC_API_URL from the environment. It is
+# read both at prebuild (manifest) and at bundle time (inside assembleRelease),
+# so it has to be job-wide, not per-step.
+env:
+  EXPO_PUBLIC_API_URL: https://trax-backend-ocaq.onrender.com
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      # The release job refuses to publish a debug-signed APK; this is how it
+      # knows which kind this run produced.
+      signed: ${{ steps.signing.outputs.signed }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history + tags: the untagged-build version is derived from the
+          # most recent tag via `git describe`, which sees nothing in a shallow
+          # clone and would silently fall back to 0.0.0.
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # The runner image ships an Android SDK, but not necessarily the API 36
+      # platform + build-tools that expo-build-properties pins in app.config.ts.
+      # This action puts `sdkmanager` on PATH with licences already accepted.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform 36
+        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+
+      # Caches the Gradle user home (dependencies, wrapper dists, build cache).
+      # Read-only on branches other than the default one so a feature build can
+      # never poison the shared cache.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      # Same rule as desktop-build.yml: every build gets a real version, and
+      # untagged builds get a prerelease suffix that sorts ABOVE the last tag so
+      # a dev APK is never mistaken for an older release.
+      - name: Compute app version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            LAST="$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)"
+            LAST="${LAST#v}"
+            VER="$(echo "$LAST" | awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}')-dev.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "APP_VERSION=$VER" >> "$GITHUB_ENV"
+          echo "app version set to $VER"
+
+      # mobile/android is gitignored and generated fresh here, so every native
+      # edit below targets throwaway output — nothing in the repo is mutated.
+      # --no-install: `npm ci` above already installed the exact lockfile.
+      - name: Prebuild Android project
+        working-directory: mobile
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Stamp version into the generated Gradle project
+        working-directory: mobile
+        shell: bash
+        run: |
+          node -e "
+          const fs=require('fs');
+          const p='android/app/build.gradle';
+          let s=fs.readFileSync(p,'utf8');
+          const before=s;
+          // versionName is the human string; versionCode must be a monotonically
+          // increasing int, and the run number is the only monotonic counter CI has.
+          s=s.replace(/versionCode\s+\d+/, 'versionCode ' + process.env.GITHUB_RUN_NUMBER);
+          s=s.replace(/versionName\s+['\\\"][^'\\\"]*['\\\"]/, 'versionName \"' + process.env.APP_VERSION + '\"');
+          if(s===before){console.error('could not find versionCode/versionName in '+p);process.exit(1);}
+          fs.writeFileSync(p,s);
+          console.log('stamped ' + process.env.APP_VERSION + ' (code ' + process.env.GITHUB_RUN_NUMBER + ')');
+          "
+          # The template's 2g default is tight once Kotlin compilation and Hermes
+          # bundling run together; a later line wins when Gradle reads properties.
+          printf '\norg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m\n' >> android/gradle.properties
+
+      # Expo's prebuild template debug-signs the release buildType. A debug key
+      # is per-machine, so an APK signed with one cannot be installed over an
+      # APK signed with another — upgrades break. If the keystore secrets exist
+      # we rewire the release buildType onto them; if they do not, we still
+      # build (so the workflow stays useful) but mark the artifact loudly and
+      # the release job then refuses to attach it.
+      - name: Configure release signing
+        id: signing
+        working-directory: mobile
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set — building a DEBUG-SIGNED apk. It is installable for testing but is not a releasable artifact and will not be attached to any GitHub Release."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/trax-release.keystore"
+          node -e "
+          const fs=require('fs');
+          const p='android/app/build.gradle';
+          let s=fs.readFileSync(p,'utf8');
+
+          // 1. add a release signing config next to the template's debug one.
+          const anchor='signingConfigs {';
+          if(!s.includes(anchor)){console.error('no signingConfigs block in '+p);process.exit(1);}
+          s=s.replace(anchor, anchor + \`
+              release {
+                  storeFile file(System.getenv('TRAX_KEYSTORE_PATH'))
+                  storePassword System.getenv('TRAX_KEYSTORE_PASSWORD')
+                  keyAlias System.getenv('TRAX_KEY_ALIAS')
+                  keyPassword System.getenv('TRAX_KEY_PASSWORD')
+              }\`);
+
+          // 2. point the release buildType at it. Sliced from buildTypes so the
+          // block just inserted above cannot be matched by mistake.
+          const bt=s.indexOf('buildTypes {');
+          if(bt<0){console.error('no buildTypes block in '+p);process.exit(1);}
+          const head=s.slice(0,bt);
+          let tail=s.slice(bt);
+          const prev=tail;
+          tail=tail.replace(/(release\s*\{[^]*?)signingConfig\s+signingConfigs\.debug/, '\$1signingConfig signingConfigs.release');
+          if(tail===prev){console.error('release buildType is not debug-signed as expected — the Expo prebuild template changed, re-check this patch');process.exit(1);}
+          fs.writeFileSync(p, head+tail);
+          console.log('release buildType now uses the CI keystore');
+          "
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build release APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --no-daemon
+        env:
+          # Read via System.getenv in the injected signingConfig, so no password
+          # is ever written to a file on the runner.
+          TRAX_KEYSTORE_PATH: ${{ runner.temp }}/trax-release.keystore
+          TRAX_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          TRAX_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          TRAX_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Name the APK
+        shell: bash
+        run: |
+          SRC=mobile/android/app/build/outputs/apk/release/app-release.apk
+          test -f "$SRC" || { echo "no APK at $SRC"; ls -R mobile/android/app/build/outputs || true; exit 1; }
+          mkdir -p dist
+          if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
+            mv "$SRC" "dist/trax-${APP_VERSION}-android.apk"
+          else
+            mv "$SRC" "dist/trax-${APP_VERSION}-android-DEBUG-SIGNED-DO-NOT-DISTRIBUTE.apk"
+          fi
+          ls -lh dist
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trax-android-${{ github.run_number }}
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    # Attaches to the release desktop-build.yml publishes for this tag. It never
+    # creates one, so the two workflows cannot race to create the same release.
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') && needs.build.outputs.signed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: trax-android-${{ github.run_number }}
+          path: dist
+
+      - name: Attach APK to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # desktop-build.yml's release job waits on its own matrix, so the
+          # release may not exist yet when this job starts. Poll for up to 10min.
+          for _ in $(seq 1 30); do
+            if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release upload "$GITHUB_REF_NAME" dist/*.apk --repo "$GITHUB_REPOSITORY" --clobber
+              echo "APK attached to $GITHUB_REF_NAME"
+              exit 0
+            fi
+            echo "release $GITHUB_REF_NAME not published yet, waiting…"
+            sleep 20
+          done
+          echo "::error::Release $GITHUB_REF_NAME never appeared. desktop-build.yml publishes it — check whether that workflow ran for this tag."
+          exit 1

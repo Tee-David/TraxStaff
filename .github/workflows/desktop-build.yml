@@ -126,14 +126,33 @@ jobs:
           },null,2));
           "
 
+      # Collect into one flat directory before uploading. upload-artifact keeps
+      # paths relative to the least-common ancestor of everything it is given,
+      # and that ancestor was `desktop/` — so the download unpacked as
+      # src-tauri/target/release/bundle/nsis/<installer>, eight folders deep for
+      # a single file. Uploading a directory instead puts its contents at the
+      # root of the zip.
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          find desktop/src-tauri/target/release/bundle \
+            -type f \( -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \) \
+            -exec cp {} dist/ \;
+          cp "desktop/fragment-${{ matrix.platform }}.json" dist/
+          # An empty dist means the bundle layout moved; fail here rather than
+          # publishing a release with a missing platform.
+          if [ -z "$(find dist -type f \( -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \) -print -quit)" ]; then
+            echo "::error::no installer found under desktop/src-tauri/target/release/bundle"
+            exit 1
+          fi
+          ls -la dist/
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: trax-${{ matrix.platform }}-${{ github.run_number }}
-          path: |
-            desktop/src-tauri/target/release/bundle/${{ matrix.bundle }}/${{ matrix.installer }}
-            desktop/src-tauri/target/release/bundle/deb/*.deb
-            desktop/fragment-${{ matrix.platform }}.json
+          path: dist/
           if-no-files-found: error
           retention-days: 30
 

@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { motion } from "motion/react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Card, PageHeader, Skeleton } from "@/components/ui";
+import { Button, Card, PageHeader, Skeleton } from "@/components/ui";
+import { Select } from "@/components/Select";
+import { SettingsNav, type SettingsNavItem } from "@/components/SettingsNav";
+import { SettingsPanel } from "@/components/SettingsPanel";
+import { SettingsRow } from "@/components/SettingsRow";
+import { Toggle } from "@/components/Toggle";
 import { useTheme } from "@/lib/theme";
+import { useMotionPresets } from "@/lib/motion";
 import { toggleThemeWithTransition } from "@/lib/theme-transition";
-import { IconMoon, IconSun } from "@/components/icons";
+import { IconClock, IconFlag, IconImage, IconMoon, IconSun, IconUsers } from "@/components/icons";
 
 interface OrgSettings {
   id: string;
@@ -19,54 +26,89 @@ interface OrgSettings {
   weeklyTargetMinutes: number;
 }
 
-function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
-  return (
-    <button
-      role="switch"
-      aria-checked={checked}
-      onClick={() => !disabled && onChange(!checked)}
-      disabled={disabled}
-      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:opacity-40 ${
-        checked ? "bg-brand" : "bg-border-strong"
-      }`}
-    >
-      <span
-        className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${checked ? "translate-x-5" : "translate-x-0.5"}`}
-      />
-    </button>
-  );
-}
+type SectionId = "appearance" | "screenshots" | "tracking" | "targets" | "organisation";
 
-function SettingRow({
-  title,
-  description,
-  children,
-  noBorder,
-}: {
+type Section = SettingsNavItem & {
+  id: SectionId;
   title: string;
-  description?: string;
-  children: React.ReactNode;
-  noBorder?: boolean;
+  subtitle: string;
+  adminOnly: boolean;
+};
+
+const SECTIONS: Section[] = [
+  {
+    id: "appearance",
+    label: "Appearance",
+    icon: IconSun,
+    title: "Appearance",
+    subtitle: "Personalise how Trax looks on this device. Saved locally, not shared with your team.",
+    adminOnly: false,
+  },
+  {
+    id: "screenshots",
+    label: "Screenshots",
+    icon: IconImage,
+    title: "Screenshot capture",
+    subtitle: "How often screenshots are taken, and how they are stored. Applies to every member.",
+    adminOnly: true,
+  },
+  {
+    id: "tracking",
+    label: "Tracking",
+    icon: IconClock,
+    title: "Tracking behaviour",
+    subtitle: "How the desktop tracker handles idle time during a session.",
+    adminOnly: true,
+  },
+  {
+    id: "targets",
+    label: "Work targets",
+    icon: IconFlag,
+    title: "Work targets",
+    subtitle: "Organisation-wide defaults. Members inherit these unless given their own target.",
+    adminOnly: true,
+  },
+  {
+    id: "organisation",
+    label: "Organisation",
+    icon: IconUsers,
+    title: "Organisation",
+    subtitle: "Your workspace details.",
+    adminOnly: false,
+  },
+];
+
+/** Small number input with a unit suffix — used by the tracking + target rows. */
+function UnitField({
+  value,
+  onChange,
+  unit,
+  min,
+  max,
+  step,
+  ariaLabel,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  unit: string;
+  min: number;
+  max: number;
+  step?: number;
+  ariaLabel: string;
 }) {
   return (
-    <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5 ${noBorder ? "" : "border-b border-border"}`}>
-      <div className="min-w-0 flex-1">
-        <div className="text-[14px] font-semibold text-ink">{title}</div>
-        {description && <div className="mt-0.5 text-[12px] text-muted leading-relaxed max-w-md">{description}</div>}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
-}
-
-function SectionHeader({ icon, title, description }: { icon: string; title: string; description?: string }) {
-  return (
-    <div className="mb-1 flex items-start gap-3 pb-4 border-b border-border">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-lg">{icon}</span>
-      <div>
-        <h2 className="font-heading text-[15px] font-semibold text-ink">{title}</h2>
-        {description && <p className="text-[12px] text-muted">{description}</p>}
-      </div>
+    <div className="flex items-center gap-2">
+      <input
+        type="number"
+        aria-label={ariaLabel}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-20 rounded-lg border border-border bg-surface px-3 py-2 text-center text-[13px] text-ink outline-none transition focus:border-brand"
+      />
+      <span className="text-[13px] text-muted">{unit}</span>
     </div>
   );
 }
@@ -78,7 +120,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [active, setActive] = useState<SectionId>("appearance");
   const [theme, setTheme] = useTheme();
+  const m = useMotionPresets();
 
   useEffect(() => {
     api<OrgSettings>("/orgs/settings")
@@ -111,194 +155,202 @@ export default function SettingsPage() {
     }
   }
 
-  if (loading) return <Skeleton className="h-96 max-w-2xl" />;
+  if (loading) {
+    return (
+      <div>
+        <PageHeader title="Settings" subtitle="Workspace configuration" />
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+          <Skeleton className="h-11 w-full rounded-xl lg:h-64 lg:w-56 lg:shrink-0" />
+          <Skeleton className="h-96 min-w-0 flex-1 rounded-[var(--radius-card)]" />
+        </div>
+      </div>
+    );
+  }
   if (!settings) return <p className="text-sm text-muted">Could not load settings.</p>;
+
+  const sections = SECTIONS.filter((s) => isAdmin || !s.adminOnly);
+  const current = sections.find((s) => s.id === active) ?? sections[0];
+
+  const body: Record<SectionId, ReactNode> = {
+    appearance: (
+      <SettingsPanel title="Theme">
+        <SettingsRow label="Colour mode" hint="Switch between light and dark. Applies to this browser only.">
+          <div className="inline-flex rounded-full border border-border bg-canvas p-1">
+            <button
+              type="button"
+              onClick={(e) => toggleThemeWithTransition(e, "light", setTheme)}
+              className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition ${
+                theme === "light" ? "bg-surface text-ink shadow-[var(--shadow-soft)]" : "text-muted hover:text-ink"
+              }`}
+            >
+              <IconSun className="h-3.5 w-3.5" /> Light
+            </button>
+            <button
+              type="button"
+              onClick={(e) => toggleThemeWithTransition(e, "dark", setTheme)}
+              className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition ${
+                theme === "dark" ? "bg-elevated text-ink shadow-[var(--shadow-soft)]" : "text-muted hover:text-ink"
+              }`}
+            >
+              <IconMoon className="h-3.5 w-3.5" /> Dark
+            </button>
+          </div>
+        </SettingsRow>
+      </SettingsPanel>
+    ),
+
+    screenshots: (
+      <>
+        <SettingsPanel title="Capture frequency">
+          <SettingsRow
+            label="Screenshots per 10-minute block"
+            hint="Taken at random moments within each tracking block. Set to off to disable capture entirely."
+          >
+            <Select
+              value={String(settings.screenshotsPerBlock)}
+              onChange={(v) => setSettings({ ...settings, screenshotsPerBlock: Number(v) })}
+              align="right"
+              minWidth={220}
+              options={[
+                { value: "0", label: "Off — no screenshots" },
+                { value: "1", label: "1 per block (default)" },
+                { value: "2", label: "2 per block" },
+                { value: "3", label: "3 per block" },
+              ]}
+            />
+          </SettingsRow>
+        </SettingsPanel>
+
+        <SettingsPanel title="Privacy">
+          <SettingsRow
+            label="Blur screenshots"
+            hint="Apply a privacy blur to every capture. Admins can still toggle blur off per screenshot."
+          >
+            <Toggle
+              label="Blur screenshots"
+              checked={settings.blurScreenshots}
+              onChange={(v) => setSettings({ ...settings, blurScreenshots: v })}
+            />
+          </SettingsRow>
+        </SettingsPanel>
+      </>
+    ),
+
+    tracking: (
+      <SettingsPanel title="Idle handling">
+        <SettingsRow
+          label="Idle timeout"
+          hint="After this many consecutive idle minutes, the tracker prompts the member to keep or discard the idle time."
+        >
+          <UnitField
+            ariaLabel="Idle timeout in minutes"
+            value={settings.idleTimeoutMinutes}
+            onChange={(v) => setSettings({ ...settings, idleTimeoutMinutes: v })}
+            unit="minutes"
+            min={1}
+            max={60}
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Keep idle time by default"
+          hint="When the idle prompt is dismissed or times out, keep the idle time instead of discarding it. Members can still choose per prompt."
+        >
+          <Toggle
+            label="Keep idle time by default"
+            checked={settings.keepIdleDefault}
+            onChange={(v) => setSettings({ ...settings, keepIdleDefault: v })}
+          />
+        </SettingsRow>
+      </SettingsPanel>
+    ),
+
+    targets: (
+      <SettingsPanel title="Expected hours">
+        <SettingsRow
+          label="Daily target"
+          hint="Hours a member is expected to track on a working day. Dashboard progress bars are measured against this."
+        >
+          <UnitField
+            ariaLabel="Daily target in hours"
+            value={settings.dailyTargetMinutes / 60}
+            onChange={(v) => setSettings({ ...settings, dailyTargetMinutes: Math.round(v * 60) })}
+            unit="hours"
+            min={0}
+            max={24}
+            step={0.5}
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Weekly target"
+          hint="Hours a member is expected to track across a full week. Set independently of the daily target."
+        >
+          <UnitField
+            ariaLabel="Weekly target in hours"
+            value={settings.weeklyTargetMinutes / 60}
+            onChange={(v) => setSettings({ ...settings, weeklyTargetMinutes: Math.round(v * 60) })}
+            unit="hours"
+            min={0}
+            max={168}
+            step={0.5}
+          />
+        </SettingsRow>
+      </SettingsPanel>
+    ),
+
+    organisation: (
+      <SettingsPanel title="Details">
+        <SettingsRow label="Organisation name" hint="The display name used across the dashboard.">
+          <div className="max-w-full truncate rounded-lg border border-border bg-surface px-3 py-2 text-[13px] font-medium text-ink sm:min-w-[180px]">
+            {settings.name}
+          </div>
+        </SettingsRow>
+      </SettingsPanel>
+    ),
+  };
 
   return (
     <div>
       <PageHeader title="Settings" subtitle={`Workspace configuration for ${settings.name}`} />
 
-      <div className="max-w-2xl space-y-6">
+      <div className="flex flex-col gap-6 pb-8 lg:flex-row lg:items-start">
+        <SettingsNav items={sections} active={current.id} onSelect={(id) => setActive(id as SectionId)} />
 
-        {/* ── Appearance ── */}
-        <Card className="p-6">
-          <SectionHeader icon="🎨" title="Appearance" description="Personalise how Trax looks on your device" />
-          <SettingRow title="Theme" description="Switch between light and dark mode." noBorder>
-            <div className="inline-flex rounded-full border border-border bg-canvas p-1">
-              <button
-                onClick={(e) => toggleThemeWithTransition(e, "light", setTheme)}
-                className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition ${
-                  theme === "light" ? "bg-surface shadow-[var(--shadow-soft)] text-ink" : "text-muted hover:text-ink"
-                }`}
-              >
-                <IconSun className="h-3.5 w-3.5" /> Light
-              </button>
-              <button
-                onClick={(e) => toggleThemeWithTransition(e, "dark", setTheme)}
-                className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition ${
-                  theme === "dark" ? "bg-elevated shadow-[var(--shadow-soft)] text-ink" : "text-muted hover:text-ink"
-                }`}
-              >
-                <IconMoon className="h-3.5 w-3.5" /> Dark
-              </button>
+        <div className="min-w-0 flex-1 lg:max-w-3xl">
+          <motion.div key={current.id} initial={m.page.initial} animate={m.page.animate} transition={m.page.transition}>
+            <Card className="p-5 sm:p-6">
+              <div className="mb-5">
+                <h2 className="font-heading text-[18px] font-semibold text-ink">{current.title}</h2>
+                <p className="mt-1 text-[13px] leading-relaxed text-muted">{current.subtitle}</p>
+              </div>
+              <div className="space-y-5">{body[current.id]}</div>
+            </Card>
+          </motion.div>
+
+          {isAdmin && (
+            <div className="mt-6 flex flex-wrap items-center gap-4">
+              <Button onClick={save} disabled={saving} className="min-w-[120px]">
+                {saving ? "Saving…" : "Save changes"}
+              </Button>
+              {saved && (
+                <span className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-positive)]">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M2.5 7.5L5.5 10.5L11.5 3.5" />
+                  </svg>
+                  Saved successfully
+                </span>
+              )}
             </div>
-          </SettingRow>
-        </Card>
-
-        {/* ── Screenshot capture policy (admin only) ── */}
-        {isAdmin && (
-          <Card className="p-6">
-            <SectionHeader
-              icon="📸"
-              title="Screenshot Capture"
-              description="Controls how often screenshots are taken across the organisation. These settings apply to all members."
-            />
-
-            <SettingRow
-              title="Screenshots per 10-minute block"
-              description="Random moments within each tracking block. Set to 0 to disable capture entirely."
-            >
-              <select
-                value={settings.screenshotsPerBlock}
-                onChange={(e) => setSettings({ ...settings, screenshotsPerBlock: Number(e.target.value) })}
-                className="rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand transition min-w-[180px]"
-              >
-                <option value={0}>Off — no screenshots</option>
-                <option value={1}>1 per block (default)</option>
-                <option value={2}>2 per block</option>
-                <option value={3}>3 per block</option>
-              </select>
-            </SettingRow>
-
-            <SettingRow
-              title="Blur screenshots"
-              description="Apply a privacy blur to all captured screenshots. Admins can still toggle blur off per screenshot."
-            >
-              <Toggle
-                checked={settings.blurScreenshots}
-                onChange={(v) => setSettings({ ...settings, blurScreenshots: v })}
-              />
-            </SettingRow>
-          </Card>
-        )}
-
-        {/* ── Tracking behaviour (admin only) ── */}
-        {isAdmin && (
-          <Card className="p-6">
-            <SectionHeader
-              icon="⏱"
-              title="Tracking Behaviour"
-              description="Configure how the desktop app handles idle time and tracking sessions."
-            />
-
-            <SettingRow
-              title="Idle timeout"
-              description="After this many consecutive idle minutes, the tracker prompts the member to keep or discard the idle time."
-            >
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={1}
-                  max={60}
-                  value={settings.idleTimeoutMinutes}
-                  onChange={(e) => setSettings({ ...settings, idleTimeoutMinutes: Number(e.target.value) })}
-                  className="w-20 rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand transition text-center"
-                />
-                <span className="text-[13px] text-muted">minutes</span>
-              </div>
-            </SettingRow>
-
-            <SettingRow
-              title="Keep idle time by default"
-              description="When the idle prompt is dismissed or times out, keep the idle time instead of discarding it. Members can still choose per prompt."
-              noBorder
-            >
-              <Toggle
-                checked={settings.keepIdleDefault}
-                onChange={(v) => setSettings({ ...settings, keepIdleDefault: v })}
-              />
-            </SettingRow>
-          </Card>
-        )}
-
-        {/* ── Work targets (admin only) ── */}
-        {isAdmin && (
-          <Card className="p-6">
-            <SectionHeader
-              icon="🎯"
-              title="Work Targets"
-              description="The organisation-wide defaults. Every member inherits these unless they are given their own target on the Members page."
-            />
-
-            <SettingRow
-              title="Daily target"
-              description="Hours a member is expected to track on a working day. Progress bars across the dashboard are measured against this."
-            >
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={0}
-                  max={24}
-                  step={0.5}
-                  value={settings.dailyTargetMinutes / 60}
-                  onChange={(e) =>
-                    setSettings({ ...settings, dailyTargetMinutes: Math.round(Number(e.target.value) * 60) })
-                  }
-                  className="w-20 rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand transition text-center"
-                />
-                <span className="text-[13px] text-muted">hours</span>
-              </div>
-            </SettingRow>
-
-            <SettingRow
-              title="Weekly target"
-              description="Hours a member is expected to track across a full week. Set independently of the daily target."
-              noBorder
-            >
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={0}
-                  max={168}
-                  step={0.5}
-                  value={settings.weeklyTargetMinutes / 60}
-                  onChange={(e) =>
-                    setSettings({ ...settings, weeklyTargetMinutes: Math.round(Number(e.target.value) * 60) })
-                  }
-                  className="w-20 rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand transition text-center"
-                />
-                <span className="text-[13px] text-muted">hours</span>
-              </div>
-            </SettingRow>
-          </Card>
-        )}
-
-        {/* ── Account info ── */}
-        <Card className="p-6">
-          <SectionHeader icon="🏢" title="Organisation" description="Your organisation details." />
-          <SettingRow title="Organisation name" description="The display name used across the dashboard." noBorder>
-            <div className="rounded-lg border border-border bg-canvas px-3 py-2 text-[13px] font-medium text-ink min-w-[180px]">
-              {settings.name}
-            </div>
-          </SettingRow>
-        </Card>
-
-        {/* ── Save ── */}
-        {isAdmin && (
-          <div className="flex items-center gap-4 pb-8">
-            <Button onClick={save} disabled={saving} className="min-w-[120px]">
-              {saving ? "Saving…" : "Save changes"}
-            </Button>
-            {saved && (
-              <span className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-positive)]">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2.5 7.5L5.5 10.5L11.5 3.5" />
-                </svg>
-                Saved successfully
-              </span>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

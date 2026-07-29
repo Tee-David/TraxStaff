@@ -3,6 +3,7 @@ import { RefreshControl, SectionList, StyleSheet, Text, View } from "react-nativ
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../src/api/client";
 import type { Session } from "../../src/api/types";
+import { DayTimeline } from "../../src/charts";
 import { clampSeconds, dayLabel, fmtShort, fmtTime, localDayKey } from "../../src/format";
 import { colors, fonts, radius, spacing } from "../../src/theme";
 import { Banner, Empty, Loading } from "../../src/ui";
@@ -35,6 +36,11 @@ export default function TimesheetsScreen() {
         key,
         title: dayLabel(key),
         total: data.reduce((sum, s) => sum + sessionSeconds(s), 0),
+        // A running session has no endedAt; the timeline draws it up to now.
+        spans: data.map((s) => ({
+          start: new Date(s.startedAt).getTime(),
+          end: s.endedAt ? new Date(s.endedAt).getTime() : Date.now(),
+        })),
         data: data.sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
       }));
   }, [sessions.data]);
@@ -70,9 +76,12 @@ export default function TimesheetsScreen() {
           sessions.error ? null : <Empty text="No time recorded in the last 30 days." />
         }
         renderSectionHeader={({ section }) => (
-          <View style={s.sectionHeader}>
-            <Text style={s.sectionTitle}>{section.title}</Text>
-            <Text style={s.sectionTotal}>{fmtShort(section.total)}</Text>
+          <View style={s.section}>
+            <View style={s.sectionHeader}>
+              <Text style={s.sectionTitle}>{section.title}</Text>
+              <Text style={s.sectionTotal}>{fmtShort(section.total)}</Text>
+            </View>
+            <DayTimeline spans={section.spans} />
           </View>
         )}
         renderItem={({ item }) => (
@@ -118,12 +127,11 @@ const s = StyleSheet.create({
   header: { gap: spacing.xs, marginBottom: spacing.md },
   title: { fontFamily: fonts.heading, fontSize: 28, color: colors.text, letterSpacing: -0.8 },
   sub: { fontFamily: fonts.body, fontSize: 14, color: colors.textMuted },
+  section: { marginTop: spacing.lg, marginBottom: spacing.sm, gap: spacing.sm },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "baseline",
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
   },
   sectionTitle: { fontFamily: fonts.headingMedium, fontSize: 16, color: colors.text },
   sectionTotal: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.brand },

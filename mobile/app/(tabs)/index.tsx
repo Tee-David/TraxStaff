@@ -13,11 +13,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../src/api/client";
 import type { Project, Task } from "../../src/api/types";
+import { Ring } from "../../src/charts";
 import { fmtClock, fmtShort, startOfToday, startOfWeek } from "../../src/format";
 import { colors, fonts, radius, shadow, spacing } from "../../src/theme";
 import { useTracker } from "../../src/tracker/TrackerContext";
 import { Banner, Button, Empty, Loading } from "../../src/ui";
 import { useAsync } from "../../src/useAsync";
+
+// What the ring fills against. A local constant, not a setting: the org has no
+// per-person target and inventing one in the UI would imply a policy that
+// doesn't exist. It frames the day's progress, nothing more.
+const DAILY_TARGET_SECONDS = 8 * 3600;
 
 export default function TimerScreen() {
   const { state, available, interrupted, acknowledgeInterrupted, pendingCount, syncError, start, stop, sync } =
@@ -157,9 +163,18 @@ export default function TimerScreen() {
           />
 
           <View style={s.clockWrap}>
-            <Text style={s.clock}>{fmtClock(state.creditedSeconds)}</Text>
-            <Text style={s.clockNote}>
-              {state.tracking ? "Counted by the device, not by this screen" : "Not tracking"}
+            <Ring size={210} progress={(today.data?.totalSeconds ?? 0) / DAILY_TARGET_SECONDS}>
+              <Text style={s.clock}>{fmtClock(state.creditedSeconds)}</Text>
+              <Text style={s.clockNote}>
+                {state.tracking ? "Counted by the device" : "Not tracking"}
+              </Text>
+            </Ring>
+            <Text style={s.target}>
+              {today.error
+                ? "Today's total unavailable"
+                : `${fmtShort(today.data?.totalSeconds)} of ${
+                    DAILY_TARGET_SECONDS / 3600
+                  }h today`}
             </Text>
           </View>
 
@@ -357,15 +372,19 @@ const s = StyleSheet.create({
   selectorLabel: { fontFamily: fonts.bodyMedium, fontSize: 11, color: "#a7abe0", letterSpacing: 0.6 },
   selectorValue: { fontFamily: fonts.bodySemi, fontSize: 16, color: "#fff" },
 
-  clockWrap: { alignItems: "center", paddingVertical: spacing.lg, gap: spacing.xs },
+  clockWrap: { alignItems: "center", paddingVertical: spacing.md, gap: spacing.sm },
   clock: {
     fontFamily: fonts.heading,
-    fontSize: 56,
+    // Smaller than the old flat clock: it now sits inside the ring and has to
+    // clear the ticks at both ends. Sized for the widest value the formatter
+    // produces (HH:MM:SS past ten hours), not the common one.
+    fontSize: 36,
     color: "#fff",
-    letterSpacing: -2,
+    letterSpacing: -1.5,
     fontVariant: ["tabular-nums"],
   },
-  clockNote: { fontFamily: fonts.body, fontSize: 12, color: "#a7abe0" },
+  clockNote: { fontFamily: fonts.body, fontSize: 11, color: "#a7abe0", marginTop: 2 },
+  target: { fontFamily: fonts.bodyMedium, fontSize: 13, color: "#a7abe0" },
 
   totals: { flexDirection: "row", gap: spacing.md },
   total: {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "@/lib/api";
 import type { Member } from "@/lib/types";
@@ -43,51 +44,98 @@ function MemberAvatar({ email, disabled }: { email: string; disabled?: boolean }
   );
 }
 
+const MENU_WIDTH = 160;
+
+/**
+ * The dropdown renders into document.body rather than next to its button.
+ *
+ * Both member tables sit in a `Card` with `overflow-hidden` (to clip the table's
+ * rounded corners) inside an `overflow-x-auto` scroller. An absolutely
+ * positioned child cannot escape either of those, so the menu was drawn clipped
+ * INSIDE the card and pushed a scrollbar onto it. A portal plus fixed
+ * coordinates from the button's own rect is the only thing that reliably
+ * escapes an ancestor's overflow.
+ */
 function ActionMenu({ items }: { items: { label: string; danger?: boolean; onClick: () => void }[] }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const open = rect !== null;
 
   useEffect(() => {
+    if (!open) return;
     function outside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!btnRef.current?.contains(t) && !menuRef.current?.contains(t)) setRect(null);
     }
-    if (open) document.addEventListener("mousedown", outside);
-    return () => document.removeEventListener("mousedown", outside);
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setRect(null);
+    }
+    // Fixed coordinates go stale the moment anything scrolls, so close instead
+    // of leaving the menu stranded away from its row.
+    const close = () => setRect(null);
+    document.addEventListener("mousedown", outside);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", outside);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
   }, [open]);
 
+  // Right-aligned to the button, flipped above it when there is no room below.
+  const pos = rect
+    ? {
+        left: Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8)),
+        top: rect.bottom + 8 + 120 > window.innerHeight ? undefined : rect.bottom + 8,
+        bottom: rect.bottom + 8 + 120 > window.innerHeight ? window.innerHeight - rect.top + 8 : undefined,
+      }
+    : null;
+
   return (
-    <div className="relative" ref={ref}>
+    <>
       <button
-        onClick={() => setOpen((o) => !o)}
+        ref={btnRef}
+        onClick={() => setRect(open ? null : (btnRef.current?.getBoundingClientRect() ?? null))}
         className="rounded-lg px-2.5 py-1.5 text-muted hover:bg-canvas hover:text-ink transition focus:outline-none"
         aria-label="Actions"
+        aria-expanded={open}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
           <circle cx="8" cy="3" r="1.4" /><circle cx="8" cy="8" r="1.4" /><circle cx="8" cy="13" r="1.4" />
         </svg>
       </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.94, y: -6 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.94, y: -6 }}
-            transition={{ duration: 0.13 }}
-            className="absolute right-0 top-9 z-50 w-40 rounded-xl border border-border bg-surface shadow-[var(--shadow-lift)] overflow-hidden"
-          >
-            {items.map((it) => (
-              <button
-                key={it.label}
-                onClick={() => { setOpen(false); it.onClick(); }}
-                className={`block w-full px-4 py-2.5 text-left text-[13px] transition hover:bg-canvas ${it.danger ? "text-[var(--color-negative)]" : "text-ink"}`}
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {pos && (
+              <motion.div
+                ref={menuRef}
+                initial={{ opacity: 0, scale: 0.94, y: -6 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.94, y: -6 }}
+                transition={{ duration: 0.13 }}
+                style={{ position: "fixed", width: MENU_WIDTH, ...pos }}
+                className="z-[60] rounded-xl border border-border bg-surface shadow-[var(--shadow-lift)] overflow-hidden"
               >
-                {it.label}
-              </button>
-            ))}
-          </motion.div>
+                {items.map((it) => (
+                  <button
+                    key={it.label}
+                    onClick={() => { setRect(null); it.onClick(); }}
+                    className={`block w-full px-4 py-2.5 text-left text-[13px] transition hover:bg-canvas ${it.danger ? "text-[var(--color-negative)]" : "text-ink"}`}
+                  >
+                    {it.label}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body
         )}
-      </AnimatePresence>
-    </div>
+    </>
   );
 }
 

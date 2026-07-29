@@ -1,7 +1,6 @@
 mod capture;
 mod clock;
 mod sync;
-#[cfg(windows)]
 mod os_idle;
 #[cfg(windows)]
 mod url_capture;

@@ -54,6 +54,8 @@ static APP_HANDLE: Lazy<Mutex<Option<AppHandle>>> = Lazy::new(|| Mutex::new(None
 // Reused across blocks so the jiggler scan doesn't rebuild the process table each time.
 static SYS: Lazy<Mutex<sysinfo::System>> = Lazy::new(|| Mutex::new(sysinfo::System::new()));
 
+// Only consulted by the Windows URL sampler; there is no Linux equivalent yet.
+#[cfg(windows)]
 const BROWSERS: &[&str] = &["chrome", "msedge", "firefox", "brave", "opera", "chromium", "vivaldi"];
 
 struct PendingShot {

@@ -36,6 +36,10 @@ active-win-pos-rs = "0.8"                                 # foreground app usage
 once_cell = "1"
 base64 = "0.22"                                          # inline data: URLs for the local screenshot gallery
 
+# Linux-only: CLOCK_MONOTONIC / CLOCK_BOOTTIME for tamper-resistant timing (see clock.rs).
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 # Windows-only: OS idle time (GetLastInputInfo) + browser URL sampling (UI Automation).
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

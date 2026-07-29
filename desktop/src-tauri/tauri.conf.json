@@ -27,7 +27,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "appimage", "deb"],
     "publisher": "WDC Solutions",
     "copyright": "© 2026 Wendiloveee Media. All rights reserved. Developed by WDC Solutions.",
     "licenseFile": "EULA.txt",
@@ -39,6 +39,15 @@
       "icons/icon.ico"
     ],
     "createUpdaterArtifacts": true,
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1"
+        ]
+      }
+    },
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",

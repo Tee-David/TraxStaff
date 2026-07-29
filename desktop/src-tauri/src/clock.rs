@@ -136,15 +136,41 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+mod imp {
+    // The direct counterparts of the two Windows counters. Both are immune to
+    // wall-clock changes; they differ only in whether suspend advances them.
+    fn read(clock: libc::clockid_t) -> u64 {
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        // SAFETY: writes a timespec we own. Both clock ids are always available
+        // on Linux, so a non-zero return means only that the call was refused;
+        // reporting 0 makes `since()` saturate to zero credited time.
+        if unsafe { libc::clock_gettime(clock, &mut ts) } != 0 {
+            return 0;
+        }
+        (ts.tv_sec as u64)
+            .saturating_mul(1_000_000_000)
+            .saturating_add(ts.tv_nsec as u64)
+    }
+
+    /// Awake-only time since boot. Excludes suspend.
+    pub fn awake_ns() -> u64 {
+        read(libc::CLOCK_MONOTONIC)
+    }
+
+    /// Time since boot *including* suspend.
+    pub fn uptime_ns() -> u64 {
+        read(libc::CLOCK_BOOTTIME)
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 mod imp {
     use std::time::Instant;
 
-    // On Linux `CLOCK_MONOTONIC` already excludes suspended time, which is the
-    // semantic we want for credited work, and `Instant` wraps it. Without libc
-    // we can't read CLOCK_BOOTTIME, so uptime falls back to the same source —
-    // suspended time then reads as zero rather than wrong. Windows is the
-    // platform that ships today; this keeps the crate building elsewhere.
+    // macOS and friends: no shipped build, so this only has to keep the crate
+    // compiling. `Instant` is monotonic, so credited time stays honest; without
+    // a boot-time counter, suspended time reads as zero rather than wrong.
     fn base() -> Instant {
         use std::sync::OnceLock;
         static BASE: OnceLock<Instant> = OnceLock::new();
@@ -193,6 +219,31 @@ mod tests {
         assert_eq!(d.credited_secs(), 1, "only real elapsed time is credited");
         assert!(d.is_clock_suspicious());
         assert!(d.clock_skew_secs() > 3_500);
+    }
+
+    /// Both readings must be real since-boot counters. The `Instant` fallback
+    /// measures from its own first call instead, so it reports a few
+    /// milliseconds on a machine that has been up for hours — which silently
+    /// zeroes suspended time and dumps the sleep gap into `clock_skew_ns`,
+    /// flagging an innocent laptop as a tamper suspect. Anchoring to
+    /// /proc/uptime (itself CLOCK_BOOTTIME) catches that substitution.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_reads_since_boot_not_since_first_call() {
+        let proc_uptime_secs: f64 = std::fs::read_to_string("/proc/uptime")
+            .expect("/proc/uptime")
+            .split_whitespace()
+            .next()
+            .and_then(|s| s.parse().ok())
+            .expect("first field of /proc/uptime");
+        let uptime_secs = uptime_ns() as f64 / 1e9;
+        assert!(
+            (uptime_secs - proc_uptime_secs).abs() < 5.0,
+            "uptime_ns() reports {uptime_secs}s, /proc/uptime says {proc_uptime_secs}s"
+        );
+        // CLOCK_BOOTTIME includes suspend, CLOCK_MONOTONIC does not, so awake
+        // time can never exceed it.
+        assert!(awake_ns() <= uptime_ns());
     }
 
     #[test]

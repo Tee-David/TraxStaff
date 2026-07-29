@@ -111,15 +111,109 @@ function StatusPill({ status }: { status: Member["status"] }) {
   );
 }
 
+/** Hours for humans, minutes on the wire. Blank means "inherit the org default". */
+function TargetDialog({
+  member,
+  onClose,
+  onSave,
+}: {
+  member: Member;
+  onClose: () => void;
+  onSave: (daily: number | null, weekly: number | null) => Promise<void>;
+}) {
+  const toHours = (m: number | null) => (m === null ? "" : String(m / 60));
+  const [daily, setDaily] = useState(toHours(member.dailyTargetMinutes));
+  const [weekly, setWeekly] = useState(toHours(member.weeklyTargetMinutes));
+  const [saving, setSaving] = useState(false);
+
+  // "" clears the override; anything unparseable is treated the same way rather
+  // than silently writing a 0-hour target.
+  const parse = (v: string) => {
+    const t = v.trim();
+    if (t === "") return null;
+    const n = Number(t);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 60) : null;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <Card className="relative z-10 w-full max-w-sm p-6">
+        <h2 className="font-heading text-[15px] font-semibold text-ink">Work targets</h2>
+        <p className="mt-1 text-[12px] text-muted">
+          For {member.email}. Leave blank to use the organisation default.
+        </p>
+        <div className="mt-5 space-y-4">
+          <div>
+            <Label>Daily target (hours)</Label>
+            <Input type="number" min={0} max={24} step={0.5} value={daily} placeholder="Org default" onChange={(e) => setDaily(e.target.value)} />
+          </div>
+          <div>
+            <Label>Weekly target (hours)</Label>
+            <Input type="number" min={0} max={168} step={0.5} value={weekly} placeholder="Org default" onChange={(e) => setWeekly(e.target.value)} />
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await onSave(parse(daily), parse(weekly));
+                onClose();
+              } finally {
+                setSaving(false);
+              }
+            }}
+            disabled={saving}
+          >
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+type InviteResult = { ok: true; emailed: boolean; inviteUrl?: string };
+
+function noticeTone(kind: "ok" | "err" | "warn"): string {
+  if (kind === "ok") return "text-[var(--color-positive)]";
+  // Undelivered mail is not a failed invite — the link works. Amber, not red.
+  if (kind === "warn") return "text-[var(--color-warning,#b26b00)]";
+  return "text-[var(--color-negative)]";
+}
+
+/**
+ * The invite is valid whether or not the mail got out, so this is never framed
+ * as a failure — but it must not claim the message was sent when it was not.
+ * Saying "Invite sent" while the SMTP connection was refused is how an admin
+ * ends up waiting on an email that is never coming.
+ */
+function inviteNotice(
+  email: string,
+  res: InviteResult,
+  verb: "sent" | "re-sent"
+): { kind: "ok" | "warn"; text: string } {
+  if (res.emailed) return { kind: "ok", text: `Invite ${verb} to ${email}.` };
+  return {
+    kind: "warn",
+    text: res.inviteUrl
+      ? `${email} was invited, but the email could not be delivered. Send them this link: ${res.inviteUrl}`
+      : `${email} was invited, but the email could not be delivered. Use Resend, or share their invite link directly.`,
+  };
+}
+
 export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"admin" | "member">("member");
   const [inviting, setInviting] = useState(false);
-  const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ kind: "ok" | "err" | "warn"; text: string } | null>(null);
   const [search, setSearch] = useState("");
   const [showInviteForm, setShowInviteForm] = useState(false);
+  const [targetFor, setTargetFor] = useState<Member | null>(null);
 
   async function load() {
     const data = await api<Member[]>("/members");
@@ -133,8 +227,11 @@ export default function MembersPage() {
     setInviting(true);
     setNotice(null);
     try {
-      await api("/auth/invite", { method: "POST", body: JSON.stringify({ email, role }) });
-      setNotice({ kind: "ok", text: `Invite sent to ${email}.` });
+      const res = await api<InviteResult>("/auth/invite", {
+        method: "POST",
+        body: JSON.stringify({ email, role }),
+      });
+      setNotice(inviteNotice(email, res, "sent"));
       setEmail("");
       setShowInviteForm(false);
       await load();
@@ -143,6 +240,14 @@ export default function MembersPage() {
     } finally {
       setInviting(false);
     }
+  }
+
+  async function saveTargets(m: Member, daily: number | null, weekly: number | null) {
+    await api(`/members/${m.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ dailyTargetMinutes: daily, weeklyTargetMinutes: weekly }),
+    });
+    await load();
   }
 
   async function changeRole(m: Member, next: "admin" | "member") {
@@ -159,8 +264,11 @@ export default function MembersPage() {
   async function resend(m: Member) {
     setNotice(null);
     try {
-      await api("/auth/invite", { method: "POST", body: JSON.stringify({ email: m.email, role: m.role }) });
-      setNotice({ kind: "ok", text: `Invite re-sent to ${m.email}.` });
+      const res = await api<InviteResult>("/auth/invite", {
+        method: "POST",
+        body: JSON.stringify({ email: m.email, role: m.role }),
+      });
+      setNotice(inviteNotice(m.email, res, "re-sent"));
     } catch {
       setNotice({ kind: "err", text: "Could not resend invite." });
     }
@@ -224,7 +332,7 @@ export default function MembersPage() {
                 </Button>
               </form>
               {notice && (
-                <p className={`mt-3 text-sm ${notice.kind === "ok" ? "text-[var(--color-positive)]" : "text-[var(--color-negative)]"}`}>
+                <p className={`mt-3 text-sm ${noticeTone(notice.kind)} break-words`}>
                   {notice.text}
                 </p>
               )}
@@ -260,7 +368,7 @@ export default function MembersPage() {
           />
         </div>
         {notice && !showInviteForm && (
-          <p className={`text-sm ${notice.kind === "ok" ? "text-[var(--color-positive)]" : "text-[var(--color-negative)]"}`}>
+          <p className={`text-sm ${noticeTone(notice.kind)} break-words`}>
             {notice.text}
           </p>
         )}
@@ -343,7 +451,10 @@ export default function MembersPage() {
                               items={
                                 m.status === "disabled"
                                   ? [{ label: "Re-enable", onClick: () => setStatus(m, "active") }]
-                                  : [{ label: "Disable access", danger: true, onClick: () => setStatus(m, "disabled") }]
+                                  : [
+                                      { label: "Set work targets", onClick: () => setTargetFor(m) },
+                                      { label: "Disable access", danger: true, onClick: () => setStatus(m, "disabled") },
+                                    ]
                               }
                             />
                           )}
@@ -414,6 +525,14 @@ export default function MembersPage() {
             </Card>
           )}
         </div>
+      )}
+
+      {targetFor && (
+        <TargetDialog
+          member={targetFor}
+          onClose={() => setTargetFor(null)}
+          onSave={(daily, weekly) => saveTargets(targetFor, daily, weekly)}
+        />
       )}
     </div>
   );

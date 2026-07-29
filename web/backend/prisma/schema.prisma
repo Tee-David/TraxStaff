@@ -61,6 +61,9 @@ model Organization {
   blurScreenshots     Boolean  @default(false)
   idleTimeoutMinutes  Int      @default(5)
   keepIdleDefault     Boolean  @default(true)
+  // Org-wide work targets. Members inherit these unless given their own.
+  dailyTargetMinutes  Int      @default(480)
+  weeklyTargetMinutes Int      @default(2400)
   users         User[]
   projects      Project[]
   invites       InviteToken[]
@@ -77,6 +80,10 @@ model User {
   status             UserStatus        @default(invited)
   consentAcceptedAt  DateTime?
   consentVersion     Int?
+  // Per-member overrides. Null means "inherit the org target" — distinct from 0,
+  // which is a real target of no hours (someone on leave).
+  dailyTargetMinutes  Int?
+  weeklyTargetMinutes Int?
   createdAt          DateTime          @default(now())
   devices            Device[]
   sessions           TrackingSession[]

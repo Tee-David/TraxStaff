@@ -98,7 +98,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const body = inviteSchema.parse(req.body);
 
       const existing = await prisma.user.findUnique({ where: { email: body.email } });
-      if (existing) {
+      // A still-pending invitee may be re-invited — that is the resend path, and
+      // 409ing it made "resend" fail for exactly the people it exists for. Only
+      // an account someone actually holds is a conflict.
+      if (existing && existing.status !== "invited") {
+        return reply.code(409).send({ error: "Email already in use" });
+      }
+      if (existing && existing.orgId !== req.user.orgId) {
         return reply.code(409).send({ error: "Email already in use" });
       }
 
@@ -106,8 +112,20 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const token = randomBytes(32).toString("hex");
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-      await prisma.inviteToken.create({
-        data: { orgId: org.id, email: body.email, role: body.role, token, expiresAt },
+      await prisma.$transaction(async (tx) => {
+        // The invitee is a member of the team from the moment they are invited —
+        // they just have not accepted yet. Without this row /members has nothing
+        // to list, so an admin saw "invite sent" and then an unchanged table,
+        // with no way to tell whether it worked. `invited` is already the schema
+        // default for UserStatus, and login rejects any status but `active`.
+        await tx.user.upsert({
+          where: { email: body.email },
+          create: { orgId: org.id, email: body.email, role: body.role, status: "invited" },
+          update: { role: body.role },
+        });
+        await tx.inviteToken.create({
+          data: { orgId: org.id, email: body.email, role: body.role, token, expiresAt },
+        });
       });
 
       const inviteUrl = `${env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/accept-invite?token=${token}`;
@@ -211,7 +229,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get("/auth/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
-    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user.userId } });
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: req.user.userId },
+      include: { org: { select: { dailyTargetMinutes: true, weeklyTargetMinutes: true } } },
+    });
     // A disabled member must lose access immediately, not when their token
     // eventually expires. Checked here because every client calls /auth/me to
     // establish a session.
@@ -225,6 +246,11 @@ export default async function authRoutes(fastify: FastifyInstance) {
       orgId: user.orgId,
       consentAcceptedAt: user.consentAcceptedAt,
       consentVersion: user.consentVersion,
+      // Effective targets: the member's own override when set, else the org
+      // default. `??` and not `||` — a 0 override is a real target of no hours
+      // and must not fall back to the org value.
+      dailyTargetMinutes: user.dailyTargetMinutes ?? user.org.dailyTargetMinutes,
+      weeklyTargetMinutes: user.weeklyTargetMinutes ?? user.org.weeklyTargetMinutes,
     });
   });
 

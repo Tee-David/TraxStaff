@@ -15,6 +15,8 @@ interface OrgSettings {
   blurScreenshots: boolean;
   idleTimeoutMinutes: number;
   keepIdleDefault: boolean;
+  dailyTargetMinutes: number;
+  weeklyTargetMinutes: number;
 }
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -97,6 +99,8 @@ export default function SettingsPage() {
           blurScreenshots: settings.blurScreenshots,
           idleTimeoutMinutes: settings.idleTimeoutMinutes,
           keepIdleDefault: settings.keepIdleDefault,
+          dailyTargetMinutes: settings.dailyTargetMinutes,
+          weeklyTargetMinutes: settings.weeklyTargetMinutes,
         }),
       });
       setSettings(updated);
@@ -213,6 +217,58 @@ export default function SettingsPage() {
                 checked={settings.keepIdleDefault}
                 onChange={(v) => setSettings({ ...settings, keepIdleDefault: v })}
               />
+            </SettingRow>
+          </Card>
+        )}
+
+        {/* ── Work targets (admin only) ── */}
+        {isAdmin && (
+          <Card className="p-6">
+            <SectionHeader
+              icon="🎯"
+              title="Work Targets"
+              description="The organisation-wide defaults. Every member inherits these unless they are given their own target on the Members page."
+            />
+
+            <SettingRow
+              title="Daily target"
+              description="Hours a member is expected to track on a working day. Progress bars across the dashboard are measured against this."
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={24}
+                  step={0.5}
+                  value={settings.dailyTargetMinutes / 60}
+                  onChange={(e) =>
+                    setSettings({ ...settings, dailyTargetMinutes: Math.round(Number(e.target.value) * 60) })
+                  }
+                  className="w-20 rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand transition text-center"
+                />
+                <span className="text-[13px] text-muted">hours</span>
+              </div>
+            </SettingRow>
+
+            <SettingRow
+              title="Weekly target"
+              description="Hours a member is expected to track across a full week. Set independently of the daily target."
+              noBorder
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={168}
+                  step={0.5}
+                  value={settings.weeklyTargetMinutes / 60}
+                  onChange={(e) =>
+                    setSettings({ ...settings, weeklyTargetMinutes: Math.round(Number(e.target.value) * 60) })
+                  }
+                  className="w-20 rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand transition text-center"
+                />
+                <span className="text-[13px] text-muted">hours</span>
+              </div>
             </SettingRow>
           </Card>
         )}

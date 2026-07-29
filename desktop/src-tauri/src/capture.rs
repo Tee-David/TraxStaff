@@ -55,8 +55,14 @@ static APP_HANDLE: Lazy<Mutex<Option<AppHandle>>> = Lazy::new(|| Mutex::new(None
 static SYS: Lazy<Mutex<sysinfo::System>> = Lazy::new(|| Mutex::new(sysinfo::System::new()));
 
 // Only consulted by the Windows URL sampler; there is no Linux equivalent yet.
+//
+// Matched against `active_win_pos_rs`'s `app_name`, which on Windows is the
+// executable's VERSIONINFO *FileDescription* ("Microsoft Edge", "Google
+// Chrome"), NOT the process name — so the old "msedge" entry could never match
+// and Edge was silently excluded from URL sampling. Entries must therefore be
+// substrings of the display name; "edge" covers both forms.
 #[cfg(windows)]
-const BROWSERS: &[&str] = &["chrome", "msedge", "firefox", "brave", "opera", "chromium", "vivaldi"];
+const BROWSERS: &[&str] = &["chrome", "edge", "firefox", "brave", "opera", "chromium", "vivaldi"];
 
 struct PendingShot {
     monitor_index: u32,

@@ -83,6 +83,10 @@ export interface Me {
   orgId: string;
   consentAcceptedAt: string | null;
   consentVersion: number | null;
+  /** Already resolved server-side: the member's own override, else the org
+   *  default. The client renders one number and does not re-derive it. */
+  dailyTargetMinutes?: number;
+  weeklyTargetMinutes?: number;
 }
 
 // The client's current disclosure version. Bump when what's collected changes,

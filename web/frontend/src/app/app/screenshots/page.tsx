@@ -31,6 +31,25 @@ interface Shot {
   member: string;
   project: string;
   url: string | null;
+  /** Admins only. Staff are sent the row but never the image. */
+  viewable: boolean;
+}
+
+/**
+ * Staff see that a capture happened — time, project, activity — but not the
+ * picture. The server withholds the URL entirely, so this is a truthful
+ * placeholder rather than a blur over data the browser already holds.
+ */
+function LockedTile({ className = "" }: { className?: string }) {
+  return (
+    <div className={`flex h-full w-full flex-col items-center justify-center gap-1 bg-canvas ${className}`}>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-faint">
+        <rect x="3" y="7" width="10" height="6.5" rx="1.5" />
+        <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+      </svg>
+      <span className="text-[9px] font-medium text-faint">Admin only</span>
+    </div>
+  );
 }
 
 const DEFAULT_RANGE: DateRangeValue = { type: "preset", preset: "week" };
@@ -166,7 +185,11 @@ export default function ScreenshotsPage() {
               {shots.map((s) => (
                 <motion.div key={s.id} {...m.item}>
                   <Card className="group overflow-hidden cursor-pointer hover:shadow-[var(--shadow-lift)] transition-shadow" hover>
-                    <button onClick={() => setLightbox(s)} className="relative block w-full aspect-video bg-canvas">
+                    <button
+                      onClick={() => s.viewable && setLightbox(s)}
+                      disabled={!s.viewable}
+                      className="relative block w-full aspect-video bg-canvas disabled:cursor-default"
+                    >
                       {s.url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -176,8 +199,10 @@ export default function ScreenshotsPage() {
                           decoding="async"
                           className={`h-full w-full object-cover transition group-hover:scale-[1.02] ${s.blurred ? "blur-sm" : ""}`}
                         />
-                      ) : (
+                      ) : s.viewable ? (
                         <div className="flex h-full items-center justify-center text-xs text-faint">No image</div>
+                      ) : (
+                        <LockedTile />
                       )}
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 opacity-0 group-hover:opacity-100 transition">
                         <ActivityBar pct={Math.round(s.activityPct)} />
@@ -221,14 +246,17 @@ export default function ScreenshotsPage() {
                       <tr key={s.id} className="hover:bg-canvas/40 transition group">
                         <td className="px-5 py-3">
                           <button
-                            onClick={() => setLightbox(s)}
-                            className="block h-10 w-16 overflow-hidden rounded-lg bg-canvas ring-1 ring-border hover:ring-brand transition"
+                            onClick={() => s.viewable && setLightbox(s)}
+                            disabled={!s.viewable}
+                            className="block h-10 w-16 overflow-hidden rounded-lg bg-canvas ring-1 ring-border transition enabled:hover:ring-brand disabled:cursor-default"
                           >
                             {s.url ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img src={s.url} alt="" loading="lazy" decoding="async" className={`h-full w-full object-cover ${s.blurred ? "blur-sm" : ""}`} />
-                            ) : (
+                            ) : s.viewable ? (
                               <div className="flex h-full items-center justify-center text-[9px] text-faint">N/A</div>
+                            ) : (
+                              <LockedTile />
                             )}
                           </button>
                         </td>

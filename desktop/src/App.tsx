@@ -475,6 +475,10 @@ function Login({ onLogin }: { onLogin: () => void }) {
 function Tracker({ onLogout }: { onLogout: () => void }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [week, setWeek] = useState<Session[]>([]);
+  // Seeded from the constants so the first paint has a sane ring, then replaced
+  // by whatever the org/member is actually set to.
+  const [dayTarget, setDayTarget] = useState(DAY_TARGET_SECONDS);
+  const [weekTarget, setWeekTarget] = useState(WEEK_TARGET_SECONDS);
   // Sessions tracked on THIS device that may not have synced yet. Merged into
   // the week totals (deduped by id) so switching projects / working offline
   // never makes the on-screen total drop — the completed time still counts.
@@ -695,11 +699,16 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
 
   const load = useCallback(async () => {
     try {
-      const [p, s] = await Promise.all([
+      const [p, s, me] = await Promise.all([
         api<Project[]>("/projects"),
         api<Session[]>(`/sessions?from=${startOfWeek().toISOString()}`),
+        // Targets are configurable per org and per member. A failure here must
+        // not take the dashboard down with it — fall back to the defaults.
+        api<Me>("/auth/me").catch(() => null),
       ]);
       setProjects(p); setWeek(s);
+      if (me?.dailyTargetMinutes != null) setDayTarget(me.dailyTargetMinutes * 60);
+      if (me?.weeklyTargetMinutes != null) setWeekTarget(me.weeklyTargetMinutes * 60);
       setLastUpdated(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
       if (p[0] && !projectId) setProjectId(p[0].id);
       // Resume a genuinely-open session (e.g. after a crash) — but never when we
@@ -1071,6 +1080,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         <TrackingWidget
           projects={projects} projectId={projectId}
           active={active} workedToday={liveToday} workedWeek={workedWeek}
+          dayTarget={dayTarget} weekTarget={weekTarget}
           today={today} elapsed={elapsed} onStart={start} onStop={stop} error={error}
           onSignOut={() => { clearToken(); onLogout(); }}
           onRefresh={load} lastUpdated={lastUpdated} expanded={expanded} onToggleExpand={toggleExpand}
@@ -1084,7 +1094,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         <main className="dash-pane">
           <DashNav tab={tab} setTab={setTab} onSignOut={signOut} />
           <div className="dash-scroll">
-            {tab === "dashboard" && <DesktopDashboard projects={projects} week={mergedWeek} workedWeek={workedWeek} onViewActivity={() => setTab("activity")} />}
+            {tab === "dashboard" && <DesktopDashboard projects={projects} week={mergedWeek} workedWeek={workedWeek} weekTarget={weekTarget} onViewActivity={() => setTab("activity")} />}
             {tab === "timesheets" && <TimesheetsPage week={mergedWeek} />}
             {tab === "activity" && <ActivityPage />}
             {tab === "reports" && <ReportsPage week={mergedWeek} />}
@@ -1099,6 +1109,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
 function TrackingWidget(props: {
   projects: Project[]; projectId: string;
   active: Session | null; workedToday: number; workedWeek: number; today: Session[];
+  dayTarget: number; weekTarget: number;
   /** Live seconds on the running session — added to the active project's own total. */
   elapsed: number;
   onStart: (pid?: string) => void; onStop: () => void; error: string | null; onSignOut: () => void;
@@ -1108,7 +1119,7 @@ function TrackingWidget(props: {
   reminders: ReminderPrefs; onUpdateReminders: (n: Partial<ReminderPrefs>) => void;
   shotCount: number;
 }) {
-  const { projects, active, workedToday, workedWeek, today, elapsed, onStart, onStop, error, onRefresh, lastUpdated, expanded, onToggleExpand, sync, onAddNote, settingsOpen, onToggleSettings, reminders, onUpdateReminders, shotCount } = props;
+  const { projects, active, workedToday, workedWeek, today, dayTarget, weekTarget, elapsed, onStart, onStop, error, onRefresh, lastUpdated, expanded, onToggleExpand, sync, onAddNote, settingsOpen, onToggleSettings, reminders, onUpdateReminders, shotCount } = props;
   const [q, setQ] = useState("");
 
   const secsToday = (pid: string) =>
@@ -1123,7 +1134,7 @@ function TrackingWidget(props: {
     <div className="widget">
       <div className="widget-brand"><img src="/brand/icon-badge.svg" alt="Trax" className="brand-mark" /></div>
 
-      <CircularTimer seconds={workedToday} targetSeconds={DAY_TARGET_SECONDS} active={Boolean(active)} onToggle={() => (active ? onStop() : onStart())} />
+      <CircularTimer seconds={workedToday} targetSeconds={dayTarget} active={Boolean(active)} onToggle={() => (active ? onStop() : onStart())} />
 
       {active && (
         <div className="track-chip">
@@ -1133,7 +1144,7 @@ function TrackingWidget(props: {
 
       <div className="widget-stats">
         <div className="ws-item"><span className="wm-label">This week</span><span className="wm-val">{fmtClock(workedWeek)}</span></div>
-        <div className="ws-item"><span className="wm-label">Daily target</span><span className="wm-val">{fmtClock(DAY_TARGET_SECONDS)}</span></div>
+        <div className="ws-item"><span className="wm-label">Daily target</span><span className="wm-val">{fmtClock(dayTarget)}</span></div>
       </div>
 
       <div className="proj-search">
@@ -1277,7 +1288,7 @@ function PlayStop({ active }: { active: boolean }) {
 
 const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function DesktopDashboard({ projects, week, workedWeek, onViewActivity }: { projects: Project[]; week: Session[]; workedWeek: number; onViewActivity: () => void }) {
+function DesktopDashboard({ projects, week, workedWeek, weekTarget, onViewActivity }: { projects: Project[]; week: Session[]; workedWeek: number; weekTarget: number; onViewActivity: () => void }) {
   const [name, setName] = useState("");
   const [avgActivity, setAvgActivity] = useState<number | null>(null);
   const [shots, setShots] = useState<{ id: string; url: string | null; activityPct: number; project: string }[]>([]);
@@ -1349,8 +1360,8 @@ function DesktopDashboard({ projects, week, workedWeek, onViewActivity }: { proj
         </div>
         <div className="dash-gauge">
           <div className="dc-label mb">Weekly activity</div>
-          <Gauge value={activitySecs} max={WEEK_TARGET_SECONDS} centerLabel={fmtShort(activitySecs)} />
-          <div className="muted small center">of {fmtShort(WEEK_TARGET_SECONDS)} target</div>
+          <Gauge value={activitySecs} max={weekTarget} centerLabel={fmtShort(activitySecs)} />
+          <div className="muted small center">of {fmtShort(weekTarget)} target</div>
         </div>
       </div>
 

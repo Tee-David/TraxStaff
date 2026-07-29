@@ -151,6 +151,17 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
     const hasMore = rows.length > q.limit;
     const shots = hasMore ? rows.slice(0, q.limit) : rows;
 
+    // Only admins get a viewable URL.
+    //
+    // Enforced here rather than in the UI because a presigned URL IS the image:
+    // once it is in the payload, a CSS blur or a hidden button is decoration —
+    // the recipient can read it straight out of the network tab and open it. So
+    // staff are simply never handed one.
+    //
+    // The rows themselves are still returned. Someone is entitled to know that a
+    // screenshot of their screen exists, when it was taken and against which
+    // project; withholding the list as well would make the capture covert, which
+    // is the one thing this product does not do.
     const items = await Promise.all(
       shots.map(async (s) => ({
         id: s.id,
@@ -160,7 +171,9 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
         activityPct: s.activityBlock.activityPct,
         member: s.session.user.email,
         project: s.session.project.name,
-        url: r2Configured ? await presignGet(s.r2Key) : null,
+        url: privileged && r2Configured ? await presignGet(s.r2Key) : null,
+        /** False for staff: the image is withheld, not merely obscured. */
+        viewable: privileged,
       }))
     );
 

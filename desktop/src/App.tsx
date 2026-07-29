@@ -41,8 +41,10 @@ interface ReminderPrefs {
   screenshots: boolean;
   /** OS notification when the timer starts/stops. */
   timer: boolean;
+  /** OS notification when syncing to the backend starts failing / recovers. */
+  sync: boolean;
 }
-const REMINDER_DEFAULTS: ReminderPrefs = { idle: true, notTracking: false, screenshots: true, timer: true };
+const REMINDER_DEFAULTS: ReminderPrefs = { idle: true, notTracking: false, screenshots: true, timer: true, sync: true };
 function loadReminders(): ReminderPrefs {
   try { return { ...REMINDER_DEFAULTS, ...JSON.parse(localStorage.getItem("trax_reminders") || "{}") }; }
   catch { return { ...REMINDER_DEFAULTS }; }
@@ -106,14 +108,14 @@ function newSessionId(): string {
   }
 }
 
-// Fire a native OS notification (best-effort; requests permission on first use).
-async function notify(title: string, body: string) {
-  try {
-    const n = await import("@tauri-apps/plugin-notification");
-    let granted = await n.isPermissionGranted();
-    if (!granted) granted = (await n.requestPermission()) === "granted";
-    if (granted) n.sendNotification({ title, body });
-  } catch { /* not under Tauri / denied — ignore */ }
+// Fire a real OS notification — one that shows up outside the app window.
+//
+// Routed through Rust rather than @tauri-apps/plugin-notification's JS API: that
+// API sends via `window.Notification` and its shim reports the permission as
+// "denied" on Windows, so nothing ever reached the OS and every alert below was
+// only ever visible as the in-app banner. Best-effort; never blocks the caller.
+function notify(title: string, body: string) {
+  invoke("notify_os", { title, body }).catch(() => { /* not under Tauri — ignore */ });
 }
 
 const WEEK_TARGET_SECONDS = 40 * 3600; // 40h/week target
@@ -260,6 +262,9 @@ function useUpdateCheck(onFound: (u: PendingUpdate) => void) {
         // Ask rather than install silently. An unannounced restart mid-session is
         // alarming, and users deserve to see what changed before it happens.
         console.info(`[updater] ${next} available (running ${current})`);
+        // The prompt below is an in-app dialog — invisible if the window is
+        // minimised to the tray, which is where the tracker usually lives.
+        notify("Trax", `Version ${next} is available (you're on ${current})`);
         onFound({
           version: next,
           current,
@@ -436,7 +441,9 @@ function Login({ onLogin }: { onLogin: () => void }) {
     e.preventDefault(); setLoading(true); setError(null);
     try {
       const res = await api<{ token: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
-      setToken(res.token); onLogin();
+      setToken(res.token);
+      notify("Trax", `Signed in as ${email}`);
+      onLogin();
     } catch (err) { setError(err instanceof Error ? err.message : "Login failed"); }
     finally { setLoading(false); }
   }
@@ -518,6 +525,9 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   // re-adopt the just-stopped session and restart the timer with no capture.
   const stoppedIds = useRef<Set<string>>(new Set());
   const reminders = useRef<ReminderPrefs>(loadReminders());
+  // Alerts we've already raised at OS level, so a health/sync event that repeats
+  // every tick notifies once per transition instead of once per second.
+  const alerted = useRef({ hook: false, shots: false, sync: false });
   const [remPrefs, setRemPrefs] = useState<ReminderPrefs>(reminders.current);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Latest active session, readable from event listeners that register once.
@@ -534,7 +544,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       const workHours = d.getDay() >= 1 && d.getDay() <= 5 && d.getHours() >= 9 && d.getHours() < 17;
       if (workHours && Date.now() - lastNudge.at > 3600_000) {
         lastNudge.at = Date.now();
-        notify("Not tracking", "You're not tracking time right now.");
+        notify("Trax", "You're not tracking time right now.");
       }
     }, 5 * 60_000);
     return () => clearInterval(id);
@@ -553,12 +563,39 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
           setElapsed(e.payload.elapsedSecs);
         }
       }),
-      // Sync engine state → badge + toast.
-      listen<SyncState>("trax:sync-state", (e) => setSync(e.payload)),
-      // Capture health: input hook and/or screenshots.
+      // Sync engine state → badge + toast. Losing (or regaining) the backend is
+      // notified once per transition, not on every state push.
+      listen<SyncState>("trax:sync-state", (e) => {
+        setSync(e.payload);
+        const failing = !e.payload.online && !!e.payload.lastError;
+        if (failing !== alerted.current.sync) {
+          alerted.current.sync = failing;
+          if (reminders.current.sync) {
+            notify("Trax", failing
+              ? "Can't reach the Trax server — your tracked time is saved on this device and will upload automatically."
+              : "Back online — your tracked time has been uploaded.");
+          }
+        }
+      }),
+      // Capture health: input hook and/or screenshots. These are integrity
+      // alerts — deliberately not behind a reminder toggle, and raised at OS
+      // level too because the in-app banner is invisible from the tray.
       listen<{ inputHook?: boolean; screenshots?: boolean }>("trax:capture-health", (e) => {
-        if (typeof e.payload.inputHook === "boolean") setHookOk(e.payload.inputHook);
-        if (typeof e.payload.screenshots === "boolean") setShotsOk(e.payload.screenshots);
+        const { inputHook, screenshots } = e.payload;
+        if (typeof inputHook === "boolean") {
+          setHookOk(inputHook);
+          if (!inputHook && !alerted.current.hook) {
+            notify("Trax", "Activity tracking stopped responding — your time still counts, but activity will read 0%.");
+          }
+          alerted.current.hook = !inputHook;
+        }
+        if (typeof screenshots === "boolean") {
+          setShotsOk(screenshots);
+          if (!screenshots && !alerted.current.shots) {
+            notify("Trax", "Screenshots couldn't be captured on this screen — time and activity still record.");
+          }
+          alerted.current.shots = !screenshots;
+        }
       }),
       // A screenshot was just captured (persisted locally) — count it, toast it,
       // and refresh the local gallery. No server round trip needed.
@@ -574,14 +611,21 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       // from pending → uploading → uploaded.
       listen("trax:sync-state", () => loadLocalShots()),
       // Machine woke from sleep.
-      listen<{ gapSecs: number }>("trax:resumed", (e) => setResumed(Math.round(e.payload.gapSecs / 60))),
+      listen<{ gapSecs: number }>("trax:resumed", (e) => {
+        const mins = Math.round(e.payload.gapSecs / 60);
+        setResumed(mins);
+        if (reminders.current.idle) notify("Trax", `Your computer was asleep for ~${mins} min — still tracking.`);
+      }),
       // Idle threshold crossed (informational) and returned from idle (actionable).
-      listen<{ minutes: number }>("trax:idle", (e) => setIdleBanner(e.payload.minutes)),
+      listen<{ minutes: number }>("trax:idle", (e) => {
+        setIdleBanner(e.payload.minutes);
+        if (reminders.current.idle) notify("Trax", `You've been idle for ~${e.payload.minutes} min while tracking.`);
+      }),
       listen<{ minutes: number; fromISO: string; toISO: string }>("trax:idle-ended", (e) => {
         setIdleBanner(null);
         if (e.payload.minutes >= 1) {
           setIdlePrompt(e.payload);
-          if (reminders.current.idle) notify("You were away", `Idle for ~${e.payload.minutes} min while tracking.`);
+          if (reminders.current.idle) notify("Trax", `You were away for ~${e.payload.minutes} min — keep or discard that time?`);
         }
       }),
     ];
@@ -673,7 +717,11 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
           screenshotsPerBlock: cfg.perBlock, blur: cfg.blur, idleMinutes: cfg.idleMinutes, baseElapsedSecs,
         })
           .then(() => { setCaptureFailed(false); return invoke("set_tracking_indicator", { active: true }); })
-          .catch((e) => { console.error("[capture] begin_capture failed on resume:", e); setCaptureFailed(true); });
+          .catch((e) => {
+            console.error("[capture] begin_capture failed on resume:", e);
+            setCaptureFailed(true);
+            notify("Trax", "Monitoring didn't start — your time is counting, but no screenshots or activity are being recorded.");
+          });
         beginHeartbeat(open.id);
       }
     } catch (e) { setError(e instanceof Error ? e.message : "Failed to load"); }
@@ -760,6 +808,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         // taking zero screenshots and recording zero activity.
         console.error("[capture] begin_capture failed:", e);
         setCaptureFailed(true);
+        notify("Trax", "Monitoring didn't start — your time is counting, but no screenshots or activity are being recorded.");
       });
     void registerSession(sid, useProject, taskForSession, startedAt);
   }
@@ -783,6 +832,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       const msg = e instanceof Error ? e.message : String(e);
       if (/another device/i.test(msg)) {
         setError("A session is already running on another device. Stop it there first.");
+        notify("Trax", "A session is already running on another device — stop it there first.");
         await stop();
         return;
       }
@@ -811,6 +861,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     setLocalSessions((prev) => { const next = mergeSessions([], [...prev, finished]); saveLocalSessions(next); return next; });
     setActive(null); setElapsed(0);
     showToast("■ Stopped");
+    if (reminders.current.timer) notify("Trax", `Stopped timer for project ${cur.project?.name ?? "project"}`);
     if (cur.id) {
       api(`/sessions/${cur.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }).catch(() => {});
     }
@@ -850,6 +901,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     if (!discard || !p || !activeRef.current) return;
     try {
       await api("/sync/discard-idle", { method: "POST", body: JSON.stringify({ sessionId: activeRef.current.id, fromISO: p.fromISO, toISO: p.toISO }) });
+      if (reminders.current.idle) notify("Trax", `Discarded ~${p.minutes} min of idle time`);
       load();
     } catch { /* best-effort */ }
   }
@@ -1138,6 +1190,18 @@ function TrackingWidget(props: {
               <label className="foot-toggle">
                 <input type="checkbox" checked={reminders.notTracking} onChange={(e) => onUpdateReminders({ notTracking: e.target.checked })} />
                 <span>Remind me if I&rsquo;m not tracking (work hours)</span>
+              </label>
+              <label className="foot-toggle">
+                <input type="checkbox" checked={reminders.screenshots} onChange={(e) => onUpdateReminders({ screenshots: e.target.checked })} />
+                <span>Notify me when a screenshot is taken</span>
+              </label>
+              <label className="foot-toggle">
+                <input type="checkbox" checked={reminders.timer} onChange={(e) => onUpdateReminders({ timer: e.target.checked })} />
+                <span>Notify me when the timer starts or stops</span>
+              </label>
+              <label className="foot-toggle">
+                <input type="checkbox" checked={reminders.sync} onChange={(e) => onUpdateReminders({ sync: e.target.checked })} />
+                <span>Notify me about sync / connection problems</span>
               </label>
             </div>
           )}

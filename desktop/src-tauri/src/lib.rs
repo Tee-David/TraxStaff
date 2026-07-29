@@ -1,5 +1,6 @@
 mod capture;
 mod clock;
+mod notify;
 mod sync;
 mod os_idle;
 #[cfg(windows)]
@@ -173,6 +174,7 @@ pub fn run() {
             get_device_id,
             set_tracking_indicator,
             cancel_close,
+            notify::notify_os,
             capture::begin_capture,
             capture::end_capture,
             capture::get_elapsed,

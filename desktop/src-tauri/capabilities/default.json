@@ -8,6 +8,6 @@
     "shell:allow-open",
     "updater:default",
     "process:default",
-    "notification:default"
+    "notification:allow-is-permission-granted"
   ]
 }

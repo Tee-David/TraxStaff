@@ -1,23 +1,15 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  FlatList,
-  Modal,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../src/api/client";
 import type { Project, Task } from "../../src/api/types";
 import { Ring } from "../../src/charts";
 import { fmtClock, fmtShort, startOfToday, startOfWeek } from "../../src/format";
+import { PickerField, PickerSheet } from "../../src/picker";
 import { colors, fonts, radius, shadow, spacing } from "../../src/theme";
 import { useTracker } from "../../src/tracker/TrackerContext";
-import { Banner, Button, Empty, Loading } from "../../src/ui";
+import { Banner, Button, Loading } from "../../src/ui";
 import { useAsync } from "../../src/useAsync";
 
 // What the ring fills against. A local constant, not a setting: the org has no
@@ -147,14 +139,16 @@ export default function TimerScreen() {
 
         {/* Hero: the timer is the point of the screen. */}
         <View style={s.hero}>
-          <Selector
+          <PickerField
+            tone="onBrand"
             label="Project"
             value={project?.name ?? "Choose a project"}
             muted={!project}
             disabled={state.tracking}
             onPress={() => setPicking("project")}
           />
-          <Selector
+          <PickerField
+            tone="onBrand"
             label="Task (optional)"
             value={task?.title ?? (tasks.length ? "None" : "No open tasks")}
             muted={!task}
@@ -232,6 +226,7 @@ export default function TimerScreen() {
           sub: p.clientTag ?? undefined,
         }))}
         selectedId={projectId}
+        emptyText="Nothing to choose yet. Ask an admin to create a project."
         onSelect={(id) => {
           setProjectId(id);
           setTaskId(null);
@@ -247,6 +242,7 @@ export default function TimerScreen() {
           ...tasks.map((t: Task) => ({ id: t.id, label: t.title, sub: t.priority })),
         ]}
         selectedId={taskId ?? ""}
+        emptyText="No open tasks on this project."
         onSelect={(id) => {
           setTaskId(id || null);
           setPicking(null);
@@ -256,93 +252,12 @@ export default function TimerScreen() {
   );
 }
 
-function Selector({
-  label,
-  value,
-  muted,
-  disabled,
-  onPress,
-}: {
-  label: string;
-  value: string;
-  muted?: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${label}: ${value}`}
-      accessibilityState={{ disabled: !!disabled }}
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => [s.selector, { opacity: disabled ? 0.55 : pressed ? 0.8 : 1 }]}
-    >
-      <View style={{ flex: 1 }}>
-        <Text style={s.selectorLabel}>{label}</Text>
-        <Text style={[s.selectorValue, muted && { color: colors.faint }]} numberOfLines={1}>
-          {value}
-        </Text>
-      </View>
-      {!disabled ? <Ionicons name="chevron-down" size={18} color={colors.faint} /> : null}
-    </Pressable>
-  );
-}
-
 function Total({ label, value, error }: { label: string; value: string; error: boolean }) {
   return (
     <View style={s.total}>
       <Text style={s.totalLabel}>{label}</Text>
       <Text style={[s.totalValue, error && { color: colors.faint }]}>{error ? "—" : value}</Text>
     </View>
-  );
-}
-
-function PickerSheet({
-  visible,
-  title,
-  items,
-  selectedId,
-  onSelect,
-  onClose,
-}: {
-  visible: boolean;
-  title: string;
-  items: { id: string; label: string; sub?: string }[];
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-  onClose: () => void;
-}) {
-  return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <Pressable style={s.backdrop} onPress={onClose} accessibilityLabel="Close" />
-      <View style={s.sheet}>
-        <Text style={s.sheetTitle}>{title}</Text>
-        {items.length === 0 ? (
-          <Empty text="Nothing to choose yet. Ask an admin to create a project." />
-        ) : (
-          <FlatList
-            data={items}
-            keyExtractor={(i) => i.id}
-            renderItem={({ item }) => (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => onSelect(item.id)}
-                style={({ pressed }) => [s.sheetRow, pressed && { backgroundColor: colors.surfaceAlt }]}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={s.sheetRowLabel}>{item.label}</Text>
-                  {item.sub ? <Text style={s.sheetRowSub}>{item.sub}</Text> : null}
-                </View>
-                {item.id === selectedId ? (
-                  <Ionicons name="checkmark" size={20} color={colors.brand} />
-                ) : null}
-              </Pressable>
-            )}
-          />
-        )}
-      </View>
-    </Modal>
   );
 }
 
@@ -360,18 +275,6 @@ const s = StyleSheet.create({
     gap: spacing.md,
     ...shadow,
   },
-  selector: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-  },
-  selectorLabel: { fontFamily: fonts.bodyMedium, fontSize: 11, color: "#a7abe0", letterSpacing: 0.6 },
-  selectorValue: { fontFamily: fonts.bodySemi, fontSize: 16, color: "#fff" },
-
   clockWrap: { alignItems: "center", paddingVertical: spacing.md, gap: spacing.sm },
   clock: {
     fontFamily: fonts.heading,
@@ -379,12 +282,12 @@ const s = StyleSheet.create({
     // clear the ticks at both ends. Sized for the widest value the formatter
     // produces (HH:MM:SS past ten hours), not the common one.
     fontSize: 36,
-    color: "#fff",
+    color: colors.onDark,
     letterSpacing: -1.5,
     fontVariant: ["tabular-nums"],
   },
-  clockNote: { fontFamily: fonts.body, fontSize: 11, color: "#a7abe0", marginTop: 2 },
-  target: { fontFamily: fonts.bodyMedium, fontSize: 13, color: "#a7abe0" },
+  clockNote: { fontFamily: fonts.body, fontSize: 11, color: colors.onBrandMuted, marginTop: 2 },
+  target: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.onBrandMuted },
 
   totals: { flexDirection: "row", gap: spacing.md },
   total: {
@@ -404,25 +307,4 @@ const s = StyleSheet.create({
   syncAction: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.accent },
 
   footnote: { fontFamily: fonts.body, fontSize: 12, color: colors.faint, lineHeight: 18 },
-
-  backdrop: { flex: 1, backgroundColor: "rgba(13,16,32,0.45)" },
-  sheet: {
-    maxHeight: "60%",
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  sheetTitle: { fontFamily: fonts.headingMedium, fontSize: 18, color: colors.text },
-  sheetRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  sheetRowLabel: { fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.text },
-  sheetRowSub: { fontFamily: fonts.body, fontSize: 12, color: colors.faint },
 });

@@ -21,6 +21,18 @@ internal object TraxNotifications {
   const val TRACKING_NOTIFICATION_ID = 4201
   const val ALERT_NOTIFICATION_ID = 4202
 
+  /**
+   * Will the tracking notification actually appear?
+   *
+   * Deliberately not `checkSelfPermission(POST_NOTIFICATIONS)`: that permission
+   * does not exist below API 33, where the check reports "granted" on a device
+   * that shows nothing — and on any API level the user can switch the app's
+   * notifications off in Settings without revoking it. Trax promises it never
+   * tracks invisibly, so the honest signal is the one the system will apply.
+   */
+  fun enabled(context: Context): Boolean =
+    NotificationManagerCompat.from(context).areNotificationsEnabled()
+
   fun ensureChannels(context: Context) {
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
 

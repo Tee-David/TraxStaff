@@ -53,7 +53,18 @@ const config: ExpoConfig = {
     //   BIND_ACCESSIBILITY_SERVICE — restricted to genuine accessibility apps
     //                               since 28 Jan 2026; using it risks the account.
     //   REQUEST_IGNORE_BATTERY_OPTIMIZATIONS — deep-link to Settings instead.
-    blockedPermissions: ["android.permission.QUERY_ALL_PACKAGES"],
+    //
+    // The storage pair is not ours: expo-file-system (a transitive dependency of
+    // expo core) and expo-image declare them, and the manifest merger would fold
+    // them into the release APK. Trax never touches shared storage — every write
+    // it makes is app-scoped, which needs no permission on any API level — so a
+    // monitoring app asking for "Photos and media" would be both untrue and a
+    // review risk. Blocked rather than tolerated.
+    blockedPermissions: [
+      "android.permission.QUERY_ALL_PACKAGES",
+      "android.permission.READ_EXTERNAL_STORAGE",
+      "android.permission.WRITE_EXTERNAL_STORAGE",
+    ],
   },
 
   ios: {

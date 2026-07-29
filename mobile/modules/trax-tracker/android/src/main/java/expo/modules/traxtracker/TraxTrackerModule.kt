@@ -1,9 +1,6 @@
 package expo.modules.traxtracker
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import androidx.core.content.ContextCompat
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
@@ -35,10 +32,7 @@ class TraxTrackerModule : Module() {
 
     Function("getBootId") { Clock.bootId(context) }
 
-    Function("hasNotificationPermission") {
-      ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-        PackageManager.PERMISSION_GRANTED
-    }
+    Function("hasNotificationPermission") { TraxNotifications.enabled(context) }
 
     AsyncFunction("getState") { state() }
 

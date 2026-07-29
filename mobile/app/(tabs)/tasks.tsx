@@ -7,7 +7,6 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -16,6 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../src/api/client";
 import type { Project, Task } from "../../src/api/types";
+import { PickerField, PickerSheet } from "../../src/picker";
 import { colors, fonts, radius, spacing } from "../../src/theme";
 import { Banner, Empty, Loading } from "../../src/ui";
 import { useAsync } from "../../src/useAsync";
@@ -23,6 +23,7 @@ import { useAsync } from "../../src/useAsync";
 export default function TasksScreen() {
   const projects = useAsync<Project[]>(() => api.projects(), []);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +48,8 @@ export default function TasksScreen() {
   };
 
   useEffect(() => {
+    // Deliberately keyed on projectId alone: loadTasks is re-created every
+    // render, so depending on it would refetch in a loop.
     if (projectId) void loadTasks(projectId);
   }, [projectId]);
 
@@ -92,27 +95,36 @@ export default function TasksScreen() {
     );
   }
 
+  // Distinct from "this project has no tasks": with no projects at all there is
+  // nothing to add a task to, and the composer below would be a dead control.
+  if (!projects.error && (projects.data?.length ?? 0) === 0) {
+    return (
+      <SafeAreaView style={s.safe} edges={["top"]}>
+        <View style={s.header}>
+          <Text style={s.title}>Tasks</Text>
+        </View>
+        <Empty text="No projects yet. An admin has to create one before there can be tasks." />
+      </SafeAreaView>
+    );
+  }
+
   const open = tasks.filter((t) => t.status !== "done");
   const done = tasks.filter((t) => t.status === "done");
+  const project = projects.data?.find((p) => p.id === projectId) ?? null;
 
   return (
     <SafeAreaView style={s.safe} edges={["top"]}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={s.header}>
           <Text style={s.title}>Tasks</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
-            {(projects.data ?? []).map((p) => (
-              <Pressable
-                key={p.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected: p.id === projectId }}
-                onPress={() => setProjectId(p.id)}
-                style={[s.chip, p.id === projectId && s.chipActive]}
-              >
-                <Text style={[s.chipText, p.id === projectId && s.chipTextActive]}>{p.name}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          {/* A dropdown, not a pill strip: past about five projects a strip
+              pushes the rest off the right edge where nobody looks for them. */}
+          <PickerField
+            label="Project"
+            value={project?.name ?? "Choose a project"}
+            muted={!project}
+            onPress={() => setPicking(true)}
+          />
         </View>
 
         {projects.error ? (
@@ -195,10 +207,31 @@ export default function TasksScreen() {
               { opacity: !draft.trim() || creating ? 0.4 : pressed ? 0.85 : 1 },
             ]}
           >
-            {creating ? <ActivityIndicator color="#fff" /> : <Ionicons name="add" size={24} color="#fff" />}
+            {creating ? (
+              <ActivityIndicator color={colors.onDark} />
+            ) : (
+              <Ionicons name="add" size={24} color={colors.onDark} />
+            )}
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      <PickerSheet
+        visible={picking}
+        title="Choose a project"
+        items={(projects.data ?? []).map((p) => ({
+          id: p.id,
+          label: p.name,
+          sub: p.clientTag ?? undefined,
+        }))}
+        selectedId={projectId}
+        emptyText="Nothing to choose yet. Ask an admin to create a project."
+        onClose={() => setPicking(false)}
+        onSelect={(id) => {
+          setProjectId(id);
+          setPicking(false);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -207,18 +240,6 @@ const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.md },
   title: { fontFamily: fonts.heading, fontSize: 28, color: colors.text, letterSpacing: -0.8 },
-  chips: { gap: spacing.sm, paddingRight: spacing.lg },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
-  chipText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.textMuted },
-  chipTextActive: { color: "#fff" },
   pad: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   list: { padding: spacing.lg, gap: spacing.sm },
   task: {

@@ -1,7 +1,17 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Notifications from "expo-notifications";
 import { Link } from "expo-router";
-import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  Alert,
+  AppState,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Tracker from "../../modules/trax-tracker";
 import { API_URL } from "../../src/api/client";
@@ -15,6 +25,29 @@ export default function ProfileScreen() {
   const { me, signOut, deviceId } = useAuth();
   const { state, pendingCount, sync, available } = useTracker();
   const [busy, setBusy] = useState(false);
+  // Read once and refreshed on foreground: the only way this changes is the
+  // user leaving for the system settings and coming back.
+  const [notificationsOk, setNotificationsOk] = useState(() => Tracker.hasNotificationPermission());
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") setNotificationsOk(Tracker.hasNotificationPermission());
+    });
+    return () => sub.remove();
+  }, []);
+
+  const askForNotifications = async () => {
+    const res = await Notifications.requestPermissionsAsync().catch(() => null);
+    const enabled = Tracker.hasNotificationPermission();
+    setNotificationsOk(enabled);
+    // Settings is the only remaining route when the prompt can't help: it has
+    // been refused too often to show again, or the permission is held but the
+    // user switched notifications off anyway. Someone who has just declined a
+    // prompt that can still be re-shown is left alone rather than yanked out of
+    // the app.
+    const promptIsSpent = res === null || res.granted || res.canAskAgain === false;
+    if (!enabled && promptIsSpent) await Linking.openSettings().catch(() => {});
+  };
 
   const confirmSignOut = () => {
     if (state.tracking) {
@@ -82,16 +115,19 @@ export default function ProfileScreen() {
           <Row label="Unsynced entries" value={String(pendingCount)} />
           <Row label="Tracker module" value={available ? "Installed" : "Missing (dev build needed)"} />
           <Row label="Boot id" value={String(Tracker.bootId())} />
-          <Row label="Notifications" value={Tracker.hasNotificationPermission() ? "Allowed" : "Blocked"} />
+          <Row label="Notifications" value={notificationsOk ? "Allowed" : "Blocked"} />
           <Row label="Device id" value={deviceId ? `${deviceId.slice(0, 8)}…` : "—"} />
           <Row label="Server" value={API_URL.replace(/^https?:\/\//, "")} />
         </View>
 
-        {!Tracker.hasNotificationPermission() && available ? (
-          <Banner tone="warn">
-            Notifications are blocked. Trax will not track without a visible notification, so the timer
-            may be stopped by Android. Allow notifications in Settings.
-          </Banner>
+        {!notificationsOk && available ? (
+          <View style={{ gap: spacing.md }}>
+            <Banner tone="warn">
+              Notifications are blocked. Trax will not track without a visible notification, so the
+              timer may be stopped by Android.
+            </Banner>
+            <Button label="Allow notifications" onPress={() => void askForNotifications()} />
+          </View>
         ) : null}
 
         <View style={s.section}>
@@ -102,6 +138,11 @@ export default function ProfileScreen() {
             background in your phone&apos;s battery settings. Trax will always tell you when a timer was
             stopped rather than quietly losing the time.
           </Text>
+          <Button
+            label="Open app settings"
+            variant="ghost"
+            onPress={() => void Linking.openSettings().catch(() => {})}
+          />
         </View>
 
         <Button label="Sign out" variant="ghost" onPress={confirmSignOut} busy={busy} />
@@ -143,7 +184,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { fontFamily: fonts.bodySemi, fontSize: 16, color: "#fff" },
+  avatarText: { fontFamily: fonts.bodySemi, fontSize: 16, color: colors.onDark },
   email: { fontFamily: fonts.bodySemi, fontSize: 16, color: colors.text },
   role: { fontFamily: fonts.body, fontSize: 13, color: colors.textMuted, textTransform: "capitalize" },
   linkRow: {

@@ -14,8 +14,13 @@ import { Loading } from "../src/ui";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+// Screens a signed-out person is allowed to sit on. /welcome is the landing
+// screen and pushes to /login; both have to be in this set or the gate would
+// yank the user back the moment they tap "Login".
+const AUTH_ROUTES: readonly string[] = ["welcome", "login"];
+
 /**
- * Route gate. Three states, in priority order: signed out → /login, signed in
+ * Route gate. Three states, in priority order: signed out → /welcome, signed in
  * without a current consent → /disclosure, otherwise the tabs.
  *
  * The disclosure is a route rather than a modal behind a menu on purpose: Play
@@ -31,11 +36,11 @@ function Gate() {
     if (status === "loading") return;
 
     const group = segments[0];
-    const onAuthScreen = group === "login";
+    const onAuthScreen = AUTH_ROUTES.includes(group ?? "");
     const onDisclosure = group === "disclosure";
 
     if (status === "signedOut") {
-      if (!onAuthScreen) router.replace("/login");
+      if (!onAuthScreen) router.replace("/welcome");
       return;
     }
     if (needsConsent(me)) {

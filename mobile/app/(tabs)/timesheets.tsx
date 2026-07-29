@@ -1,15 +1,20 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { useRouter } from "expo-router";
 import { useMemo } from "react";
-import { RefreshControl, SectionList, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../src/api/client";
 import type { Session } from "../../src/api/types";
-import { DayTimeline } from "../../src/charts";
+import { DayTimeline, MeterRow } from "../../src/charts";
 import { clampSeconds, dayLabel, fmtShort, fmtTime, localDayKey } from "../../src/format";
 import { colors, fonts, radius, spacing } from "../../src/theme";
 import { Banner, Empty, Loading } from "../../src/ui";
 import { useAsync } from "../../src/useAsync";
 
 const DAYS_BACK = 30;
+// Enough rows to show where the time actually goes without turning the header
+// into a second screen; anything past this is rolled into "Other".
+const BREAKDOWN_ROWS = 5;
 
 function sessionSeconds(s: Session): number {
   const end = s.endedAt ? new Date(s.endedAt).getTime() : Date.now();
@@ -17,6 +22,7 @@ function sessionSeconds(s: Session): number {
 }
 
 export default function TimesheetsScreen() {
+  const router = useRouter();
   const from = useMemo(() => new Date(Date.now() - DAYS_BACK * 86_400_000).toISOString(), []);
   const sessions = useAsync<Session[]>(() => api.sessions({ from }), []);
 
@@ -45,6 +51,25 @@ export default function TimesheetsScreen() {
       }));
   }, [sessions.data]);
 
+  // Per-project split of the same window. Bars are relative to the biggest row,
+  // not to the total, so a long tail of small projects stays readable.
+  const breakdown = useMemo(() => {
+    const byProject = new Map<string, number>();
+    for (const s of sessions.data ?? []) {
+      byProject.set(s.project.name, (byProject.get(s.project.name) ?? 0) + sessionSeconds(s));
+    }
+    const ranked = [...byProject.entries()].sort((a, b) => b[1] - a[1]);
+    const head = ranked.slice(0, BREAKDOWN_ROWS);
+    const tail = ranked.slice(BREAKDOWN_ROWS).reduce((sum, [, secs]) => sum + secs, 0);
+    if (tail > 0) head.push([`${ranked.length - BREAKDOWN_ROWS} more projects`, tail]);
+    const top = head[0]?.[1] ?? 0;
+    return head.map(([name, seconds]) => ({
+      name,
+      seconds,
+      fraction: top > 0 ? seconds / top : 0,
+    }));
+  }, [sessions.data]);
+
   if (sessions.loading) {
     return (
       <SafeAreaView style={s.safe} edges={["top"]}>
@@ -70,6 +95,19 @@ export default function TimesheetsScreen() {
             <Text style={s.title}>Timesheets</Text>
             <Text style={s.sub}>Your last {DAYS_BACK} days, from every device.</Text>
             {sessions.error ? <Banner tone="error">{sessions.error}</Banner> : null}
+            {breakdown.length > 0 ? (
+              <View style={s.breakdown}>
+                <Text style={s.breakdownTitle}>By project</Text>
+                {breakdown.map((row) => (
+                  <MeterRow
+                    key={row.name}
+                    label={row.name}
+                    value={fmtShort(row.seconds)}
+                    fraction={row.fraction}
+                  />
+                ))}
+              </View>
+            ) : null}
           </View>
         }
         ListEmptyComponent={
@@ -85,7 +123,14 @@ export default function TimesheetsScreen() {
           </View>
         )}
         renderItem={({ item }) => (
-          <View style={s.row}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${item.project.name}, ${fmtShort(sessionSeconds(item))}, opens entry details`}
+            onPress={() =>
+              router.push({ pathname: "/session/[id]", params: { id: item.id, at: item.startedAt } })
+            }
+            style={({ pressed }) => [s.row, pressed && { backgroundColor: colors.surfaceAlt }]}
+          >
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={s.rowTitle} numberOfLines={1}>
                 {item.project.name}
@@ -106,7 +151,8 @@ export default function TimesheetsScreen() {
               {item.isManual ? <Badge text="Manual" /> : null}
               {item.tamperSuspected ? <Badge text="Flagged" tone="warn" /> : null}
             </View>
-          </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.faint} style={{ alignSelf: "center" }} />
+          </Pressable>
         )}
       />
     </SafeAreaView>
@@ -127,6 +173,21 @@ const s = StyleSheet.create({
   header: { gap: spacing.xs, marginBottom: spacing.md },
   title: { fontFamily: fonts.heading, fontSize: 28, color: colors.text, letterSpacing: -0.8 },
   sub: { fontFamily: fonts.body, fontSize: 14, color: colors.textMuted },
+  breakdown: {
+    marginTop: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  breakdownTitle: {
+    fontFamily: fonts.headingMedium,
+    fontSize: 15,
+    color: colors.text,
+    paddingTop: spacing.sm,
+  },
   section: { marginTop: spacing.lg, marginBottom: spacing.sm, gap: spacing.sm },
   sectionHeader: {
     flexDirection: "row",

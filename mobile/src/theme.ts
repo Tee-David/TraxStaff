@@ -12,6 +12,11 @@ export const colors = {
   surface: "#ffffff",
   surfaceAlt: "#f1f3f9",
 
+  // Foregrounds for anything sitting on a filled surface — brand navy, accent
+  // orange or danger red. `onBrandMuted` is only legible on the navy.
+  onDark: "#ffffff",
+  onBrandMuted: "#a7abe0",
+
   text: "#0d1020",
   textMuted: "#5b6478",
   // 4.6:1 on #f7f8fb — the web app's --color-faint (#9aa3b2) fails contrast at

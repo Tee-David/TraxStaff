@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import { randomUUID } from "expo-crypto";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, AppStateStatus } from "react-native";
@@ -6,7 +7,10 @@ import { ApiError, api } from "../api/client";
 import type { Project, Task } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 
-const APP_VERSION = "0.1.0";
+// Read from app.config.ts rather than duplicated here. This string is stored
+// against every session server-side, so a hand-maintained copy that drifts from
+// the shipped version turns the field into a lie.
+const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
 const POLL_MS = 1_000;
 const HEARTBEAT_MS = 60_000;
 

@@ -6,13 +6,14 @@ import {
   Text,
   TextInput,
   TextInputProps,
+  TextStyle,
   View,
   ViewStyle,
 } from "react-native";
 import { colors, fonts, radius, shadow, spacing } from "./theme";
 
-export function Title({ children, style }: { children: ReactNode; style?: ViewStyle }) {
-  return <Text style={[s.title, style as never]}>{children}</Text>;
+export function Title({ children, style }: { children: ReactNode; style?: TextStyle }) {
+  return <Text style={[s.title, style]}>{children}</Text>;
 }
 
 export function Heading({ children }: { children: ReactNode }) {
@@ -48,7 +49,7 @@ export function Button({
         : variant === "danger"
           ? colors.danger
           : "transparent";
-  const fg = variant === "ghost" ? colors.brand : "#fff";
+  const fg = variant === "ghost" ? colors.brand : colors.onDark;
   const off = disabled || busy;
   return (
     <Pressable
@@ -113,7 +114,9 @@ export function Loading({ text }: { text: string }) {
 }
 
 const s = StyleSheet.create({
-  title: { fontFamily: fonts.heading, fontSize: 28, color: colors.text, letterSpacing: -0.5 },
+  // Matches the per-screen `title` styles the tab screens each declare, so a
+  // screen using <Title> is indistinguishable from one that rolled its own.
+  title: { fontFamily: fonts.heading, fontSize: 28, color: colors.text, letterSpacing: -0.8 },
   heading: { fontFamily: fonts.headingMedium, fontSize: 17, color: colors.text },
   body: { fontFamily: fonts.body, fontSize: 15, color: colors.text, lineHeight: 22 },
   bodyMuted: { color: colors.textMuted },

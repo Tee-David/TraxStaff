@@ -7,6 +7,12 @@ const transporter = smtpConfigured
       port: env.SMTP_PORT,
       secure: env.SMTP_PORT === 465,
       auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
+      // Render blocks outbound SMTP, so the TCP connect never completes there and
+      // nodemailer's default leaves the request hanging ~2 minutes before failing.
+      // Fail fast instead: a caller waiting on us is holding an HTTP request open.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
     })
   : null;
 
@@ -111,13 +117,34 @@ function emailLayout(bodyHtml: string, preheader: string): string {
 </html>`;
 }
 
-async function send(to: string, subject: string, html: string, text: string, logLabel: string) {
+/**
+ * Returns whether the message actually went out. Sending never throws: callers
+ * are HTTP handlers, and a dead SMTP host must not turn into a 500 — that would
+ * both lose the work already committed and, on the reset route, reveal which
+ * addresses have accounts. The link is logged on failure so it can be relayed
+ * by hand.
+ */
+async function send(
+  to: string,
+  subject: string,
+  html: string,
+  text: string,
+  logLabel: string
+): Promise<boolean> {
   if (!transporter) {
     // SMTP not configured yet — log the link so development/testing isn't blocked.
     console.warn(`[mailer] SMTP not configured — ${logLabel} NOT sent to ${to}. ${text}`);
-    return;
+    return false;
   }
-  await transporter.sendMail({ from: env.SMTP_FROM ?? env.SMTP_USER, to, subject, html, text });
+  try {
+    await transporter.sendMail({ from: env.SMTP_FROM ?? env.SMTP_USER, to, subject, html, text });
+    return true;
+  } catch (err) {
+    console.error(
+      `[mailer] ${logLabel} to ${to} FAILED: ${err instanceof Error ? err.message : err}. ${text}`
+    );
+    return false;
+  }
 }
 
 export async function sendInviteEmail(to: string, inviteUrl: string, orgName: string) {
@@ -133,7 +160,7 @@ export async function sendInviteEmail(to: string, inviteUrl: string, orgName: st
     `Set your password to join ${orgName} on Trax.`
   );
 
-  await send(
+  return send(
     to,
     `You've been invited to join ${orgName} on Trax`,
     html,
@@ -155,7 +182,7 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
     "Reset your Trax password (link expires in 1 hour)."
   );
 
-  await send(
+  return send(
     to,
     "Reset your Trax password",
     html,

@@ -111,9 +111,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
       });
 
       const inviteUrl = `${env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/accept-invite?token=${token}`;
-      await sendInviteEmail(body.email, inviteUrl, org.name);
+      const emailed = await sendInviteEmail(body.email, inviteUrl, org.name);
 
-      return reply.code(201).send({ ok: true });
+      // The token is already valid whether or not the mail got out, so this stays
+      // a 201 — but the admin has to be told when nothing was delivered, or they
+      // sit waiting on an invite that will never arrive. `inviteUrl` comes back
+      // only in that case, so it can be passed along by hand.
+      return reply.code(201).send({ ok: true, emailed, ...(emailed ? {} : { inviteUrl }) });
     }
   );
 

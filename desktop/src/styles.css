@@ -1,4 +1,4 @@
-﻿/* Bundled variable fonts (local woff2 â€” no external requests, works offline
+﻿/* Bundled variable fonts (local woff2 — no external requests, works offline
    under the app's strict CSP). Latin + latin-ext subsets. */
 @font-face {
   font-family: "Space Grotesk";
@@ -54,7 +54,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--canvas); color: var(--ink); font-family: var(--font-body); }
 h1, h2, h3, h4, h5, h6 { font-family: var(--font-display); }
-/* Form controls don't inherit font-family from an ancestor â€” they must be told
+/* Form controls don't inherit font-family from an ancestor — they must be told
    explicitly, or they fall back to the platform UI font (Segoe UI on Windows). */
 input, select, textarea { font-family: inherit; }
 button { border: none; border-radius: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
@@ -76,7 +76,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .stack input:focus { border-color: var(--brand); }
 .pw-wrap { position: relative; }
 .pw-wrap input { padding-right: 40px; }
-/* A plain icon button â€” no chip, no fill, no hover pill. Scoped under .pw-wrap
+/* A plain icon button — no chip, no fill, no hover pill. Scoped under .pw-wrap
    so it out-specifies the submit-button rule below. */
 .pw-wrap .pw-toggle {
   position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
@@ -372,7 +372,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .shot-actbar span { display: block; height: 100%; border-radius: 999px; }
 .shot-actbar span.hi { background: #1f9d63; } .shot-actbar span.lo { background: var(--accent); }
 
-/* timesheets â€” controls, day picker, timeline, table */
+/* timesheets — controls, day picker, timeline, table */
 .ts-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .ts-daypick { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .ts-daychip { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 0 6px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; color: var(--muted); }
@@ -393,7 +393,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .ts-client { color: var(--muted); font-style: normal; font-weight: 400; }
 .ts-day .ts-timeline { margin: 10px 0; }
 
-/* reports â€” legend, stacked day bars, group select */
+/* reports — legend, stacked day bars, group select */
 .rp-legend { font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
 .rp-legend .dot { width: 8px; height: 8px; border-radius: 3px; display: inline-block; margin-left: 6px; }
 .dot.tracked { background: var(--brand); } .dot.manual { background: var(--accent); }

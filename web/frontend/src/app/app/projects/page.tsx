@@ -39,7 +39,7 @@ function ActionMenu({ project, onRefresh }: { project: Project, onRefresh: () =>
         onClick={() => setOpen(!open)}
         className="text-muted hover:text-ink hover:bg-canvas rounded-lg px-2 py-1 transition focus:outline-none focus:ring-2 focus:ring-brand"
       >
-        â‹¯
+        ⋯
       </button>
 
       <AnimatePresence>
@@ -167,7 +167,7 @@ export default function ProjectsPage() {
             />
           </div>
           <div className="w-48 relative">
-            <SearchInput value={search} onChange={setSearch} placeholder="Searchâ€¦" />
+            <SearchInput value={search} onChange={setSearch} placeholder="Search…" />
           </div>
         </div>
       </div>
@@ -176,7 +176,7 @@ export default function ProjectsPage() {
         <div className="space-y-4">{[0, 1, 2, 3].map((i) => <div key={i} className="h-16 rounded-xl bg-canvas animate-pulse" />)}</div>
       ) : visible.length === 0 ? (
         <EmptyState
-          icon="ðŸ—‚"
+          icon="🗂"
           title={search ? "No projects match your search" : `No ${tab} projects`}
           hint={tab === "active" ? "Create your first project above." : undefined}
         />

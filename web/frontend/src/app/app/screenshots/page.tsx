@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useInfiniteList } from "@/lib/use-infinite";
 import { useUrlState } from "@/lib/url-state";
@@ -87,7 +86,7 @@ export default function ScreenshotsPage() {
     [range, q.member]
   );
 
-  const { items: shots, setItems, loading, loadingMore, error, done, sentinelRef } = useInfiniteList<Shot>(buildPath);
+  const { items: shots, loading, loadingMore, error, done, sentinelRef } = useInfiniteList<Shot>(buildPath);
 
   // Escape closes the lightbox — it previously had no keyboard exit at all.
   useEffect(() => {
@@ -96,12 +95,6 @@ export default function ScreenshotsPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [lightbox]);
-
-  async function del(id: string) {
-    await api(`/screenshots/${id}`, { method: "DELETE" });
-    setItems((s) => s.filter((x) => x.id !== id));
-    setLightbox(null);
-  }
 
   const viewButton = (kind: "grid" | "list", label: string, icon: React.ReactNode) => (
     <button
@@ -200,14 +193,6 @@ export default function ScreenshotsPage() {
                       <div className="truncate text-[10px] text-muted">
                         {isAdmin && `${s.member.split("@")[0]} · `}{formatTime(s.takenAt)}
                       </div>
-                      {isAdmin && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); del(s.id); }}
-                          className="mt-1 text-[10px] text-faint hover:text-[var(--color-negative)] transition opacity-0 group-hover:opacity-100"
-                        >
-                          Delete
-                        </button>
-                      )}
                     </div>
                   </Card>
                 </motion.div>
@@ -229,7 +214,6 @@ export default function ScreenshotsPage() {
                       <th className="px-4 py-3 text-left">Time</th>
                       <th className="px-4 py-3 text-left w-36">Activity</th>
                       <th className="px-4 py-3 text-center w-16">Monitor</th>
-                      {isAdmin && <th className="px-4 py-3 text-center w-16"></th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
@@ -266,19 +250,6 @@ export default function ScreenshotsPage() {
                         <td className="px-4 py-3 text-center">
                           <Badge tone="muted">#{s.monitorIndex + 1}</Badge>
                         </td>
-                        {isAdmin && (
-                          <td className="px-4 py-3 text-center">
-                            <button
-                              onClick={() => del(s.id)}
-                              className="text-faint hover:text-[var(--color-negative)] transition opacity-0 group-hover:opacity-100"
-                              title="Delete"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                                <path d="M2 3.5h10M5 3.5V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5v1M5.5 6v4.5M8.5 6v4.5M3 3.5l.7 8a.5.5 0 0 0 .5.5h5.6a.5.5 0 0 0 .5-.5l.7-8" />
-                              </svg>
-                            </button>
-                          </td>
-                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -352,14 +323,6 @@ export default function ScreenshotsPage() {
                     <span className="text-[12px] font-semibold tnum">{Math.round(lightbox.activityPct)}% active</span>
                   </div>
                 </div>
-                {isAdmin && (
-                  <button
-                    onClick={() => del(lightbox.id)}
-                    className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12px] font-medium text-[var(--color-negative)] hover:bg-canvas transition"
-                  >
-                    Delete screenshot
-                  </button>
-                )}
               </div>
             </motion.div>
           </motion.div>

@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import type { AuthUser } from "@/lib/api";
@@ -63,7 +62,6 @@ function ProfileMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void 
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
-  const pathname = usePathname();
   const [drawer, setDrawer] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -152,20 +150,10 @@ function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
+        {/* The page entrance animation lives in template.tsx — wrapping children
+            in AnimatePresence here left pages blank until a reload. */}
         <main className="flex-1 overflow-auto">
-          <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={pathname}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              >
-                {children}
-              </motion.div>
-            </AnimatePresence>
-          </div>
+          <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
         </main>
       </div>
     </div>

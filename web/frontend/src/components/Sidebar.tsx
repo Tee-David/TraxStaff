@@ -137,7 +137,7 @@ export function Sidebar({
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Searchâ€¦"
+              placeholder="Search…"
               className="w-full bg-transparent outline-none placeholder:text-faint"
             />
           </div>
@@ -167,7 +167,7 @@ export function Sidebar({
 
       </div>
 
-      {/* Theme toggle â€” hidden when collapsed (reachable on hover-expand) */}
+      {/* Theme toggle — hidden when collapsed (reachable on hover-expand) */}
       {!collapsed && (
         <div className="px-4 py-3 flex justify-center">
           <div className="inline-flex rounded-full border border-border bg-canvas p-1 w-full max-w-[200px]">

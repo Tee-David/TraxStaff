@@ -29,7 +29,7 @@ const WORKDAY = Array.from({ length: 11 }, (_, i) => 8 + i);
 const WEEK_TARGET_SECONDS = 40 * 3600;
 const PROJ_DOTS = ["var(--color-cat-focus)", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b"];
 
-// Customizable dashboard widgets â€” order + column span are user-editable and
+// Customizable dashboard widgets — order + column span are user-editable and
 // persisted. Keep the id list in sync with renderWidget()'s switch.
 const WIDGET_IDS = ["timeline", "projects", "heatmap", "weekly", "topweek", "history"] as const;
 type WidgetId = (typeof WIDGET_IDS)[number];
@@ -147,7 +147,7 @@ export default function DashboardPage() {
   const weekGoalPct = Math.min(100, Math.round((workedWeek / WEEK_TARGET_SECONDS) * 100));
   const timelineData = WORKDAY.map((h) => ({ hour: `${h}:00`, mins: Math.round(hourly[h]) }));
 
-  // Today's sessions as positioned segments across a 7:00â€“21:00 window (the strip under the graph).
+  // Today's sessions as positioned segments across a 7:00–21:00 window (the strip under the graph).
   const DAY_START = 7;
   const DAY_END = 21;
   const todaySegments = useMemo(() => {
@@ -171,7 +171,7 @@ export default function DashboardPage() {
         title="Resize (columns)"
         className="rounded-lg border border-border px-2 py-1 text-[11px] font-semibold text-muted transition hover:bg-canvas"
       >
-        â¤¢ {spans[id]}/3
+        ⤢ {spans[id]}/3
       </button>
     ) : undefined;
 
@@ -179,12 +179,12 @@ export default function DashboardPage() {
     switch (id) {
       case "timeline":
         return (
-          <Section title="Timeline" icon="ðŸ•" bodyClassName="p-5" action={resizeAction("timeline")}>
+          <Section title="Timeline" icon="🕐" bodyClassName="p-5" action={resizeAction("timeline")}>
             <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Metric label="Activity today" value={summary?.avgActivityPct != null ? `${summary.avgActivityPct}%` : "â€”"} />
+              <Metric label="Activity today" value={summary?.avgActivityPct != null ? `${summary.avgActivityPct}%` : "—"} />
               <Metric label="Total worked" value={formatDurationShort(workedToday)} />
-              <Metric label="Top project" value={topToday[0]?.name ?? "â€”"} />
-              <Metric label="First start" value={firstStart ? formatTime(firstStart) : "â€”"} />
+              <Metric label="Top project" value={topToday[0]?.name ?? "—"} />
+              <Metric label="First start" value={firstStart ? formatTime(firstStart) : "—"} />
             </div>
             <div className="h-52">
               <ResponsiveContainer width="100%" height="100%">
@@ -221,7 +221,7 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             </div>
 
-            {/* Session timeline strip â€” when today's work actually happened */}
+            {/* Session timeline strip — when today's work actually happened */}
             <div className="mt-4">
               <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium text-faint">
                 <span>Today&rsquo;s sessions</span>
@@ -238,7 +238,7 @@ export default function DashboardPage() {
                   todaySegments.map((g, i) => (
                     <div
                       key={g.id}
-                      title={`${g.name} Â· ${formatTime(g.start.toISOString())}${g.end ? `â€“${formatTime(g.end.toISOString())}` : " Â· running"}`}
+                      title={`${g.name} · ${formatTime(g.start.toISOString())}${g.end ? `–${formatTime(g.end.toISOString())}` : " · running"}`}
                       className={`absolute bottom-1 top-1 rounded-md ${g.running ? "animate-pulse" : ""}`}
                       style={{ left: `${g.left}%`, width: `${Math.max(1.5, g.width)}%`, background: CAT[i % CAT.length] }}
                     />
@@ -270,7 +270,7 @@ export default function DashboardPage() {
         );
       case "projects":
         return (
-          <Section title="Projects & Tasks" icon="ðŸ—‚" bodyClassName="p-5" action={resizeAction("projects")}>
+          <Section title="Projects & Tasks" icon="🗂" bodyClassName="p-5" action={resizeAction("projects")}>
             <div className="space-y-5">
               {projects.slice(0, 5).map((p) => {
                 const total = p.tasks?.length ?? 0;
@@ -286,7 +286,7 @@ export default function DashboardPage() {
                       {(p.tasks ?? []).slice(0, 3).map((t) => (
                         <div key={t.id} className="flex items-center gap-2 text-sm">
                           <span className={t.status === "done" ? "text-[var(--color-positive)]" : "text-border-strong"}>
-                            {t.status === "done" ? "â—‰" : "â—‹"}
+                            {t.status === "done" ? "◉" : "○"}
                           </span>
                           <span className={t.status === "done" ? "text-muted line-through" : ""}>{t.title}</span>
                         </div>
@@ -302,7 +302,7 @@ export default function DashboardPage() {
         );
       case "heatmap":
         return (
-          <Section title="Work by hours" icon="â–¦" bodyClassName="p-5" action={resizeAction("heatmap")}>
+          <Section title="Work by hours" icon="▦" bodyClassName="p-5" action={resizeAction("heatmap")}>
             {week.length === 0 ? (
               <p className="text-sm text-muted">No sessions this week yet.</p>
             ) : (
@@ -321,7 +321,7 @@ export default function DashboardPage() {
         );
       case "weekly":
         return (
-          <Section title="Weekly goal" icon="ðŸŽ¯" bodyClassName="p-5" action={resizeAction("weekly")}>
+          <Section title="Weekly goal" icon="🎯" bodyClassName="p-5" action={resizeAction("weekly")}>
             <div className="flex flex-col items-center gap-4 py-1">
               <Donut value={weekGoalPct} size={148} stroke={13} color="var(--color-brand)" label={`${weekGoalPct}%`} sublabel={`${formatDurationShort(workedWeek)} of 40h`} />
               <div className="grid w-full grid-cols-2 gap-3 border-t border-border pt-4 text-center">
@@ -330,7 +330,7 @@ export default function DashboardPage() {
                   <div className="text-xs text-muted">Days active</div>
                 </div>
                 <div>
-                  <div className="font-heading text-lg font-semibold">{summary?.avgActivityPct != null ? `${summary.avgActivityPct}%` : "â€”"}</div>
+                  <div className="font-heading text-lg font-semibold">{summary?.avgActivityPct != null ? `${summary.avgActivityPct}%` : "—"}</div>
                   <div className="text-xs text-muted">Activity today</div>
                 </div>
               </div>
@@ -339,7 +339,7 @@ export default function DashboardPage() {
         );
       case "topweek":
         return (
-          <Section title="Top projects Â· this week" icon="ðŸ†" bodyClassName="p-5" action={resizeAction("topweek")}>
+          <Section title="Top projects · this week" icon="🏆" bodyClassName="p-5" action={resizeAction("topweek")}>
             {topWeek.length === 0 ? (
               <p className="text-sm text-muted">No time tracked this week.</p>
             ) : (
@@ -360,9 +360,9 @@ export default function DashboardPage() {
         );
       case "history":
         return week.length === 0 ? (
-          <EmptyState icon="ðŸ—“" title="No sessions yet" hint="Start tracking from the Trax desktop app and your activity will appear here." />
+          <EmptyState icon="🗓" title="No sessions yet" hint="Start tracking from the Trax desktop app and your activity will appear here." />
         ) : (
-          <Section title="Project History" icon="ðŸ“œ" bodyClassName="p-0" action={resizeAction("history")}>
+          <Section title="Project History" icon="📜" bodyClassName="p-0" action={resizeAction("history")}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -389,7 +389,7 @@ export default function DashboardPage() {
                       <td className="px-5 py-3 text-muted">{new Date(s.startedAt).toLocaleDateString()}</td>
                       <td className="px-5 py-3 tnum text-muted">
                         {formatTime(s.startedAt)}
-                        {s.endedAt ? ` â€“ ${formatTime(s.endedAt)}` : ""}
+                        {s.endedAt ? ` – ${formatTime(s.endedAt)}` : ""}
                       </td>
                       <td className="px-5 py-3 tnum font-medium">{formatDurationShort(sessionSeconds(s.startedAt, s.endedAt))}</td>
                     </tr>
@@ -409,24 +409,24 @@ export default function DashboardPage() {
         subtitle={`Welcome back, ${user?.email ?? ""}`}
         actions={
           <Badge tone={running ? "green" : "muted"} dot>
-            {running ? `Tracking Â· ${running.project.name}` : "Not tracking"}
+            {running ? `Tracking · ${running.project.name}` : "Not tracking"}
           </Badge>
         }
       />
 
       <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatTile icon="ðŸ“" tone="brand" label="Active projects" value={<CountUp to={activeProjects} duration={1} />} />
-        <StatTile icon="â³" tone="accent" label="Ongoing tasks" value={<CountUp to={ongoingTasks} duration={1} />} />
-        <StatTile icon="âœ…" tone="teal" label="Completed tasks" value={<CountUp to={completedTasks} duration={1} />} />
+        <StatTile icon="📁" tone="brand" label="Active projects" value={<CountUp to={activeProjects} duration={1} />} />
+        <StatTile icon="⏳" tone="accent" label="Ongoing tasks" value={<CountUp to={ongoingTasks} duration={1} />} />
+        <StatTile icon="✅" tone="teal" label="Completed tasks" value={<CountUp to={completedTasks} duration={1} />} />
         <div className="relative">
-          <StatTile icon="â±" tone="muted" label="Worked this week" value={<span className="text-[22px]">{formatDurationShort(workedWeek)}</span>} />
+          <StatTile icon="⏱" tone="muted" label="Worked this week" value={<span className="text-[22px]">{formatDurationShort(workedWeek)}</span>} />
         </div>
       </div>
 
       {/* Customize toolbar */}
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="text-sm text-muted">
-          {customize ? "Drag cards to rearrange Â· use â¤¢ to resize" : ""}
+          {customize ? "Drag cards to rearrange · use ⤢ to resize" : ""}
         </div>
         <div className="flex items-center gap-2">
           {customize && (
@@ -440,7 +440,7 @@ export default function DashboardPage() {
               customize ? "bg-brand text-brand-fg" : "border border-border text-muted hover:bg-canvas"
             }`}
           >
-            {customize ? "âœ“ Done" : "âš™ Customize"}
+            {customize ? "✓ Done" : "⚙ Customize"}
           </button>
         </div>
       </div>

@@ -83,8 +83,21 @@ model User {
   notifications      Notification[]
   timeNotes          TimeNote[]
   deletedScreenshots Screenshot[]      @relation("ScreenshotDeletedBy")
+  passwordResets     PasswordResetToken[]
 
   @@index([orgId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id])
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model InviteToken {

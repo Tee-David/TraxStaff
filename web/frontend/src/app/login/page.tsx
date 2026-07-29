@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import { api, setToken, type AuthUser } from "@/lib/api";
@@ -167,9 +168,9 @@ function LoginForm() {
                 <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="accent-brand" />
                 Remember for 30 days
               </label>
-              <button type="button" onClick={() => setError("Password resets are handled by your admin for now.")} className="text-xs font-medium text-accent hover:underline">
+              <Link href="/forgot-password" className="text-xs font-medium text-accent hover:underline">
                 Forgot Password?
-              </button>
+              </Link>
             </div>
             {error && <p className="text-sm text-[var(--color-negative)]">{error}</p>}
             <button

@@ -1,0 +1,17 @@
+<!-- Notification small icons are masked to a single colour by the system, so
+     this is a flat white timer glyph rather than the brand mark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M12,3C7.03,3 3,7.03 3,12s4.03,9 9,9 9,-4.03 9,-9 -4.03,-9 -9,-9zM12,19c-3.87,0 -7,-3.13 -7,-7s3.13,-7 7,-7 7,3.13 7,7 -3.13,7 -7,7z" />
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M12.75,7.5h-1.5v5.06l4.03,2.42 0.75,-1.24 -3.28,-1.95z" />
+  <path
+      android:fillColor="#FFFFFFFF"
+      android:pathData="M9.5,1.5h5v1.6h-5z" />
+</vector>

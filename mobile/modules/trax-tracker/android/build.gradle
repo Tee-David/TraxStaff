@@ -1,0 +1,43 @@
+apply plugin: 'com.android.library'
+
+group = 'expo.modules.traxtracker'
+version = '0.1.0'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+android {
+  namespace "expo.modules.traxtracker"
+  // API 36 is set by expo-build-properties on the app module; fall back to it
+  // here so the library never compiles against an older platform than the app.
+  compileSdk safeExtGet("compileSdkVersion", 36)
+
+  defaultConfig {
+    // 26 buys us NotificationChannel and Settings.Global.BOOT_COUNT without
+    // any compat branching.
+    minSdkVersion safeExtGet("minSdkVersion", 26)
+    targetSdkVersion safeExtGet("targetSdkVersion", 36)
+    consumerProguardFiles "proguard-rules.pro"
+  }
+
+  lintOptions {
+    abortOnError false
+  }
+
+  publishing {
+    singleVariant("release") {
+      withSourcesJar()
+    }
+  }
+}
+
+dependencies {
+  implementation "androidx.core:core-ktx:1.13.1"
+}

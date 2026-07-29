@@ -1,0 +1,64 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!-- specialUse, NOT dataSync: Android 15 caps dataSync foreground services at
+       6h per 24h app-wide, which an 8-hour shift does not fit inside. The
+       subtype below is what Play review reads. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+  <application>
+
+    <!-- Required by Play policy on EVERY version code across ALL tracks for a
+         time-tracking / monitoring app. Uploads are rejected without it. -->
+    <meta-data android:name="isMonitoringTool" android:value="enterprise_management" />
+
+    <!-- Component names are fully qualified on purpose: the manifest merger
+         resolves a leading-dot name against the APPLICATION's package, not this
+         library's, so ".TrackingService" would point at a class that does not
+         exist. -->
+    <service
+      android:name="expo.modules.traxtracker.TrackingService"
+      android:exported="false"
+      android:stopWithTask="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="@string/trax_fgs_subtype" />
+    </service>
+
+    <!-- ACTION_TIME_SET and ACTION_TIMEZONE_CHANGED are both on the
+         implicit-broadcast exception list, so a manifest receiver still fires
+         when our process is dead. That is the whole point: a clock change made
+         while the app is not running must still land in the ledger.
+         exported="true" is required for a system broadcast to reach a manifest
+         receiver on API 31+; both actions are protected broadcasts that only
+         the system can send, so nothing else can spoof them. -->
+    <receiver
+      android:name="expo.modules.traxtracker.ClockChangeReceiver"
+      android:enabled="true"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.TIME_SET" />
+        <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+      </intent-filter>
+    </receiver>
+
+    <!-- Detects a reboot so the interrupted segment can be closed honestly and
+         the user told that tracking stopped. It deliberately does NOT start the
+         foreground service: launching an FGS from BOOT_COMPLETED is blocked on
+         API 35/36 and would throw. -->
+    <receiver
+      android:name="expo.modules.traxtracker.BootReceiver"
+      android:enabled="true"
+      android:exported="true"
+      android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+      </intent-filter>
+    </receiver>
+
+  </application>
+</manifest>

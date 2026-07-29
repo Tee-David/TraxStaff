@@ -1,0 +1,10 @@
+<resources>
+  <!-- PROPERTY_SPECIAL_USE_FGS_SUBTYPE. Play reviewers read this verbatim, so it
+       has to describe the actual use case and why no standard type fits. -->
+  <string name="trax_fgs_subtype">Employee work-shift time tracking. The user explicitly starts a timer and the service keeps a monotonic elapsed-time counter plus a persistent notification for the whole shift, which can exceed 8 hours continuously — longer than the dataSync foreground service type is permitted to run under the Android 15 6h/24h cap. No data is collected from the device itself: no screen capture, no location, no accessibility service, no input monitoring.</string>
+
+  <string name="trax_channel_tracking">Time tracking</string>
+  <string name="trax_channel_tracking_desc">Shown for the whole time a Trax timer is running. Tracking is never silent.</string>
+  <string name="trax_channel_alerts">Tracking interrupted</string>
+  <string name="trax_channel_alerts_desc">Tells you when a running timer was stopped by a reboot or by the system.</string>
+</resources>

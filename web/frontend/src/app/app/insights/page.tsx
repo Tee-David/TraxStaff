@@ -70,6 +70,8 @@ export default function InsightsPage() {
     const qs = new URLSearchParams();
     if (from) qs.set("from", from);
     if (to) qs.set("to", to);
+    // See reports/page.tsx — day buckets are computed in this zone, not UTC.
+    qs.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone);
     const qStr = qs.toString();
     Promise.all([
       api<PresenceRow[]>("/insights/presence"),

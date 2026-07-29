@@ -65,7 +65,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <Link href="/privacy" asChild>
+        <Link href="/disclosure" asChild>
           <Pressable style={({ pressed }) => [s.linkRow, pressed && { backgroundColor: colors.surfaceAlt }]}>
             <Ionicons name="shield-checkmark-outline" size={22} color={colors.brand} />
             <View style={{ flex: 1 }}>

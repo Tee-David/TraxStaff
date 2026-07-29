@@ -1,13 +1,13 @@
 import { randomUUID } from "expo-crypto";
-import * as SecureStore from "expo-secure-store";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, setTokenSource } from "../api/client";
 import type { Me } from "../api/types";
+import { deleteSecret, getSecret, setSecret } from "./secureStorage";
 
 // The JWT lives in the Android Keystore via expo-secure-store, never in
 // AsyncStorage — AsyncStorage is plain-text on disk and readable by anything
 // with the app's data directory (backup extraction, rooted device, adb on a
-// debuggable build).
+// debuggable build). See secureStorage.ts for the web preview's weaker fallback.
 const TOKEN_KEY = "trax.jwt";
 const DEVICE_KEY = "trax.deviceId";
 // Bumped whenever the disclosure text in app/disclosure.tsx changes materially;
@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     tokenRef.current = null;
     setMe(null);
     setStatus("signedOut");
-    await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
+    await deleteSecret(TOKEN_KEY).catch(() => {});
   }, []);
 
   const refresh = useCallback(async () => {
@@ -90,13 +90,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       const [token, storedDevice] = await Promise.all([
-        SecureStore.getItemAsync(TOKEN_KEY).catch(() => null),
-        SecureStore.getItemAsync(DEVICE_KEY).catch(() => null),
+        getSecret(TOKEN_KEY).catch(() => null),
+        getSecret(DEVICE_KEY).catch(() => null),
       ]);
       let device = storedDevice;
       if (!device) {
         device = randomUUID();
-        await SecureStore.setItemAsync(DEVICE_KEY, device).catch(() => {});
+        await setSecret(DEVICE_KEY, device).catch(() => {});
       }
       if (cancelled) return;
       setDeviceId(device);
@@ -120,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const res = await withSlowHint(() => api.login(email.trim(), password));
         tokenRef.current = res.token;
-        await SecureStore.setItemAsync(TOKEN_KEY, res.token);
+        await setSecret(TOKEN_KEY, res.token);
         setMe(await api.me());
         setStatus("signedIn");
       } catch (err) {

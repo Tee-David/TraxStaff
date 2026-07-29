@@ -178,6 +178,14 @@ export const api = {
   summary: (range?: { from?: string; to?: string }) =>
     request<ReportSummary>(`/reports/summary${qs({ from: range?.from, to: range?.to })}`),
 
+  // tz is sent so the server buckets days in the phone's zone. Without it the
+  // split falls on UTC midnight and evening work is dated to the wrong day.
   timesheet: (range?: { from?: string; to?: string }) =>
-    request<TimesheetDay[]>(`/reports/timesheet${qs({ from: range?.from, to: range?.to })}`),
+    request<TimesheetDay[]>(
+      `/reports/timesheet${qs({
+        from: range?.from,
+        to: range?.to,
+        tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      })}`
+    ),
 };

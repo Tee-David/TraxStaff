@@ -29,6 +29,9 @@ export default function ReportsPage() {
     if (from) qs.set("from", from);
     if (to) qs.set("to", to);
     if (member) qs.set("userId", member);
+    // Days are bucketed server-side; without this the split falls on UTC
+    // midnight and evening work lands on the wrong date.
+    qs.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone);
     const q = qs.toString() ? `?${qs.toString()}` : "";
     Promise.all([
       api<ReportSummary>(`/reports/summary${q}`),

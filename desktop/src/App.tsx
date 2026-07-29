@@ -127,6 +127,20 @@ function rawSecs(s: Session): number { const e = s.endedAt ? new Date(s.endedAt)
 // negative amount of time, and an unclamped value propagates into every total,
 // bar width and clock on the screen.
 function secs(s: Session): number { return Math.max(0, rawSecs(s)); }
+// Seconds of a session that fall inside [fromMs, toMs).
+//
+// Totals are attributed by OVERLAP, never by which day a session started. A
+// shift from 23:00 to 03:00 belongs to both days — one hour to the first, three
+// to the second. Bucketing the whole session by its start instant meant today
+// showed nothing at all for someone who began before midnight, and the running
+// timer never reset at 00:00 because its full elapsed time kept being added to
+// "today" no matter how long ago it started.
+function overlapSecs(s: Session, fromMs: number, toMs: number): number {
+  const start = new Date(s.startedAt).getTime();
+  const end = s.endedAt ? new Date(s.endedAt).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
+  return Math.max(0, Math.min(end, toMs) - Math.max(start, fromMs)) / 1000;
+}
 // Both formatters clamp too — Math.floor on a small negative yields -1 for each
 // component independently, which is where "-1:-1:-1" came from.
 function fmtClock(sec: number): string { const t = Math.max(0, sec); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = Math.floor(t % 60); return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`; }
@@ -843,16 +857,37 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   // Server + local sessions, deduped by id, limited to this week. This is what
   // every total below is computed from, so local/offline time always counts.
   const mergedWeek = useMemo(() => {
+    // Kept by overlap, not by start instant: a session that began before the
+    // week boundary and ran past it still owns time inside this week, and
+    // filtering on startedAt discarded all of it.
     const weekStartMs = startOfWeek().getTime();
-    return mergeSessions(week, localSessions).filter((s) => new Date(s.startedAt).getTime() >= weekStartMs);
+    const nowMs = Date.now();
+    return mergeSessions(week, localSessions).filter((s) => overlapSecs(s, weekStartMs, nowMs) > 0);
   }, [week, localSessions]);
   // Completed sessions (exclude the live one — its time is added via `elapsed`,
   // and it may also appear as an open row once it has registered server-side).
   const notActive = (s: Session) => !active || s.id !== active.id;
-  const today = useMemo(() => mergedWeek.filter((s) => notActive(s) && new Date(s.startedAt) >= startOfToday()), [mergedWeek, active]);
-  const workedToday = today.reduce((a, s) => a + secs(s), 0);
-  const liveToday = workedToday + (active ? elapsed : 0);
-  const workedWeek = mergedWeek.filter(notActive).reduce((a, s) => a + secs(s), 0) + (active ? elapsed : 0);
+  // Re-read every render. `elapsed` ticks once a second while tracking, so these
+  // windows are re-evaluated continuously — which is what actually rolls the
+  // total over the moment the clock passes 00:00.
+  const nowMs = Date.now();
+  const dayStartMs = startOfToday().getTime();
+  const weekStartMs = startOfWeek().getTime();
+
+  const today = mergedWeek.filter((s) => notActive(s) && overlapSecs(s, dayStartMs, nowMs) > 0);
+  const workedToday = mergedWeek.filter(notActive).reduce((a, s) => a + overlapSecs(s, dayStartMs, nowMs), 0);
+  const workedWeekClosed = mergedWeek.filter(notActive).reduce((a, s) => a + overlapSecs(s, weekStartMs, nowMs), 0);
+
+  // The live session's DURATION still comes from the monotonic counter — the
+  // wall clock is only consulted to work out how much of that duration predates
+  // the boundary. Deriving it from wall-clock arithmetic instead would hand back
+  // the clock-tampering hole the monotonic anchor exists to close.
+  const activeStartMs = active ? new Date(active.startedAt).getTime() : 0;
+  const activeSince = (boundaryMs: number) =>
+    active ? Math.max(0, elapsed - Math.max(0, (boundaryMs - activeStartMs) / 1000)) : 0;
+
+  const liveToday = workedToday + activeSince(dayStartMs);
+  const workedWeek = workedWeekClosed + activeSince(weekStartMs);
 
   async function toggleExpand() {
     const next = !expanded;

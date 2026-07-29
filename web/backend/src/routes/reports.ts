@@ -6,7 +6,65 @@ const rangeSchema = z.object({
   from: z.string().datetime({ offset: true }).optional(),
   to: z.string().datetime({ offset: true }).optional(),
   userId: z.string().uuid().optional(),
+  // IANA zone the caller wants days bucketed in. Defaults to UTC, which is what
+  // this endpoint always did — so an old client keeps its previous behaviour.
+  tz: z.string().min(1).max(64).optional(),
 });
+
+/** Local calendar day (YYYY-MM-DD) of an instant, in `tz`. */
+function localDayKey(d: Date, tz: string): string {
+  // en-CA formats as YYYY-MM-DD, which sorts lexicographically.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/** Seconds from local midnight to `d`, in `tz`. */
+function secondsIntoLocalDay(d: Date, tz: string): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  // "24" shows up at exactly midnight in some ICU builds.
+  return (get("hour") % 24) * 3600 + get("minute") * 60 + get("second");
+}
+
+/**
+ * Split a span across local calendar days.
+ *
+ * A shift from 23:00 to 03:00 owns time on two days. Bucketing the whole span by
+ * its start instant — which this endpoint used to do, in UTC — put all four
+ * hours on the first day and left the second showing nothing, so a day's total
+ * never "reset" at midnight for anyone who worked across it.
+ *
+ * DST caveat: the boundary is found by adding the remainder of the local day,
+ * so a transition inside the span shifts a slice by the offset change. Totals
+ * stay correct; only the split point moves, twice a year.
+ */
+function splitByLocalDay(start: Date, end: Date, tz: string): Map<string, number> {
+  const out = new Map<string, number>();
+  let cursor = start.getTime();
+  const endMs = end.getTime();
+  if (!(endMs > cursor)) return out;
+
+  // Bounded so a corrupt row can never spin here.
+  for (let guard = 0; guard < 400 && cursor < endMs; guard++) {
+    const at = new Date(cursor);
+    const key = localDayKey(at, tz);
+    const nextMidnight = cursor + (86_400 - secondsIntoLocalDay(at, tz)) * 1000;
+    const sliceEnd = Math.min(nextMidnight, endMs);
+    out.set(key, (out.get(key) ?? 0) + (sliceEnd - cursor) / 1000);
+    cursor = sliceEnd;
+  }
+  return out;
+}
 
 function seconds(startedAt: Date, endedAt: Date | null): number {
   return ((endedAt ?? new Date()).getTime() - startedAt.getTime()) / 1000;
@@ -89,18 +147,42 @@ export default async function reportRoutes(fastify: FastifyInstance) {
   // Daily timesheet: hours per day (optionally per member), tracked vs manual.
   fastify.get("/reports/timesheet", async (req, reply) => {
     const sessions = await loadSessions(req);
+    const tz = rangeSchema.parse(req.query).tz ?? "UTC";
     const byDay = new Map<string, { date: string; totalSeconds: number; trackedSeconds: number; manualSeconds: number; sessions: number }>();
+
     for (const s of sessions) {
-      const day = s.startedAt.toISOString().slice(0, 10);
-      const d = byDay.get(day) ?? { date: day, totalSeconds: 0, trackedSeconds: 0, manualSeconds: 0, sessions: 0 };
-      const secs = workedSeconds(s);
-      d.totalSeconds += secs;
-      if (s.isManual) d.manualSeconds += secs;
-      else d.trackedSeconds += secs;
-      d.sessions += 1;
-      byDay.set(day, d);
+      const worked = workedSeconds(s);
+      const end = s.endedAt ?? new Date();
+      const slices = splitByLocalDay(s.startedAt, end, tz);
+      const spanned = [...slices.values()].reduce((sum, v) => sum + v, 0);
+      if (spanned <= 0) continue;
+
+      // Idle discards have no timestamps, so worked < span. Spread the shortfall
+      // across the days proportionally rather than dropping it on the start day.
+      const scale = worked / spanned;
+
+      let first = true;
+      for (const [day, rawSecs] of slices) {
+        const d = byDay.get(day) ?? { date: day, totalSeconds: 0, trackedSeconds: 0, manualSeconds: 0, sessions: 0 };
+        const secs = rawSecs * scale;
+        d.totalSeconds += secs;
+        if (s.isManual) d.manualSeconds += secs;
+        else d.trackedSeconds += secs;
+        // Counted once, on the day it began — a session split across midnight is
+        // still one session, and summing the column must not double it.
+        if (first) d.sessions += 1;
+        byDay.set(day, d);
+        first = false;
+      }
     }
-    return reply.send([...byDay.values()].sort((a, b) => b.date.localeCompare(a.date)));
+
+    const rows = [...byDay.values()].map((d) => ({
+      ...d,
+      totalSeconds: Math.round(d.totalSeconds),
+      trackedSeconds: Math.round(d.trackedSeconds),
+      manualSeconds: Math.round(d.manualSeconds),
+    }));
+    return reply.send(rows.sort((a, b) => b.date.localeCompare(a.date)));
   });
 
   // Time grouped by project (+ task), with average activity %.

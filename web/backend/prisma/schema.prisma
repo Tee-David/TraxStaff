@@ -82,6 +82,7 @@ model User {
   org                Organization      @relation(fields: [orgId], references: [id])
   email              String            @unique
   passwordHash       String?
+  name               String?
   role               Role              @default(member)
   status             UserStatus        @default(invited)
   consentAcceptedAt  DateTime?

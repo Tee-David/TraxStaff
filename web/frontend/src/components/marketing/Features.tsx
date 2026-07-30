@@ -246,8 +246,8 @@ export function Features() {
         <motion.div {...stagger(0.05)} className="mt-5 grid gap-5 sm:grid-cols-3">
           {compact.map(({ icon: Icon, title, body }) => (
             <motion.div
-              {...item}
               key={title}
+              {...item}
               className="rounded-3xl border border-border bg-canvas/70 p-7"
             >
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand/10 text-brand">

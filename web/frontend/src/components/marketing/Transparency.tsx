@@ -113,7 +113,7 @@ export function Transparency() {
             </h3>
             <ul className="mt-6 space-y-5">
               {recorded.map((r) => (
-                <motion.li {...item} key={r.title} className="flex gap-3.5">
+                <motion.li key={r.title} {...item} className="flex gap-3.5">
                   <MarkOn />
                   <span>
                     <span className="block text-sm font-semibold text-ink">{r.title}</span>
@@ -130,7 +130,7 @@ export function Transparency() {
             </h3>
             <ul className="mt-6 space-y-5">
               {never.map((n) => (
-                <motion.li {...item} key={n.title} className="flex gap-3.5">
+                <motion.li key={n.title} {...item} className="flex gap-3.5">
                   <MarkOff />
                   <span>
                     <span className="block text-sm font-semibold text-ink">{n.title}</span>

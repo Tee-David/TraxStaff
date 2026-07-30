@@ -5,6 +5,7 @@ import { PlatformStrip } from "@/components/marketing/PlatformStrip";
 import { Features } from "@/components/marketing/Features";
 import { Integrity } from "@/components/marketing/Integrity";
 import { Testimonials } from "@/components/marketing/Testimonials";
+import { Statements } from "@/components/marketing/Statements";
 import { Transparency } from "@/components/marketing/Transparency";
 import { DownloadCta } from "@/components/marketing/DownloadCta";
 import { Footer } from "@/components/marketing/Footer";
@@ -29,9 +30,14 @@ export default function Home() {
       <Hero />
       <PlatformStrip />
       <Features />
-      <Integrity />
+      {/* Social proof straight after the feature case, then the two honesty
+          sections, then the positions as the closing argument before the CTA.
+          The ordering also keeps the page's two marquees apart — back to back
+          they read as one widget shown twice. */}
       <Testimonials />
+      <Integrity />
       <Transparency />
+      <Statements />
       <DownloadCta />
       <Footer currentYear={currentYear} />
     </main>

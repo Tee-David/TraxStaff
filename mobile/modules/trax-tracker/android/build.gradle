@@ -31,11 +31,11 @@ android {
     abortOnError false
   }
 
-  publishing {
-    singleVariant("release") {
-      withSourcesJar()
-    }
-  }
+  // No `publishing { singleVariant(...) }` block here: useExpoPublishing() above
+  // already registers that exact singleVariant("release") publication. Declaring
+  // it a second time made AGP fail the whole build with "Using singleVariant
+  // publishing DSL multiple times to publish variant "release" to component
+  // "release" is not allowed" — this is what broke every CI run of this workflow.
 }
 
 dependencies {

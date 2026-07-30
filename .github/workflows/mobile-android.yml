@@ -153,6 +153,12 @@ jobs:
                   storePassword System.getenv('TRAX_KEYSTORE_PASSWORD')
                   keyAlias System.getenv('TRAX_KEY_ALIAS')
                   keyPassword System.getenv('TRAX_KEY_PASSWORD')
+                  // Gradle's signingConfig defaults storeType to "jks" when it is
+                  // not given explicitly — it does NOT sniff the file. keytool on
+                  // any JDK 9+ now generates PKCS12 by default, so an unmodified
+                  // template silently fails to load a perfectly valid, normally-
+                  // generated keystore. Stated here rather than left implicit.
+                  storeType System.getenv('TRAX_KEYSTORE_TYPE') ?: 'PKCS12'
               }\`);
 
           // 2. point the release buildType at it. Sliced from buildTypes so the
@@ -179,6 +185,9 @@ jobs:
           TRAX_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           TRAX_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           TRAX_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Optional override for a JKS-format keystore; every keystore this repo's
+          # own tooling produces is PKCS12, which is the injected config's default.
+          TRAX_KEYSTORE_TYPE: ${{ secrets.ANDROID_KEYSTORE_TYPE }}
 
       - name: Name the APK
         shell: bash

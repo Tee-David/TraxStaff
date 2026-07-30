@@ -41,3 +41,9 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Local Android release-signing material (keystore + its base64 + password
+# file). This is exactly what CI reads from GitHub Secrets, never from the
+# repo — a keystore committed to git is a keystore anyone with clone access can
+# sign a malicious "update" with.
+/.release-signing/

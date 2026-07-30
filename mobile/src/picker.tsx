@@ -16,9 +16,16 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { EASE, useReducedMotion } from "./motion";
 import { useTheme } from "./ThemeProvider";
 import { Colors, fonts, radius, spacing } from "./theme";
 import { Empty } from "./ui";
+
+const SHEET_RISE = 24;
+const OPEN_DURATION = 220;
+const CLOSE_DURATION = 180;
+const BACKDROP_DURATION = 160;
 
 export type PickerItem = { id: string; label: string; sub?: string };
 
@@ -111,6 +118,49 @@ export function PickerSheet({
   // 3-button Android nav bar.
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
+  const reduced = useReducedMotion();
+
+  // Native Modal's own `animationType="slide"` translates the whole subtree —
+  // backdrop and sheet together — as one block, rather than a dim that fades
+  // in behind a sheet that slides. It also unmounts the instant `visible`
+  // turns false, snapping the sheet shut with no closing motion at all. Both
+  // are worth a Reanimated-driven pair of values: `mounted` keeps the native
+  // Modal around for the length of the close animation, and `backdrop`/`sheet`
+  // are driven independently so the dim can fade while the sheet slides.
+  const [mounted, setMounted] = useState(visible);
+  const backdrop = useSharedValue(visible ? 1 : 0);
+  const sheet = useSharedValue(visible ? 1 : 0);
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      if (reduced) {
+        backdrop.value = 1;
+        sheet.value = 1;
+      } else {
+        backdrop.value = withTiming(1, { duration: BACKDROP_DURATION });
+        sheet.value = withTiming(1, { duration: OPEN_DURATION, easing: EASE });
+      }
+    } else if (mounted) {
+      if (reduced) {
+        backdrop.value = 0;
+        sheet.value = 0;
+        setMounted(false);
+      } else {
+        backdrop.value = withTiming(0, { duration: CLOSE_DURATION });
+        sheet.value = withTiming(0, { duration: CLOSE_DURATION, easing: EASE }, (finished) => {
+          if (finished) runOnJS(setMounted)(false);
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, reduced]);
+
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: backdrop.value }));
+  const sheetStyle = useAnimatedStyle(() => ({
+    opacity: sheet.value,
+    transform: [{ translateY: (1 - sheet.value) * SHEET_RISE }],
+  }));
 
   // A filter left over from the last time the sheet was open would hide options
   // with no visible reason why.
@@ -127,19 +177,23 @@ export function PickerSheet({
     [items, needle]
   );
 
+  if (!mounted) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={mounted} animationType="none" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={s.modalRoot}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <Pressable
-          style={s.backdrop}
-          onPress={onClose}
-          accessibilityRole="button"
-          accessibilityLabel={`Close ${title.toLowerCase()}`}
-        />
-        <View style={[s.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
+        <Animated.View style={[StyleSheet.absoluteFillObject, s.backdropTint, backdropStyle]}>
+          <Pressable
+            style={s.backdrop}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel={`Close ${title.toLowerCase()}`}
+          />
+        </Animated.View>
+        <Animated.View style={[s.sheet, { paddingBottom: spacing.lg + insets.bottom }, sheetStyle]}>
           <View style={s.head}>
             <Text style={s.title}>{title}</Text>
             <Pressable
@@ -209,7 +263,7 @@ export function PickerSheet({
               )}
             />
           )}
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -238,7 +292,12 @@ function createFieldStyles(colors: Colors) {
 
 function createSheetStyles(colors: Colors) {
   return StyleSheet.create({
-    backdrop: { flex: 1, backgroundColor: "rgba(13,16,32,0.45)" },
+    modalRoot: { flex: 1, justifyContent: "flex-end" },
+    // Split from the sheet's slide so the dim can fade on its own timing —
+    // the tint lives on the absolute-fill wrapper, the Pressable inside is
+    // just the tap target.
+    backdropTint: { backgroundColor: "rgba(13,16,32,0.45)" },
+    backdrop: { flex: 1 },
     sheet: {
       maxHeight: "72%",
       backgroundColor: colors.surface,

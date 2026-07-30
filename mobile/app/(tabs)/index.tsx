@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../src/api/client";
 import type { Project, Task } from "../../src/api/types";
@@ -10,6 +10,7 @@ import { PickerField, PickerSheet } from "../../src/picker";
 import { colors, fonts, radius, shadow, spacing } from "../../src/theme";
 import { useTracker } from "../../src/tracker/TrackerContext";
 import { Banner, Button, Loading } from "../../src/ui";
+import { checkForUpdate, UpdateCheckResult } from "../../src/updateCheck";
 import { useAsync } from "../../src/useAsync";
 
 // What the ring fills against. A local constant, not a setting: the org has no
@@ -26,6 +27,24 @@ export default function TimerScreen() {
   const [taskId, setTaskId] = useState<string | null>(null);
   const [picking, setPicking] = useState<"project" | "task" | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Sideloaded-APK distribution only (no Play Store yet), so this is a
+  // check-and-hand-off, not an auto-updater: once per app open we ask the web
+  // dashboard's release proxy whether a newer build exists, and if so let the
+  // user tap through to the OS's own "install unknown app" flow. Dismissing
+  // clears it for this session only — a fresh launch checks again, so a real
+  // update can't be silently hidden forever.
+  const [update, setUpdate] = useState<UpdateCheckResult | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void checkForUpdate().then((result) => {
+      if (!cancelled && result.updateAvailable) setUpdate(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const todayRange = useMemo(
     () => ({ from: startOfToday().toISOString(), to: new Date(Date.now() + 60_000).toISOString() }),
@@ -108,6 +127,10 @@ export default function TimerScreen() {
             {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
           </Text>
         </View>
+
+        {update && !updateDismissed ? (
+          <UpdateBanner update={update} onDismiss={() => setUpdateDismissed(true)} />
+        ) : null}
 
         {!available ? (
           <Banner tone="warn">
@@ -252,6 +275,40 @@ export default function TimerScreen() {
   );
 }
 
+/** Uses the same surface-alt/rounded-box idiom as `Banner`, plus the action
+ *  button and dismiss control a plain Banner doesn't have. Tapping "Update"
+ *  only opens the browser/OS download flow — nothing here touches the
+ *  filesystem or installs anything itself. */
+function UpdateBanner({ update, onDismiss }: { update: UpdateCheckResult; onDismiss: () => void }) {
+  const openDownload = () => {
+    if (!update.downloadUrl) return;
+    void Linking.openURL(update.downloadUrl).catch(() => {
+      // Nothing to fall back to here beyond leaving the banner up — the user
+      // can try again, or update later from the browser directly.
+    });
+  };
+
+  return (
+    <View style={s.updateBanner}>
+      <Ionicons name="arrow-up-circle-outline" size={20} color={colors.textMuted} />
+      <Text style={s.updateBannerText}>
+        Trax v{update.latestVersion} is available. Update to get the latest fixes.
+      </Text>
+      <Pressable onPress={openDownload} hitSlop={8}>
+        <Text style={s.updateBannerAction}>Update</Text>
+      </Pressable>
+      <Pressable
+        onPress={onDismiss}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Dismiss update notice"
+      >
+        <Ionicons name="close" size={18} color={colors.faint} />
+      </Pressable>
+    </View>
+  );
+}
+
 function Total({ label, value, error }: { label: string; value: string; error: boolean }) {
   return (
     <View style={s.total}>
@@ -307,4 +364,15 @@ const s = StyleSheet.create({
   syncAction: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.accent },
 
   footnote: { fontFamily: fonts.body, fontSize: 12, color: colors.faint, lineHeight: 18 },
+
+  updateBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+  updateBannerText: { flex: 1, fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.textMuted },
+  updateBannerAction: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.accent },
 });

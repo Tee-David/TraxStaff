@@ -1,3 +1,4 @@
+import Application from "expo-application";
 import Constants from "expo-constants";
 import { randomUUID } from "expo-crypto";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -7,10 +8,15 @@ import { ApiError, api } from "../api/client";
 import type { Project, Task } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 
-// Read from app.config.ts rather than duplicated here. This string is stored
-// against every session server-side, so a hand-maintained copy that drifts from
-// the shipped version turns the field into a lie.
-const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
+// `Constants.expoConfig?.version` reads app.config.ts's hardcoded "0.1.0" —
+// CI (mobile-android.yml) stamps the real version into the generated native
+// Gradle project's versionName post-`expo prebuild`, never back into
+// app.config.ts, so that field is permanently stale at runtime regardless of
+// what's actually installed. `Application.nativeApplicationVersion` reads the
+// real installed package's version from the Android PackageManager instead.
+// It can be null in Expo Go / a dev client with no real package installed,
+// which is the only case the fallback below is for.
+const APP_VERSION = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? "0.0.0";
 const POLL_MS = 1_000;
 const HEARTBEAT_MS = 60_000;
 

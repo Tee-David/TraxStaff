@@ -17,6 +17,12 @@ enum UserStatus {
   invited
   active
   disabled
+  // Distinct from `disabled`: a deliberate, harder action with no Re-enable
+  // path in the UI. Never a real DELETE of the row - every table with
+  // tracking/audit history (sessions, screenshots, timesheets, project
+  // assignments) references userId, and this account must keep meaning
+  // something to all of that history after the person is gone.
+  removed
 }
 
 enum TaskStatus {

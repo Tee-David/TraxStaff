@@ -23,7 +23,7 @@ export interface Member {
   id: string;
   email: string;
   role: "owner" | "admin" | "member";
-  status: "invited" | "active" | "disabled";
+  status: "invited" | "active" | "disabled" | "removed";
   createdAt: string;
   /** null = inherits the org default. 0 is a real target of no hours. */
   dailyTargetMinutes: number | null;

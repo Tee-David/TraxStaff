@@ -233,10 +233,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
       where: { id: req.user.userId },
       include: { org: { select: { dailyTargetMinutes: true, weeklyTargetMinutes: true } } },
     });
-    // A disabled member must lose access immediately, not when their token
-    // eventually expires. Checked here because every client calls /auth/me to
-    // establish a session.
-    if (user.status === "disabled") {
+    // A disabled or removed member must lose access immediately, not when
+    // their token eventually expires. Checked here because every client calls
+    // /auth/me to establish a session.
+    if (user.status !== "active") {
       return reply.code(401).send({ error: "Account disabled" });
     }
     return reply.send({

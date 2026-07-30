@@ -9,8 +9,6 @@ import { Badge, Button, Card, EmptyState, Input, Label, PageHeader, Skeleton } f
 import { Select } from "@/components/Select";
 import { formatDate } from "@/lib/format";
 
-const MAX_SEATS = 10;
-
 const ROLE_CONFIG = {
   owner: { label: "Owner", bg: "bg-brand/10", text: "text-brand", dot: "#000065" },
   admin: { label: "Admin", bg: "bg-accent/10", text: "text-accent", dot: "#ff6600" },
@@ -21,6 +19,7 @@ const STATUS_CONFIG = {
   active: { label: "Active", color: "bg-green-500" },
   invited: { label: "Pending", color: "bg-amber-400" },
   disabled: { label: "Disabled", color: "bg-border" },
+  removed: { label: "Removed", color: "bg-[var(--color-negative)]" },
 } as const;
 
 const AVATAR_PALETTE = [
@@ -223,6 +222,66 @@ function TargetDialog({
   );
 }
 
+/**
+ * Removal is a one-way door — there is no Re-enable path afterward, unlike
+ * Disable — so it requires the admin to type the member's exact email before
+ * the destructive button will even enable. Mirrors TargetDialog's modal shell.
+ */
+function RemoveDialog({
+  member,
+  onClose,
+  onConfirm,
+}: {
+  member: Member;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [confirmText, setConfirmText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const matches = confirmText.trim().toLowerCase() === member.email.toLowerCase();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <Card className="relative z-10 w-full max-w-sm p-6">
+        <h2 className="font-heading text-[15px] font-semibold text-ink">Remove user</h2>
+        <p className="mt-1 text-[12px] text-muted">
+          This permanently revokes {member.email}&rsquo;s access. Unlike disabling, there is no
+          re-enable path afterward — their tracked time, screenshots, and history are kept, but
+          the account itself cannot sign in or be restored from here.
+        </p>
+        <div className="mt-4">
+          <Label>Type {member.email} to confirm</Label>
+          <Input
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={member.email}
+            autoFocus
+          />
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button
+            variant="danger"
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await onConfirm();
+                onClose();
+              } finally {
+                setSaving(false);
+              }
+            }}
+            disabled={saving || !matches}
+          >
+            {saving ? "Removing…" : "Remove user"}
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 type InviteResult = { ok: true; emailed: boolean; inviteUrl?: string };
 
 function noticeTone(kind: "ok" | "err" | "warn"): string {
@@ -262,6 +321,7 @@ export default function MembersPage() {
   const [search, setSearch] = useState("");
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [targetFor, setTargetFor] = useState<Member | null>(null);
+  const [removeFor, setRemoveFor] = useState<Member | null>(null);
 
   async function load() {
     const data = await api<Member[]>("/members");
@@ -303,7 +363,7 @@ export default function MembersPage() {
     await api(`/members/${m.id}`, { method: "PATCH", body: JSON.stringify({ role: next }) }).catch(() => load());
   }
 
-  async function setStatus(m: Member, status: "active" | "disabled") {
+  async function setStatus(m: Member, status: "active" | "disabled" | "removed") {
     if (status === "disabled") await api(`/members/${m.id}`, { method: "DELETE" }).catch(() => {});
     else await api(`/members/${m.id}`, { method: "PATCH", body: JSON.stringify({ status }) }).catch(() => {});
     await load();
@@ -326,8 +386,9 @@ export default function MembersPage() {
   const allVisible = members.filter(matches);
   const active = allVisible.filter((m) => m.status !== "invited");
   const pending = allVisible.filter((m) => m.status === "invited");
-  const seatsUsed = members.filter((m) => m.status !== "disabled").length;
-  const seatsPct = Math.min(100, Math.round((seatsUsed / MAX_SEATS) * 100));
+  // Deliberately "active" only, not "not disabled" — a removed account is
+  // gone for good and must not inflate this the way a disabled one shouldn't
+  // either.
   const totalActive = members.filter((m) => m.status === "active").length;
 
   return (
@@ -375,7 +436,7 @@ export default function MembersPage() {
                     minWidth={140}
                   />
                 </div>
-                <Button type="submit" disabled={inviting || seatsUsed >= MAX_SEATS}>
+                <Button type="submit" disabled={inviting}>
                   {inviting ? "Sending…" : "Send invite"}
                 </Button>
               </form>
@@ -384,19 +445,6 @@ export default function MembersPage() {
                   {notice.text}
                 </p>
               )}
-              {/* Seat meter */}
-              <div className="mt-4 border-t border-border pt-4">
-                <div className="mb-2 flex items-center justify-between text-[12px]">
-                  <span className="text-muted">{seatsUsed} of {MAX_SEATS} seats used</span>
-                  {seatsUsed >= MAX_SEATS && <span className="font-semibold text-accent">Seat limit reached</span>}
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-canvas">
-                  <div
-                    className="h-full rounded-full bg-brand transition-[width] duration-500"
-                    style={{ width: `${seatsPct}%` }}
-                  />
-                </div>
-              </div>
             </Card>
           </motion.div>
         )}
@@ -457,7 +505,7 @@ export default function MembersPage() {
                         {/* User */}
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <MemberAvatar email={m.email} disabled={m.status === "disabled"} />
+                            <MemberAvatar email={m.email} disabled={m.status !== "active"} />
                             <div className="min-w-0">
                               <div className="font-semibold text-[13px] text-ink truncate">{m.email.split("@")[0]}</div>
                               <div className="text-[11px] text-muted truncate sm:hidden">{m.email}</div>
@@ -480,7 +528,7 @@ export default function MembersPage() {
                         <td className="px-4 py-4">
                           {m.role === "owner" ? (
                             <RolePill role="owner" />
-                          ) : m.status === "disabled" ? (
+                          ) : m.status !== "active" ? (
                             <RolePill role={m.role} />
                           ) : (
                             <Select
@@ -494,14 +542,21 @@ export default function MembersPage() {
                         </td>
                         {/* Actions */}
                         <td className="px-4 py-4 text-center">
-                          {m.role !== "owner" && (
+                          {/* Owner: no menu at all. Removed: no menu either — the
+                              account is gone for good and there is nothing left
+                              to do from here (crucially, no Re-enable). */}
+                          {m.role !== "owner" && m.status !== "removed" && (
                             <ActionMenu
                               items={
                                 m.status === "disabled"
-                                  ? [{ label: "Re-enable", onClick: () => setStatus(m, "active") }]
+                                  ? [
+                                      { label: "Re-enable", onClick: () => setStatus(m, "active") },
+                                      { label: "Remove user", danger: true, onClick: () => setRemoveFor(m) },
+                                    ]
                                   : [
                                       { label: "Set work targets", onClick: () => setTargetFor(m) },
                                       { label: "Disable access", danger: true, onClick: () => setStatus(m, "disabled") },
+                                      { label: "Remove user", danger: true, onClick: () => setRemoveFor(m) },
                                     ]
                               }
                             />
@@ -580,6 +635,14 @@ export default function MembersPage() {
           member={targetFor}
           onClose={() => setTargetFor(null)}
           onSave={(daily, weekly) => saveTargets(targetFor, daily, weekly)}
+        />
+      )}
+
+      {removeFor && (
+        <RemoveDialog
+          member={removeFor}
+          onClose={() => setRemoveFor(null)}
+          onConfirm={() => setStatus(removeFor, "removed")}
         />
       )}
     </div>

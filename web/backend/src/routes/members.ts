@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma";
 
 const updateMemberSchema = z.object({
   role: z.enum(["owner", "admin", "member"]).optional(),
-  status: z.enum(["invited", "active", "disabled"]).optional(),
+  status: z.enum(["invited", "active", "disabled", "removed"]).optional(),
   // Nullable on purpose: null clears the override so the member goes back to
   // inheriting the org default. That is a different thing from 0, which is a
   // real target of no hours.
@@ -47,6 +47,12 @@ export default async function memberRoutes(fastify: FastifyInstance) {
       }
       if (target.role === "owner" && body.role && body.role !== "owner") {
         return reply.code(400).send({ error: "Cannot change the owner's role" });
+      }
+      // Same protection extended to status: PATCH previously only guarded role,
+      // so an admin could already disable or remove the owner through this
+      // endpoint even though the dedicated DELETE route explicitly refuses to.
+      if (target.role === "owner" && body.status && body.status !== "active") {
+        return reply.code(400).send({ error: "Cannot disable or remove the owner" });
       }
 
       const updated = await prisma.user.update({ where: { id }, data: body, select: memberSelect });

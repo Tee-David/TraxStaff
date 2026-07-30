@@ -4,7 +4,7 @@ Version 1.0 — Effective 2026
 
 IMPORTANT — READ CAREFULLY. This End User License Agreement ("Agreement") is a
 legal agreement between you ("User") and Wendiloveee Media ("Licensor") for the
-Trax time-tracking and productivity software, including the desktop application,
+TraxStaff time-tracking and productivity software, including the desktop application,
 associated services, and documentation (collectively, the "Software").
 
 The Software is owned by Wendiloveee Media and was designed and developed by
@@ -19,8 +19,8 @@ of this Agreement. If you do not agree, do not install or use the Software.
    duration of your authorized access.
 
 2. WORKPLACE MONITORING — NOTICE AND CONSENT
-   Trax is a workplace time-tracking tool. While tracking is active, the Software
-   collects and transmits the following to your organization's Trax workspace:
+   TraxStaff is a workplace time-tracking tool. While tracking is active, the Software
+   collects and transmits the following to your organization's TraxStaff workspace:
      (a) time-tracking records (start/stop, duration, project and task);
      (b) activity-intensity metrics derived from keyboard and mouse usage
          (aggregate counts and timing only — the Software does NOT record

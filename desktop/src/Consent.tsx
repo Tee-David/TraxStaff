@@ -35,10 +35,10 @@ export default function Consent({ onAccept, onDecline }: { onAccept: () => void;
   return (
     <div className="consent-screen">
       <div className="consent-card">
-        <img src="/brand/icon-badge.svg" alt="Trax" className="consent-badge" />
+        <img src="/brand/icon-badge.svg" alt="TraxStaff" className="consent-badge" />
         <h1 className="consent-title">Before you start tracking</h1>
         <p className="consent-sub">
-          Trax records work activity only while the timer is running. It is never
+          TraxStaff records work activity only while the timer is running. It is never
           hidden — you can always see when it&rsquo;s on. Here&rsquo;s exactly what&rsquo;s collected:
         </p>
 
@@ -51,7 +51,7 @@ export default function Consent({ onAccept, onDecline }: { onAccept: () => void;
             <span className="consent-ic" aria-hidden>⌨️</span>
             <div>
               <strong>Activity level.</strong> How often you use the keyboard and
-              mouse — timing and intensity only. Trax <em>never</em> records what
+              mouse — timing and intensity only. TraxStaff <em>never</em> records what
               you type or your keystrokes.
             </div>
           </li>
@@ -66,7 +66,7 @@ export default function Consent({ onAccept, onDecline }: { onAccept: () => void;
         </ul>
 
         <p className="consent-fine">
-          This data is visible to your organization&rsquo;s admins on the Trax
+          This data is visible to your organization&rsquo;s admins on the TraxStaff
           dashboard and is used to measure worked time and productivity. Capture
           stops the moment you stop the timer or quit the app.
         </p>

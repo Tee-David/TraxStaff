@@ -1,7 +1,7 @@
 [package]
 name = "trax-desktop"
 version = "0.1.0"
-description = "Trax time tracker"
+description = "TraxStaff time tracker"
 authors = ["Trax"]
 edition = "2021"
 rust-version = "1.77"

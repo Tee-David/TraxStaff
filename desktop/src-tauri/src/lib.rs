@@ -37,7 +37,7 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let sep2 = PredefinedMenuItem::separator(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
     let signout = mi("signout", "Sign Out")?;
-    let quit = mi("quit", "Quit Trax")?;
+    let quit = mi("quit", "Quit TraxStaff")?;
     let menu = Menu::with_items(
         app,
         &[
@@ -53,7 +53,7 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
-        .tooltip("Trax — not tracking")
+        .tooltip("TraxStaff — not tracking")
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
             match id {
@@ -113,7 +113,7 @@ fn get_device_id(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 fn set_tracking_indicator(app: tauri::AppHandle, active: bool) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let _ = tray.set_tooltip(Some(if active { "Trax — tracking" } else { "Trax — not tracking" }));
+        let _ = tray.set_tooltip(Some(if active { "TraxStaff — tracking" } else { "TraxStaff — not tracking" }));
     }
 }
 
@@ -199,7 +199,7 @@ pub fn run() {
             }
         }),
         Err(e) => {
-            eprintln!("Trax failed to start: {e}");
+            eprintln!("TraxStaff failed to start: {e}");
         }
     }
 }

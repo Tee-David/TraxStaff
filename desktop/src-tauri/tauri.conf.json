@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Trax",
+  "productName": "TraxStaff",
   "version": "0.1.0",
   "identifier": "com.trax.tracker",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Trax",
+        "title": "TraxStaff",
         "width": 420,
         "height": 640,
         "resizable": true,
@@ -32,8 +32,8 @@
     "copyright": "© 2026 Wendiloveee Media. All rights reserved. Developed by WDC Solutions.",
     "licenseFile": "EULA.txt",
     "homepage": "https://deo-trax.vercel.app",
-    "shortDescription": "Trax — time tracking & productivity",
-    "longDescription": "Trax is an internal time-tracking and productivity tool: time tracking, activity metrics, periodic screenshots, projects and tasks, and team reporting. Owned by Wendiloveee Media; developed by WDC Solutions.",
+    "shortDescription": "TraxStaff — time tracking & productivity",
+    "longDescription": "TraxStaff is an internal time-tracking and productivity tool: time tracking, activity metrics, periodic screenshots, projects and tasks, and team reporting. Owned by Wendiloveee Media; developed by WDC Solutions.",
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"

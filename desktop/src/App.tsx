@@ -264,7 +264,7 @@ function useUpdateCheck(onFound: (u: PendingUpdate) => void) {
         console.info(`[updater] ${next} available (running ${current})`);
         // The prompt below is an in-app dialog — invisible if the window is
         // minimised to the tray, which is where the tracker usually lives.
-        notify("Trax", `Version ${next} is available (you're on ${current})`);
+        notify("TraxStaff", `Version ${next} is available (you're on ${current})`);
         onFound({
           version: next,
           current,
@@ -327,9 +327,9 @@ function UpdateDialog({ update, onDismiss }: { update: PendingUpdate; onDismiss:
   return (
     <div className="modal-scrim">
       <div className="upd-card" role="dialog" aria-modal="true" aria-labelledby="upd-title">
-        <h3 className="upd-title" id="upd-title">A new version of Trax is available</h3>
+        <h3 className="upd-title" id="upd-title">A new version of TraxStaff is available</h3>
         <p className="upd-sub">
-          Trax <strong>{update.version}</strong> is ready to install — you have {update.current}.
+          TraxStaff <strong>{update.version}</strong> is ready to install — you have {update.current}.
         </p>
 
         {update.notes && (
@@ -361,7 +361,7 @@ function UpdateDialog({ update, onDismiss }: { update: PendingUpdate; onDismiss:
           </button>
         </div>
         <p className="upd-foot">
-          Trax will close and reopen. Any tracked time is saved first.
+          TraxStaff will close and reopen. Any tracked time is saved first.
         </p>
       </div>
     </div>
@@ -442,7 +442,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
     try {
       const res = await api<{ token: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
       setToken(res.token);
-      notify("Trax", `Signed in as ${email}`);
+      notify("TraxStaff", `Signed in as ${email}`);
       onLogin();
     } catch (err) { setError(err instanceof Error ? err.message : "Login failed"); }
     finally { setLoading(false); }
@@ -453,7 +453,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
         <LightRays raysOrigin="top-center" raysColor="#ffffff" raysSpeed={1} lightSpread={0.5} rayLength={3} followMouse mouseInfluence={0.1} distortion={0.4} saturation={1} />
       </div>
       <div className="login-card">
-        <img src="/brand/icon-badge.svg" alt="Trax" className="login-badge" />
+        <img src="/brand/icon-badge.svg" alt="TraxStaff" className="login-badge" />
         <h1 className="login-title">Welcome back</h1>
         <p className="login-sub">Sign in to start tracking.</p>
         <form onSubmit={submit} className="stack">
@@ -548,7 +548,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       const workHours = d.getDay() >= 1 && d.getDay() <= 5 && d.getHours() >= 9 && d.getHours() < 17;
       if (workHours && Date.now() - lastNudge.at > 3600_000) {
         lastNudge.at = Date.now();
-        notify("Trax", "You're not tracking time right now.");
+        notify("TraxStaff", "You're not tracking time right now.");
       }
     }, 5 * 60_000);
     return () => clearInterval(id);
@@ -575,8 +575,8 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         if (failing !== alerted.current.sync) {
           alerted.current.sync = failing;
           if (reminders.current.sync) {
-            notify("Trax", failing
-              ? "Can't reach the Trax server — your tracked time is saved on this device and will upload automatically."
+            notify("TraxStaff", failing
+              ? "Can't reach the TraxStaff server — your tracked time is saved on this device and will upload automatically."
               : "Back online — your tracked time has been uploaded.");
           }
         }
@@ -589,14 +589,14 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         if (typeof inputHook === "boolean") {
           setHookOk(inputHook);
           if (!inputHook && !alerted.current.hook) {
-            notify("Trax", "Activity tracking stopped responding — your time still counts, but activity will read 0%.");
+            notify("TraxStaff", "Activity tracking stopped responding — your time still counts, but activity will read 0%.");
           }
           alerted.current.hook = !inputHook;
         }
         if (typeof screenshots === "boolean") {
           setShotsOk(screenshots);
           if (!screenshots && !alerted.current.shots) {
-            notify("Trax", "Screenshots couldn't be captured on this screen — time and activity still record.");
+            notify("TraxStaff", "Screenshots couldn't be captured on this screen — time and activity still record.");
           }
           alerted.current.shots = !screenshots;
         }
@@ -608,7 +608,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         showToast("Screenshot captured");
         // Also notify at OS level: the in-app toast is invisible when the window
         // is minimised or behind another app, and capture must never feel silent.
-        if (reminders.current.screenshots) notify("Trax", "Screenshot taken");
+        if (reminders.current.screenshots) notify("TraxStaff", "Screenshot taken");
         loadLocalShots();
       }),
       // Sync state changed — upload tags on the local gallery may have moved
@@ -618,18 +618,18 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       listen<{ gapSecs: number }>("trax:resumed", (e) => {
         const mins = Math.round(e.payload.gapSecs / 60);
         setResumed(mins);
-        if (reminders.current.idle) notify("Trax", `Your computer was asleep for ~${mins} min — still tracking.`);
+        if (reminders.current.idle) notify("TraxStaff", `Your computer was asleep for ~${mins} min — still tracking.`);
       }),
       // Idle threshold crossed (informational) and returned from idle (actionable).
       listen<{ minutes: number }>("trax:idle", (e) => {
         setIdleBanner(e.payload.minutes);
-        if (reminders.current.idle) notify("Trax", `You've been idle for ~${e.payload.minutes} min while tracking.`);
+        if (reminders.current.idle) notify("TraxStaff", `You've been idle for ~${e.payload.minutes} min while tracking.`);
       }),
       listen<{ minutes: number; fromISO: string; toISO: string }>("trax:idle-ended", (e) => {
         setIdleBanner(null);
         if (e.payload.minutes >= 1) {
           setIdlePrompt(e.payload);
-          if (reminders.current.idle) notify("Trax", `You were away for ~${e.payload.minutes} min — keep or discard that time?`);
+          if (reminders.current.idle) notify("TraxStaff", `You were away for ~${e.payload.minutes} min — keep or discard that time?`);
         }
       }),
     ];
@@ -729,7 +729,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
           .catch((e) => {
             console.error("[capture] begin_capture failed on resume:", e);
             setCaptureFailed(true);
-            notify("Trax", "Monitoring didn't start — your time is counting, but no screenshots or activity are being recorded.");
+            notify("TraxStaff", "Monitoring didn't start — your time is counting, but no screenshots or activity are being recorded.");
           });
         beginHeartbeat(open.id);
       }
@@ -796,7 +796,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     const startedAt = new Date().toISOString();
     setShotCount(0);
     showToast(`Tracking ${proj?.name ?? "project"}`);
-    if (reminders.current.timer) notify("Trax", `Started timer for project ${proj?.name ?? "project"}`);
+    if (reminders.current.timer) notify("TraxStaff", `Started timer for project ${proj?.name ?? "project"}`);
     // Timer starts now, off the local monotonic clock — never waits on Render.
     setActive({
       id: sid, projectId: useProject, taskId: taskForSession ?? null, startedAt, endedAt: null,
@@ -817,7 +817,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         // taking zero screenshots and recording zero activity.
         console.error("[capture] begin_capture failed:", e);
         setCaptureFailed(true);
-        notify("Trax", "Monitoring didn't start — your time is counting, but no screenshots or activity are being recorded.");
+        notify("TraxStaff", "Monitoring didn't start — your time is counting, but no screenshots or activity are being recorded.");
       });
     void registerSession(sid, useProject, taskForSession, startedAt);
   }
@@ -841,7 +841,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       const msg = e instanceof Error ? e.message : String(e);
       if (/another device/i.test(msg)) {
         setError("A session is already running on another device. Stop it there first.");
-        notify("Trax", "A session is already running on another device — stop it there first.");
+        notify("TraxStaff", "A session is already running on another device — stop it there first.");
         await stop();
         return;
       }
@@ -870,7 +870,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     setLocalSessions((prev) => { const next = mergeSessions([], [...prev, finished]); saveLocalSessions(next); return next; });
     setActive(null); setElapsed(0);
     showToast("■ Stopped");
-    if (reminders.current.timer) notify("Trax", `Stopped timer for project ${cur.project?.name ?? "project"}`);
+    if (reminders.current.timer) notify("TraxStaff", `Stopped timer for project ${cur.project?.name ?? "project"}`);
     if (cur.id) {
       api(`/sessions/${cur.id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "stopped" }) }).catch(() => {});
     }
@@ -910,7 +910,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     if (!discard || !p || !activeRef.current) return;
     try {
       await api("/sync/discard-idle", { method: "POST", body: JSON.stringify({ sessionId: activeRef.current.id, fromISO: p.fromISO, toISO: p.toISO }) });
-      if (reminders.current.idle) notify("Trax", `Discarded ~${p.minutes} min of idle time`);
+      if (reminders.current.idle) notify("TraxStaff", `Discarded ~${p.minutes} min of idle time`);
       load();
     } catch { /* best-effort */ }
   }
@@ -998,7 +998,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
               </>
             ) : (
               <>
-                <h3 className="close-title">Close Trax?</h3>
+                <h3 className="close-title">Close TraxStaff?</h3>
                 <p className="close-sub">
                   {closeInfo.capturing ? "A timer is still running. " : ""}
                   {closeInfo.pending > 0 ? `${closeInfo.pending} record${closeInfo.pending > 1 ? "s" : ""} haven't synced yet.` : "Your tracked time will be saved."}
@@ -1008,7 +1008,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
                   <button className="close-ghost" onClick={closeQuitAnyway}>Quit anyway</button>
                   <button className="close-cancel" onClick={closeCancel}>Cancel</button>
                 </div>
-                {closeInfo.pending > 0 && <p className="close-fine">“Quit anyway” keeps your records — they upload next time you open Trax.</p>}
+                {closeInfo.pending > 0 && <p className="close-fine">“Quit anyway” keeps your records — they upload next time you open TraxStaff.</p>}
               </>
             )}
           </div>
@@ -1046,7 +1046,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
           NOTHING is being recorded — this must never be silent. */}
       {captureFailed && active && (
         <div className="warn-banner">
-          Monitoring didn&rsquo;t start — your time is counting, but no screenshots or activity are being recorded. Restart Trax to retry.
+          Monitoring didn&rsquo;t start — your time is counting, but no screenshots or activity are being recorded. Restart TraxStaff to retry.
         </div>
       )}
 
@@ -1132,7 +1132,7 @@ function TrackingWidget(props: {
 
   return (
     <div className="widget">
-      <div className="widget-brand"><img src="/brand/icon-badge.svg" alt="Trax" className="brand-mark" /></div>
+      <div className="widget-brand"><img src="/brand/icon-badge.svg" alt="TraxStaff" className="brand-mark" /></div>
 
       <CircularTimer seconds={workedToday} targetSeconds={dayTarget} active={Boolean(active)} onToggle={() => (active ? onStop() : onStart())} />
 

@@ -7,7 +7,7 @@
 //! only ever appeared as the in-app banner. The webview calls `notify_os`
 //! instead, which hands the notification straight to the platform notifier.
 //!
-//! Windows branding (the "Trax" header row and app icon Windows draws beside
+//! Windows branding (the "TraxStaff" header row and app icon Windows draws beside
 //! each toast) comes from the AppUserModelID the NSIS installer stamps on the
 //! Start Menu shortcut; the plugin sends under the bundle identifier, which
 //! resolves to that registration. Nothing to set per notification — Windows

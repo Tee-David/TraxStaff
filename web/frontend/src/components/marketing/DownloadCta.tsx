@@ -2,7 +2,6 @@
 
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
-import { Badge, Button } from "@/components/ui";
 import {
   IconDownload,
   IconWindows,
@@ -17,6 +16,9 @@ import {
   formatReleaseDate,
   useLatestRelease,
 } from "@/lib/releases";
+
+/* This section sits on the navy field, so every control below is styled
+   against it rather than against the page canvas. */
 
 /** A real, working download button. */
 function DownloadButton({
@@ -36,22 +38,22 @@ function DownloadButton({
     <a
       href={href}
       rel="noopener noreferrer"
-      className={`flex items-center gap-3 rounded-xl border px-5 py-4 transition ${
+      className={`flex items-center gap-3 rounded-2xl border px-5 py-4 transition ${
         primary
-          ? "border-transparent bg-brand text-brand-fg hover:bg-brand-600"
-          : "border-border bg-surface text-ink hover:bg-canvas"
+          ? "border-transparent bg-white text-field hover:bg-white/90"
+          : "border-white/25 bg-white/[0.09] text-white hover:bg-white/[0.14]"
       }`}
     >
       <span
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
-          primary ? "bg-white/15" : "bg-canvas text-muted"
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+          primary ? "bg-field/10" : "bg-white/10"
         }`}
       >
         {icon}
       </span>
       <span className="min-w-0 flex-1 text-left">
         <span className="block text-sm font-semibold">{label}</span>
-        <span className={`block text-xs ${primary ? "text-brand-fg/70" : "text-muted"}`}>{hint}</span>
+        <span className={`block text-xs ${primary ? "text-field/60" : "text-white/55"}`}>{hint}</span>
       </span>
       <IconDownload width={16} height={16} />
     </a>
@@ -62,16 +64,16 @@ function DownloadButton({
 function ComingSoonButton({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
     <div
-      className="flex cursor-not-allowed items-center gap-3 rounded-xl border border-dashed border-border px-5 py-4 opacity-60"
+      className="flex cursor-not-allowed items-center gap-3 rounded-2xl border border-dashed border-white/25 px-5 py-4"
       aria-disabled="true"
       title="Not available yet"
     >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-canvas text-faint">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-white/40">
         {icon}
       </span>
       <span className="min-w-0 flex-1 text-left">
-        <span className="block text-sm font-semibold text-muted">{label}</span>
-        <span className="block text-xs text-faint">Coming soon</span>
+        <span className="block text-sm font-semibold text-white/65">{label}</span>
+        <span className="block text-xs text-white/45">Coming soon</span>
       </span>
     </div>
   );
@@ -84,48 +86,58 @@ export function DownloadCta() {
   const primary: "windows" | "linux" = platform === "linux" ? "linux" : "windows";
 
   return (
-    <section id="download" className="mx-auto max-w-4xl px-5 py-20 sm:px-8">
-      <motion.div {...page} className="rounded-3xl border border-border bg-surface p-8 shadow-[var(--shadow-lift)] sm:p-12">
+    <section id="download" className="bg-surface px-5 pb-24 sm:px-8 lg:pb-28">
+      <motion.div
+        {...page}
+        className="mk-on-field mk-grid mk-grid-invert relative mx-auto max-w-5xl overflow-hidden rounded-[2rem] bg-field px-6 py-16 text-white sm:px-12 lg:py-20"
+      >
         <div className="mx-auto max-w-xl text-center">
-          <h2 className="font-heading text-3xl font-bold tracking-tight text-ink sm:text-4xl">
-            Get TraxStaff on your machine
+          <h2 className="font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em]">
+            Put it on your <span className="mk-mark">machine</span>
           </h2>
-          <p className="mt-3 text-base text-muted">
-            Real builds from our latest GitHub release &mdash; the same one the
+          <p className="mt-5 text-base leading-relaxed text-white/70">
+            Real builds from the latest GitHub release &mdash; the same one the
             dashboard&rsquo;s own download button uses.
           </p>
           {state.status === "ready" && (
-            <div className="mt-4 flex items-center justify-center gap-2">
-              <Badge tone="brand">{state.data.version}</Badge>
+            <div className="mt-5 flex items-center justify-center gap-2">
+              <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-xs font-semibold text-white">
+                {state.data.version}
+              </span>
               {formatReleaseDate(state.data.publishedAt) && (
-                <span className="text-xs text-faint">{formatReleaseDate(state.data.publishedAt)}</span>
+                <span className="text-xs text-white/50">{formatReleaseDate(state.data.publishedAt)}</span>
               )}
             </div>
           )}
         </div>
 
-        <div className="mt-8">
+        <div className="mt-10">
+          {/* The shared `.skeleton` shimmer is tuned for the light canvas and
+              disappears on navy, so the placeholders get their own here. */}
           {state.status === "loading" && (
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="skeleton h-[4.5rem] rounded-xl" />
-              <div className="skeleton h-[4.5rem] rounded-xl" />
-              <div className="skeleton h-[4.5rem] rounded-xl" />
-              <div className="skeleton h-[4.5rem] rounded-xl" />
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="h-[4.5rem] animate-pulse rounded-2xl bg-white/[0.07]" />
+              ))}
             </div>
           )}
 
           {state.status === "error" && (
-            <div className="flex flex-col items-center gap-3 py-4 text-center">
-              <p className="text-sm text-muted">{state.message}</p>
-              <div className="flex items-center gap-3">
-                <Button variant="ghost" onClick={load}>
+            <div className="flex flex-col items-center gap-4 py-4 text-center">
+              <p className="text-sm text-white/70">{state.message}</p>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={load}
+                  className="rounded-full border border-white/20 bg-white/[0.06] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"
+                >
                   Try again
-                </Button>
+                </button>
                 <a
                   href={RELEASES_FALLBACK_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-white/70 transition hover:text-white"
                 >
                   GitHub releases <IconExternalLink width={14} height={14} />
                 </a>
@@ -142,7 +154,7 @@ export function DownloadCta() {
               return (
                 <div className="space-y-6">
                   <div>
-                    <div className="mb-2.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-faint">
+                    <div className="mb-2.5 px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
                       Desktop
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -178,7 +190,7 @@ export function DownloadCta() {
                       <a
                         href={data.linuxDeb}
                         rel="noopener noreferrer"
-                        className="mt-2 inline-block pl-1 text-xs font-medium text-brand hover:underline"
+                        className="mt-2.5 inline-block pl-1 text-xs font-medium text-white/70 transition hover:text-white hover:underline"
                       >
                         or get the .deb package instead
                       </a>
@@ -186,7 +198,7 @@ export function DownloadCta() {
                   </div>
 
                   <div>
-                    <div className="mb-2.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-faint">
+                    <div className="mb-2.5 px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
                       Mobile
                     </div>
                     <div className="grid gap-3 sm:grid-cols-3">
@@ -210,7 +222,7 @@ export function DownloadCta() {
                       href={data.htmlUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-1 text-xs font-medium text-muted hover:text-ink hover:underline"
+                      className="flex items-center justify-center gap-1.5 text-xs font-medium text-white/65 transition hover:text-white hover:underline"
                     >
                       Release notes <IconExternalLink width={13} height={13} />
                     </a>

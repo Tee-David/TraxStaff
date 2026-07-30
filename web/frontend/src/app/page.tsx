@@ -3,7 +3,9 @@ import { MarketingNav } from "@/components/marketing/Nav";
 import { Hero } from "@/components/marketing/Hero";
 import { PlatformStrip } from "@/components/marketing/PlatformStrip";
 import { Features } from "@/components/marketing/Features";
+import { Integrity } from "@/components/marketing/Integrity";
 import { Philosophy } from "@/components/marketing/Philosophy";
+import { Transparency } from "@/components/marketing/Transparency";
 import { DownloadCta } from "@/components/marketing/DownloadCta";
 import { Footer } from "@/components/marketing/Footer";
 
@@ -22,12 +24,14 @@ export default function Home() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <main className="min-h-screen bg-canvas">
+    <main className="mk-page min-h-screen bg-canvas">
       <MarketingNav />
       <Hero />
       <PlatformStrip />
       <Features />
+      <Integrity />
       <Philosophy />
+      <Transparency />
       <DownloadCta />
       <Footer currentYear={currentYear} />
     </main>

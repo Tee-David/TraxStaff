@@ -4,66 +4,40 @@ import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
 
 /**
- * Stands in for the usual customer-testimonial slot. There is no named
- * customer quote to put here, so instead of inventing one, this states the
- * product's actual position on tamper-resistance plainly — team-attributed,
- * not dressed up as a review. Language follows the project's own internal
- * "keep this honest" positioning notes: tamper-evident and hard-capped, not
- * tamper-proof, because nothing client-side is unbeatable on a machine
- * where the user has local admin.
+ * Occupies the slot a landing page normally gives to a customer testimonial.
+ * There is no named customer quote to put here, so rather than invent one,
+ * this states the product's actual position in the product's own voice —
+ * clearly attributed to the team, never dressed up as a review, and with no
+ * stock headshot standing in for a person who doesn't exist.
  */
-const points = [
-  {
-    title: "A hardware clock, not the system clock",
-    body: "Credited duration comes from a hardware counter the local system clock can't influence.",
-  },
-  {
-    title: "Capped against the server",
-    body: "Credited time is capped against the server's own clock, which the client can't see or change.",
-  },
-  {
-    title: "Tamper-evident records",
-    body: "Session records are chained, so edits after the fact are detectable — not just trusted.",
-  },
-  {
-    title: "The real control isn't code",
-    body: "The highest-leverage safeguard is organizational: staff not having local admin on the tracked machine.",
-  },
-];
-
 export function Philosophy() {
-  const { stagger, item } = useMotionPresets();
+  const { page } = useMotionPresets();
 
   return (
-    <section className="bg-brand py-20 text-brand-fg">
-      <div className="mx-auto max-w-6xl px-5 sm:px-8">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">
-            Tamper-evident by design, not tamper-proof by claim
-          </h2>
-          <p className="mt-3 text-base text-brand-fg/75">
-            We&rsquo;d rather tell you exactly what TraxStaff can and can&rsquo;t
-            guarantee than oversell it.
-          </p>
-        </div>
+    <section className="bg-surface px-5 pb-24 sm:px-8 lg:pb-28">
+      <motion.figure {...page} className="mx-auto max-w-3xl text-center">
+        <span
+          aria-hidden
+          className="font-heading text-5xl font-bold leading-none text-accent"
+        >
+          &ldquo;
+        </span>
 
-        <motion.div {...stagger(0.05)} className="mt-12 grid gap-5 sm:grid-cols-2">
-          {points.map((p) => (
-            <motion.div
-              key={p.title}
-              {...item}
-              className="rounded-2xl border border-white/15 bg-white/5 p-6"
-            >
-              <h3 className="font-heading text-base font-semibold">{p.title}</h3>
-              <p className="mt-1.5 text-sm leading-relaxed text-brand-fg/75">{p.body}</p>
-            </motion.div>
-          ))}
-        </motion.div>
+        <blockquote className="mt-5 font-heading text-[clamp(1.375rem,2.9vw,2rem)] font-medium leading-[1.32] tracking-[-0.025em] text-ink">
+          On a machine where someone has local admin, nothing client-side is
+          unbeatable. So we don&rsquo;t sell you tamper-proof. We build
+          tamper-evident, and we tell you exactly where the line is.
+        </blockquote>
 
-        <p className="mt-10 text-center text-sm font-medium text-brand-fg/60">
-          &mdash; the TraxStaff team
-        </p>
-      </div>
+        <figcaption className="mt-9 flex flex-col items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/icon-badge.svg" alt="" width={36} height={36} className="h-9 w-9" />
+          <span className="text-sm font-semibold text-ink">The TraxStaff team</span>
+          <span className="text-xs text-muted">
+            On what this product does and doesn&rsquo;t guarantee
+          </span>
+        </figcaption>
+      </motion.figure>
     </section>
   );
 }

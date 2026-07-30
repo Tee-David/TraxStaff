@@ -8,6 +8,13 @@
   --color-accent: #ff6600;
   --color-accent-fg: #ffffff;
 
+  /* Marketing dark fields. Deliberately *not* `--color-brand`: that token
+     flips to a lit periwinkle in dark mode so accents stay legible on a dark
+     canvas, which is right for the app but would turn the landing page's
+     large navy panels bright. These stay navy in both themes. */
+  --color-field: #000065;
+  --color-field-deep: #05052e;
+
   /* Neutrals — airy, cool-tinted */
   --color-canvas: #f5f6fa;
   --color-surface: #ffffff;
@@ -57,6 +64,10 @@
   --color-cat-break: #3d4763;
   --color-positive: #35c281;
   --color-negative: #f4685f;
+  /* Navy panels sit on a near-black canvas here, so they drop a touch to
+     keep the edge between panel and page readable. */
+  --color-field: #0b0b40;
+  --color-field-deep: #06062a;
 }
 
 * {
@@ -187,6 +198,101 @@ h1, h2, h3, h4, h5, h6 {
 @media (prefers-reduced-motion: reduce) {
   .trax-loading { animation: none; }
   .trax-loading-mark { animation: none; opacity: 1; }
+}
+
+/* ---------- Marketing site (traxstaff.com) ----------
+   Everything here is namespaced `mk-` and used only by
+   `src/components/marketing/*`. Kept out of the Tailwind utility flow on
+   purpose: these are the few effects (blueprint grid, marker underline,
+   live-dot pulse) that need real CSS rather than composed utilities, and the
+   prefix keeps them from ever colliding with a dashboard class. */
+
+/* Blueprint grid — the graph-paper field the hero and the dark panels sit on.
+   Drawn on a ::before so the element's own background stays free, and masked
+   so the lines dissolve toward the edges instead of stopping at a hard seam. */
+.mk-grid {
+  position: relative;
+  isolation: isolate;
+}
+.mk-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--color-brand) 8%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-brand) 8%, transparent) 1px, transparent 1px);
+  background-size: 76px 76px;
+  background-position: center top;
+  -webkit-mask-image: radial-gradient(80% 65% at 50% 32%, #000 0%, transparent 78%);
+  mask-image: radial-gradient(80% 65% at 50% 32%, #000 0%, transparent 78%);
+}
+/* Same field, inverted, for the navy panels. */
+.mk-grid-invert::before {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  -webkit-mask-image: radial-gradient(85% 75% at 50% 20%, #000 0%, transparent 82%);
+  mask-image: radial-gradient(85% 75% at 50% 20%, #000 0%, transparent 82%);
+}
+
+/* Marker underline for the one emphasized word in a headline. Sits just
+   under the baseline rather than through the text, so descenders stay clean. */
+.mk-mark {
+  position: relative;
+  white-space: nowrap;
+}
+.mk-mark::after {
+  content: "";
+  position: absolute;
+  left: -0.02em;
+  right: -0.02em;
+  bottom: 0.02em;
+  height: 0.07em;
+  border-radius: 999px;
+  background: var(--color-accent);
+}
+
+/* Keyboard focus. The marketing page is built from plain <a> elements rather
+   than the shared `Button`, which carries its own ring — so the ring is
+   defined once here instead. Scoped to `.mk-page` so it can't override the
+   dashboard's own focus utilities, and flipped to white by `.mk-on-field` on
+   the navy panels, where a navy outline would be invisible. */
+.mk-page a:focus-visible,
+.mk-page button:focus-visible {
+  outline: 2px solid var(--mk-focus, var(--color-brand));
+  outline-offset: 3px;
+}
+.mk-on-field {
+  --mk-focus: #ffffff;
+}
+
+/* The live indicator. One pulsing dot, used only where tracking is genuinely
+   running — the hero ribbon and the platform chips that mirror it. */
+.mk-live-dot {
+  position: relative;
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--color-accent);
+  flex: none;
+}
+.mk-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--color-accent);
+  animation: mk-pulse 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes mk-pulse {
+  0%   { transform: scale(1);   opacity: 0.7; }
+  70%  { transform: scale(2.6); opacity: 0; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mk-live-dot::after { animation: none; }
 }
 
 /* Theme Toggle View Transition */

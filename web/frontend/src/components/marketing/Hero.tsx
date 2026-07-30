@@ -1,50 +1,104 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
 import { APP_URL } from "@/lib/site";
+import { IconClock, IconAndroid, IconWindows } from "@/components/icons";
 
 /**
- * A schematic illustration of the always-visible tracking indicator + a
- * running timer, built from the app's own category colors — not a screenshot
- * of the dashboard (none is embedded here), just a small visual anchor for
- * the "you can always see it's on" claim made in the copy beside it.
+ * Seconds since this component mounted. Real elapsed time, not a scripted
+ * animation — the hero's whole point is that the number you're looking at is
+ * the honest one.
+ *
+ * Starts at 0 on both server and client so the first paint matches, then
+ * ticks once mounted. It keeps ticking under `prefers-reduced-motion`: a
+ * running clock is the content here, not decoration. Only the pulsing dot
+ * beside it (`.mk-live-dot`, see globals.css) stops.
  */
-function TrackingIllustration() {
-  const categories = [
-    { label: "Focus", color: "var(--color-cat-focus)", width: "58%" },
-    { label: "Meeting", color: "var(--color-cat-meeting)", width: "22%" },
-    { label: "Other", color: "var(--color-cat-other)", width: "12%" },
-    { label: "Break", color: "var(--color-cat-break)", width: "8%" },
-  ];
+function useElapsed() {
+  const [seconds, setSeconds] = useState(0);
 
+  useEffect(() => {
+    const start = Date.now();
+    const id = setInterval(() => setSeconds(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return seconds;
+}
+
+function formatElapsed(total: number) {
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return [h, m, s].map((n) => String(n).padStart(2, "0")).join(":");
+}
+
+/**
+ * The signature. Instead of describing the always-visible indicator, the page
+ * runs one on itself: the same timer, the same live dot, counting the time
+ * you've actually spent here. Every claim it makes about itself is true.
+ */
+function LiveRibbon({ elapsed }: { elapsed: number }) {
   return (
-    <div className="relative w-full max-w-sm rounded-2xl border border-border bg-surface p-6 shadow-[var(--shadow-lift)]">
-      <div className="flex items-center justify-between">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-positive)]/12 px-2.5 py-1 text-xs font-semibold text-[var(--color-positive)]">
-          <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-positive)]" />
-          Tracking &mdash; visible
+    <div className="mx-auto w-full max-w-xl rounded-2xl border border-border bg-surface p-5 text-left shadow-[var(--shadow-lift)] sm:p-6">
+      <div className="flex items-center gap-2">
+        <span className="mk-live-dot" />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">
+          Tracking &middot; visible
         </span>
-        <span className="text-xs text-faint">Session</span>
       </div>
 
-      <div className="mt-5 font-heading text-4xl font-bold tabular-nums tracking-tight text-ink">
-        02:41:18
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:gap-5">
+        {/* Plain text, deliberately: no aria-live, so a screen reader reads the
+            value once with the caption rather than re-announcing it every
+            second. The caption below says what the number is. */}
+        <span className="font-heading text-[2.75rem] font-bold leading-none tracking-[-0.03em] text-ink tabular-nums">
+          {formatElapsed(elapsed)}
+        </span>
+        <p className="text-sm leading-relaxed text-muted">
+          How long this page has been open. You could see it counting the whole
+          time &mdash; that&rsquo;s the entire product.
+        </p>
       </div>
-      <p className="mt-1 text-xs text-muted">Credited against the server clock, not the local one.</p>
+    </div>
+  );
+}
 
-      <div className="mt-5 flex h-2.5 w-full overflow-hidden rounded-full bg-canvas">
-        {categories.map((c) => (
-          <span key={c.label} style={{ width: c.width, background: c.color }} />
-        ))}
+/**
+ * The tracking indicator as it appears on each platform that ships today.
+ * Same timer, three surfaces — the visual argument for "you can always see
+ * it's on", made without a screenshot of anyone's real work.
+ */
+function PlatformChip({
+  icon,
+  surface,
+  title,
+  elapsed,
+  className,
+}: {
+  icon: React.ReactNode;
+  surface: string;
+  title: string;
+  elapsed: number;
+  className: string;
+}) {
+  return (
+    <div
+      aria-hidden
+      className={`pointer-events-none absolute hidden w-52 rounded-2xl border border-border bg-surface p-3.5 shadow-[var(--shadow-lift)] lg:block ${className}`}
+    >
+      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
+        <span className="text-muted">{icon}</span>
+        {surface}
       </div>
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
-        {categories.map((c) => (
-          <span key={c.label} className="flex items-center gap-1.5 text-[11px] text-muted">
-            <span className="h-2 w-2 rounded-full" style={{ background: c.color }} />
-            {c.label}
-          </span>
-        ))}
+      <div className="mt-2.5 flex items-center gap-2">
+        <span className="mk-live-dot" />
+        <span className="text-xs font-semibold text-ink">{title}</span>
+      </div>
+      <div className="mt-1 font-heading text-lg font-bold leading-none tracking-[-0.02em] text-ink tabular-nums">
+        {formatElapsed(elapsed)}
       </div>
     </div>
   );
@@ -52,63 +106,81 @@ function TrackingIllustration() {
 
 export function Hero() {
   const { stagger, item } = useMotionPresets();
+  const elapsed = useElapsed();
 
   return (
-    <section id="top" className="relative overflow-hidden">
+    <section id="top" className="mk-grid relative overflow-hidden">
       <div
         className="pointer-events-none absolute inset-0 -z-10"
         style={{
           background:
-            "radial-gradient(70% 60% at 50% -10%, color-mix(in srgb, var(--color-brand) 14%, transparent) 0%, transparent 60%)",
+            "radial-gradient(65% 55% at 50% -8%, color-mix(in srgb, var(--color-brand) 13%, transparent) 0%, transparent 62%)",
         }}
       />
-      <div className="mx-auto grid max-w-6xl gap-12 px-5 pb-16 pt-14 sm:px-8 sm:pt-20 lg:grid-cols-2 lg:items-center lg:pb-24 lg:pt-24">
+
+      <div className="relative mx-auto max-w-6xl px-5 pb-20 pt-12 text-center sm:px-8 sm:pt-16 lg:pb-28">
+        {/* Positioned to flank the subhead and buttons, where the centered
+            column is at its narrowest — never the headline. */}
+        <PlatformChip
+          icon={<IconWindows width={13} height={13} />}
+          surface="Desktop tray"
+          title="Tracking"
+          elapsed={elapsed}
+          className="left-0 top-[43%] -rotate-3 xl:-left-6"
+        />
+        <PlatformChip
+          icon={<IconAndroid width={13} height={13} />}
+          surface="Android notification"
+          title="Tracking"
+          elapsed={elapsed}
+          className="right-0 top-[55%] rotate-3 xl:-right-6"
+        />
+
         <motion.div {...stagger()}>
           <motion.span
             {...item}
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-canvas px-3 py-1 text-xs font-medium text-muted"
+            className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted shadow-[var(--shadow-soft)]"
           >
-            Windows &middot; Linux &middot; Android
+            <IconClock width={13} height={13} className="text-accent" />
+            Never covert, by design
           </motion.span>
 
           <motion.h1
             {...item}
-            className="mt-5 max-w-xl font-heading text-[2.5rem] font-bold leading-[1.08] tracking-tight text-ink sm:text-5xl"
+            className="mx-auto mt-7 max-w-3xl font-heading text-[clamp(2.5rem,5.6vw,4.25rem)] font-bold leading-[1.04] tracking-[-0.04em] text-ink"
           >
-            Time tracking your team can actually see.
+            Time tracking your team can{" "}
+            <span className="mk-mark">actually see</span>
           </motion.h1>
 
-          <motion.p {...item} className="mt-5 max-w-lg text-base text-muted sm:text-lg">
-            TraxStaff tracks work time on desktop and mobile with a visible, always-on
-            indicator &mdash; never hidden, never running quietly in the
-            background. Every session is hashed and capped against the
-            server&rsquo;s clock, so the record is tamper-evident, not just
-            self-reported.
+          <motion.p
+            {...item}
+            className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-muted sm:text-lg"
+          >
+            TraxStaff runs a visible, always-on indicator while it tracks &mdash;
+            never hidden, never quiet in the background. Every session is
+            hash-chained and capped against the server&rsquo;s clock, so the
+            record is tamper-evident, not just self-reported.
           </motion.p>
 
-          <motion.div {...item} className="mt-8 flex flex-wrap items-center gap-3">
+          <motion.div {...item} className="mt-9 flex flex-wrap items-center justify-center gap-3">
             <a
               href={`${APP_URL}/app`}
-              className="rounded-lg bg-brand px-6 py-3 text-sm font-semibold text-brand-fg transition hover:bg-brand-600"
+              className="rounded-full bg-brand px-7 py-3.5 text-sm font-semibold text-brand-fg transition hover:bg-brand-600"
             >
-              Get Started
+              Start free
             </a>
             <a
               href="#download"
-              className="rounded-lg border border-border px-6 py-3 text-sm font-semibold text-ink transition hover:bg-canvas"
+              className="rounded-full border border-border bg-surface px-7 py-3.5 text-sm font-semibold text-ink transition hover:border-border-strong"
             >
               Download the app
             </a>
           </motion.div>
-        </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-          className="flex justify-center lg:justify-end"
-        >
-          <TrackingIllustration />
+          <motion.div {...item} className="mt-14">
+            <LiveRibbon elapsed={elapsed} />
+          </motion.div>
         </motion.div>
       </div>
     </section>

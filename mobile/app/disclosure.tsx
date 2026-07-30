@@ -1,9 +1,10 @@
 import * as Notifications from "expo-notifications";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/AuthContext";
-import { colors, fonts, radius, spacing } from "../src/theme";
+import { useTheme } from "../src/ThemeProvider";
+import { Colors, fonts, radius, spacing } from "../src/theme";
 import { Banner, Button } from "../src/ui";
 
 /**
@@ -34,6 +35,8 @@ const DOES_NOT = [
 
 export default function Disclosure() {
   const { acceptConsent, signOut, me } = useAuth();
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,6 +96,8 @@ export default function Disclosure() {
 }
 
 function Row({ bullet, text, tone }: { bullet: string; text: string; tone?: "strong" }) {
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={s.row}>
       <Text style={[s.bullet, tone === "strong" && { color: colors.accent }]}>{bullet}</Text>
@@ -101,7 +106,8 @@ function Row({ bullet, text, tone }: { bullet: string; text: string; tone?: "str
   );
 }
 
-const s = StyleSheet.create({
+function createStyles(colors: Colors) {
+  return StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: spacing.xl, gap: spacing.lg, paddingBottom: spacing.xxl },
   kicker: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.accent, letterSpacing: 1.2 },
@@ -122,4 +128,5 @@ const s = StyleSheet.create({
   rowText: { flex: 1, fontFamily: fonts.body, fontSize: 15, color: colors.text, lineHeight: 22 },
   fine: { fontFamily: fonts.body, fontSize: 14, color: colors.faint, lineHeight: 21 },
   actions: { gap: spacing.md, marginTop: spacing.sm },
-});
+  });
+}

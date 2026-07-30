@@ -15,7 +15,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { colors, fonts, radius, spacing } from "./theme";
+import { useTheme } from "./ThemeProvider";
+import { Colors, fonts, radius, spacing } from "./theme";
 import { Empty } from "./ui";
 
 export type PickerItem = { id: string; label: string; sub?: string };
@@ -48,6 +49,8 @@ export function PickerField({
   tone?: "light" | "onBrand";
   onPress: () => void;
 }) {
+  const { colors } = useTheme();
+  const f = useMemo(() => createFieldStyles(colors), [colors]);
   const onBrand = tone === "onBrand";
   const hint = onBrand ? colors.onBrandMuted : colors.faint;
   return (
@@ -99,6 +102,8 @@ export function PickerSheet({
   /** Shown when the caller has no options at all — distinct from "no match". */
   emptyText?: string;
 }) {
+  const { colors } = useTheme();
+  const s = useMemo(() => createSheetStyles(colors), [colors]);
   const [query, setQuery] = useState("");
 
   // A filter left over from the last time the sheet was open would hide options
@@ -204,57 +209,61 @@ export function PickerSheet({
   );
 }
 
-const f = StyleSheet.create({
-  field: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-  },
-  fieldLight: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  fieldOnBrand: { backgroundColor: "rgba(255,255,255,0.10)" },
-  label: { fontFamily: fonts.bodyMedium, fontSize: 11, color: colors.textMuted, letterSpacing: 0.6 },
-  value: { fontFamily: fonts.bodySemi, fontSize: 16, color: colors.text },
-});
+function createFieldStyles(colors: Colors) {
+  return StyleSheet.create({
+    field: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+    },
+    fieldLight: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    fieldOnBrand: { backgroundColor: "rgba(255,255,255,0.10)" },
+    label: { fontFamily: fonts.bodyMedium, fontSize: 11, color: colors.textMuted, letterSpacing: 0.6 },
+    value: { fontFamily: fonts.bodySemi, fontSize: 16, color: colors.text },
+  });
+}
 
-const s = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: "rgba(13,16,32,0.45)" },
-  sheet: {
-    maxHeight: "72%",
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  head: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  title: { flex: 1, fontFamily: fonts.headingMedium, fontSize: 18, color: colors.text },
-  searchWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    height: 44,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
-    paddingHorizontal: spacing.md,
-  },
-  search: { flex: 1, fontFamily: fonts.body, fontSize: 15, color: colors.text, padding: 0 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  rowLabel: { fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.text },
-  rowSub: { fontFamily: fonts.body, fontSize: 12, color: colors.faint },
-});
+function createSheetStyles(colors: Colors) {
+  return StyleSheet.create({
+    backdrop: { flex: 1, backgroundColor: "rgba(13,16,32,0.45)" },
+    sheet: {
+      maxHeight: "72%",
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: radius.xl,
+      borderTopRightRadius: radius.xl,
+      padding: spacing.lg,
+      gap: spacing.md,
+    },
+    head: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+    title: { flex: 1, fontFamily: fonts.headingMedium, fontSize: 18, color: colors.text },
+    searchWrap: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      height: 44,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.bg,
+      paddingHorizontal: spacing.md,
+    },
+    search: { flex: 1, fontFamily: fonts.body, fontSize: 15, color: colors.text, padding: 0 },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      paddingVertical: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    rowLabel: { fontFamily: fonts.bodyMedium, fontSize: 16, color: colors.text },
+    rowSub: { fontFamily: fonts.body, fontSize: 12, color: colors.faint },
+  });
+}

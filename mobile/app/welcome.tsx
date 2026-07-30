@@ -1,9 +1,10 @@
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Dimensions, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors, fonts, radius, spacing } from "../src/theme";
+import { useTheme } from "../src/ThemeProvider";
+import { Colors, fonts, radius, spacing } from "../src/theme";
 
 /**
  * First screen an unauthenticated person sees.
@@ -21,6 +22,8 @@ const CARD_OVERLAP = 28;
 
 export default function Welcome() {
   const router = useRouter();
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const [notice, setNotice] = useState(false);
   const { height } = Dimensions.get("window");
 
@@ -83,7 +86,8 @@ export default function Welcome() {
   );
 }
 
-const s = StyleSheet.create({
+function createStyles(colors: Colors) {
+  return StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.brand },
   hero: { width: "100%" },
 
@@ -146,4 +150,5 @@ const s = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: spacing.sm,
   },
-});
+  });
+}

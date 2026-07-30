@@ -8,7 +8,8 @@
 
 import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { colors, fonts, radius, spacing } from "./theme";
+import { useTheme } from "./ThemeProvider";
+import { Colors, fonts, radius, spacing } from "./theme";
 
 /* ─────────────────────────────  Radial gauge  ───────────────────────────── */
 
@@ -19,7 +20,7 @@ export function Ring({
   size = 190,
   tick = 4,
   tickLength = 14,
-  color = colors.accent,
+  color,
   track = "rgba(255,255,255,0.18)",
   children,
 }: {
@@ -32,6 +33,8 @@ export function Ring({
   track?: string;
   children?: React.ReactNode;
 }) {
+  const { colors } = useTheme();
+  const litColor = color ?? colors.accent;
   const pct = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
   const lit = Math.round(pct * TICKS);
 
@@ -45,7 +48,7 @@ export function Ring({
             width: tick,
             height: tickLength,
             borderRadius: tick / 2,
-            backgroundColor: i < lit ? color : track,
+            backgroundColor: i < lit ? litColor : track,
             // rotate first, then push outward along the rotated axis
             transform: [
               { rotate: `${(i * 360) / TICKS}deg` },
@@ -79,6 +82,8 @@ export type Span = { start: number; end: number };
  * edge, which is exactly the kind of missing time people notice and distrust.
  */
 export function DayTimeline({ spans, height = 34 }: { spans: Span[]; height?: number }) {
+  const { colors } = useTheme();
+  const t = useMemo(() => createTimelineStyles(colors), [colors]);
   const { from, to, blocks, marks } = useMemo(() => {
     const DEFAULT_FROM = 7;
     const DEFAULT_TO = 19;
@@ -153,7 +158,7 @@ export function MeterRow({
   label: rowLabel,
   value,
   fraction,
-  color = colors.brand,
+  color,
 }: {
   label: string;
   value: string;
@@ -161,6 +166,9 @@ export function MeterRow({
   fraction: number;
   color?: string;
 }) {
+  const { colors } = useTheme();
+  const m = useMemo(() => createMeterStyles(colors), [colors]);
+  const fillColor = color ?? colors.brand;
   const pct = Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : 0;
   return (
     <View style={m.row}>
@@ -171,34 +179,38 @@ export function MeterRow({
         <Text style={m.value}>{value}</Text>
       </View>
       <View style={m.track}>
-        <View style={[m.fill, { width: `${pct * 100}%`, backgroundColor: color }]} />
+        <View style={[m.fill, { width: `${pct * 100}%`, backgroundColor: fillColor }]} />
       </View>
     </View>
   );
 }
 
-const t = StyleSheet.create({
-  track: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.sm,
-    overflow: "hidden",
-  },
-  block: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    backgroundColor: colors.brand,
-    borderRadius: radius.sm,
-  },
-  axis: { flexDirection: "row", justifyContent: "space-between" },
-  axisLabel: { fontFamily: fonts.body, fontSize: 10, color: colors.faint },
-});
+function createTimelineStyles(colors: Colors) {
+  return StyleSheet.create({
+    track: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: radius.sm,
+      overflow: "hidden",
+    },
+    block: {
+      position: "absolute",
+      top: 0,
+      bottom: 0,
+      backgroundColor: colors.brand,
+      borderRadius: radius.sm,
+    },
+    axis: { flexDirection: "row", justifyContent: "space-between" },
+    axisLabel: { fontFamily: fonts.body, fontSize: 10, color: colors.faint },
+  });
+}
 
-const m = StyleSheet.create({
-  row: { gap: 6, paddingVertical: spacing.sm },
-  head: { flexDirection: "row", alignItems: "baseline", gap: spacing.sm },
-  label: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.text },
-  value: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.textMuted },
-  track: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceAlt, overflow: "hidden" },
-  fill: { height: "100%", borderRadius: 3 },
-});
+function createMeterStyles(colors: Colors) {
+  return StyleSheet.create({
+    row: { gap: 6, paddingVertical: spacing.sm },
+    head: { flexDirection: "row", alignItems: "baseline", gap: spacing.sm },
+    label: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.text },
+    value: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.textMuted },
+    track: { height: 6, borderRadius: 3, backgroundColor: colors.surfaceAlt, overflow: "hidden" },
+    fill: { height: "100%", borderRadius: 3 },
+  });
+}

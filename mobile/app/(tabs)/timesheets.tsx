@@ -7,7 +7,8 @@ import { api } from "../../src/api/client";
 import type { Session } from "../../src/api/types";
 import { DayTimeline, MeterRow } from "../../src/charts";
 import { clampSeconds, dayLabel, fmtShort, fmtTime, localDayKey } from "../../src/format";
-import { colors, fonts, radius, spacing } from "../../src/theme";
+import { useTheme } from "../../src/ThemeProvider";
+import { Colors, fonts, radius, spacing } from "../../src/theme";
 import { Banner, Empty, Loading } from "../../src/ui";
 import { useAsync } from "../../src/useAsync";
 
@@ -23,6 +24,8 @@ function sessionSeconds(s: Session): number {
 
 export default function TimesheetsScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const from = useMemo(() => new Date(Date.now() - DAYS_BACK * 86_400_000).toISOString(), []);
   const sessions = useAsync<Session[]>(() => api.sessions({ from }), []);
 
@@ -160,6 +163,8 @@ export default function TimesheetsScreen() {
 }
 
 function Badge({ text, tone }: { text: string; tone?: "warn" }) {
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={[s.badge, tone === "warn" && { backgroundColor: colors.accentSoft }]}>
       <Text style={[s.badgeText, tone === "warn" && { color: colors.warning }]}>{text}</Text>
@@ -167,7 +172,8 @@ function Badge({ text, tone }: { text: string; tone?: "warn" }) {
   );
 }
 
-const s = StyleSheet.create({
+function createStyles(colors: Colors) {
+  return StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   list: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.xs },
   header: { gap: spacing.xs, marginBottom: spacing.md },
@@ -212,4 +218,5 @@ const s = StyleSheet.create({
   rowDuration: { fontFamily: fonts.bodySemi, fontSize: 15, color: colors.text },
   badge: { backgroundColor: colors.surfaceAlt, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   badgeText: { fontFamily: fonts.bodyMedium, fontSize: 10, color: colors.textMuted },
-});
+  });
+}

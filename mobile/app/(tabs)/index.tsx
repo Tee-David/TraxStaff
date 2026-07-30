@@ -7,7 +7,8 @@ import type { Project, Task } from "../../src/api/types";
 import { Ring } from "../../src/charts";
 import { fmtClock, fmtShort, startOfToday, startOfWeek } from "../../src/format";
 import { PickerField, PickerSheet } from "../../src/picker";
-import { colors, fonts, radius, shadow, spacing } from "../../src/theme";
+import { useTheme } from "../../src/ThemeProvider";
+import { Colors, fonts, radius, shadow, spacing } from "../../src/theme";
 import { useTracker } from "../../src/tracker/TrackerContext";
 import { Banner, Button, Loading } from "../../src/ui";
 import { checkForUpdate, UpdateCheckResult } from "../../src/updateCheck";
@@ -21,6 +22,8 @@ const DAILY_TARGET_SECONDS = 8 * 3600;
 export default function TimerScreen() {
   const { state, available, interrupted, acknowledgeInterrupted, pendingCount, syncError, start, stop, sync } =
     useTracker();
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
 
   const projects = useAsync<Project[]>(() => api.projects(), []);
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -276,6 +279,8 @@ export default function TimerScreen() {
  *  only opens the browser/OS download flow — nothing here touches the
  *  filesystem or installs anything itself. */
 function UpdateBanner({ update, onDismiss }: { update: UpdateCheckResult; onDismiss: () => void }) {
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const openDownload = () => {
     if (!update.downloadUrl) return;
     void Linking.openURL(update.downloadUrl).catch(() => {
@@ -306,6 +311,8 @@ function UpdateBanner({ update, onDismiss }: { update: UpdateCheckResult; onDism
 }
 
 function Total({ label, value, error }: { label: string; value: string; error: boolean }) {
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={s.total}>
       <Text style={s.totalLabel}>{label}</Text>
@@ -314,7 +321,8 @@ function Total({ label, value, error }: { label: string; value: string; error: b
   );
 }
 
-const s = StyleSheet.create({
+function createStyles(colors: Colors) {
+  return StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
   header: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
@@ -369,4 +377,5 @@ const s = StyleSheet.create({
   },
   updateBannerText: { flex: 1, fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.textMuted },
   updateBannerAction: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.accent },
-});
+  });
+}

@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Linking,
@@ -15,7 +15,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { API_URL } from "../src/api/client";
 import { useAuth } from "../src/auth/AuthContext";
-import { colors, fonts, radius, spacing } from "../src/theme";
+import { useTheme } from "../src/ThemeProvider";
+import { Colors, fonts, radius, spacing } from "../src/theme";
 import { Banner } from "../src/ui";
 
 // Password reset is a web flow; the app links out to it rather than
@@ -24,6 +25,8 @@ const APP_WEB_URL = "https://app.traxstaff.com";
 
 export default function Login() {
   const { signIn, slow, error } = useAuth();
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -206,7 +209,8 @@ export default function Login() {
   );
 }
 
-const s = StyleSheet.create({
+function createStyles(colors: Colors) {
+  return StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.brand },
   scroll: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
 
@@ -295,4 +299,5 @@ const s = StyleSheet.create({
     textAlign: "center",
     marginTop: spacing.lg,
   },
-});
+  });
+}

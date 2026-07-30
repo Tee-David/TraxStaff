@@ -1,13 +1,13 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Notifications from "expo-notifications";
 import { Link } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Tracker from "../../modules/trax-tracker";
 import { useAuth } from "../../src/auth/AuthContext";
-import { colors, fonts, radius, spacing } from "../../src/theme";
+import { ThemePreference, useTheme } from "../../src/ThemeProvider";
+import { Colors, fonts, radius, spacing } from "../../src/theme";
 import { useTracker } from "../../src/tracker/TrackerContext";
 import { Banner, Button } from "../../src/ui";
 
@@ -25,10 +25,6 @@ const DISCLOSURE_CARDS: { icon: keyof typeof Ionicons.glyphMap; title: string; s
   { icon: "people-outline", title: "Admins see time only", sub: "Just entries, projects and tasks." },
 ];
 
-// Preference-only key, not a secret — deliberately NOT in secureStorage.ts,
-// which is reserved for credentials held in the Android Keystore.
-const THEME_PREF_KEY = "trax.themePreference";
-type ThemePreference = "light" | "dark" | "system";
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
@@ -38,6 +34,8 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 export default function ProfileScreen() {
   const { me, signOut } = useAuth();
   const { state, pendingCount, sync, available } = useTracker();
+  const { colors, preference: themePref, setPreference: selectTheme } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const [busy, setBusy] = useState(false);
   // Read once and refreshed on foreground: the only way this changes is the
   // user leaving for the system settings and coming back.
@@ -49,21 +47,6 @@ export default function ProfileScreen() {
     });
     return () => sub.remove();
   }, []);
-
-  // No ThemeProvider/useTheme() exists yet anywhere in this codebase — "Mobile
-  // theming" is its own not-yet-started checklist item. Picking an option here
-  // only persists the preference to AsyncStorage for that future work to read;
-  // it does not change any colors on screen today.
-  const [themePref, setThemePref] = useState<ThemePreference>("system");
-  useEffect(() => {
-    void AsyncStorage.getItem(THEME_PREF_KEY).then((stored) => {
-      if (stored === "light" || stored === "dark" || stored === "system") setThemePref(stored);
-    });
-  }, []);
-  const selectTheme = (value: ThemePreference) => {
-    setThemePref(value);
-    void AsyncStorage.setItem(THEME_PREF_KEY, value);
-  };
 
   // One action for both the notification prompt and the "open Settings" escape
   // hatch the Background-limits card used to have as a separate button.
@@ -190,6 +173,8 @@ export default function ProfileScreen() {
 }
 
 function DisclosureCard({ icon, title, sub }: { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string }) {
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   return (
     <Link href="/disclosure" asChild>
       <Pressable
@@ -209,7 +194,8 @@ function DisclosureCard({ icon, title, sub }: { icon: keyof typeof Ionicons.glyp
   );
 }
 
-const s = StyleSheet.create({
+function createStyles(colors: Colors) {
+  return StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
   title: { fontFamily: fonts.heading, fontSize: 28, color: colors.text, letterSpacing: -0.8 },
@@ -279,7 +265,8 @@ const s = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderRadius: radius.sm,
   },
-  segmentActive: { backgroundColor: colors.brand },
-  segmentText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.textMuted },
-  segmentTextActive: { color: colors.onDark },
-});
+    segmentActive: { backgroundColor: colors.brand },
+    segmentText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.textMuted },
+    segmentTextActive: { color: colors.onDark },
+  });
+}

@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -16,11 +16,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../src/api/client";
 import type { Project, Task } from "../../src/api/types";
 import { PickerField, PickerSheet } from "../../src/picker";
-import { colors, fonts, radius, spacing } from "../../src/theme";
+import { useTheme } from "../../src/ThemeProvider";
+import { Colors, fonts, radius, spacing } from "../../src/theme";
 import { Banner, Empty, Loading } from "../../src/ui";
 import { useAsync } from "../../src/useAsync";
 
 export default function TasksScreen() {
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const projects = useAsync<Project[]>(() => api.projects(), []);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
@@ -236,7 +239,8 @@ export default function TasksScreen() {
   );
 }
 
-const s = StyleSheet.create({
+function createStyles(colors: Colors) {
+  return StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.md },
   title: { fontFamily: fonts.heading, fontSize: 28, color: colors.text, letterSpacing: -0.8 },
@@ -285,4 +289,5 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-});
+  });
+}

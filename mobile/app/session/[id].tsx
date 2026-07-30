@@ -15,7 +15,8 @@ import { api } from "../../src/api/client";
 import type { Session } from "../../src/api/types";
 import { DayTimeline } from "../../src/charts";
 import { clampSeconds, dayLabel, fmtShort, fmtTime, localDayKey } from "../../src/format";
-import { colors, fonts, radius, spacing } from "../../src/theme";
+import { useTheme } from "../../src/ThemeProvider";
+import { Colors, fonts, radius, spacing } from "../../src/theme";
 import { Banner, Button, Card, Empty, Field, Heading, Loading, Title } from "../../src/ui";
 import { useAsync } from "../../src/useAsync";
 
@@ -36,6 +37,8 @@ const END_REASON: Record<string, string> = {
 
 export default function SessionDetail() {
   const router = useRouter();
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const { id, at } = useLocalSearchParams<{ id: string; at?: string }>();
 
   const range = useMemo(() => {
@@ -205,6 +208,8 @@ function sessionSeconds(session: Session): number {
 }
 
 function Row({ label, value }: { label: string; value: string }) {
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={s.row}>
       <Text style={s.rowLabel}>{label}</Text>
@@ -213,7 +218,8 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-const s = StyleSheet.create({
+function createStyles(colors: Colors) {
+  return StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   bar: {
     flexDirection: "row",
@@ -247,4 +253,5 @@ const s = StyleSheet.create({
   noteBody: { fontFamily: fonts.body, fontSize: 14, color: colors.text, lineHeight: 21 },
   noteMeta: { fontFamily: fonts.body, fontSize: 11, color: colors.faint },
   noteInput: { height: 92, paddingTop: spacing.md, textAlignVertical: "top" },
-});
+  });
+}

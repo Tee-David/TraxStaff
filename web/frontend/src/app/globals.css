@@ -253,6 +253,84 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--color-accent);
 }
 
+/* Marquee — a continuously scrolling row that pauses on hover or keyboard
+   focus.
+
+   The loop is a CSS transform animation rather than a Framer Motion one on
+   purpose: it runs on the compositor, so a permanently-running marquee costs
+   no main-thread work and never competes with scrolling, and pausing is a
+   single property flip instead of a re-render. Framer still drives the
+   section's entrance and each card's hover lift.
+
+   The track holds the real row plus an aria-hidden clone, so the reset at the
+   end of the loop is invisible. Translating by exactly -50% would land half a
+   gap out (the track is row + gap + row, so half of it is row + gap/2), hence
+   the extra half-gap in the keyframe. */
+.mk-marquee {
+  /* The fade has to scale with the viewport: a 5rem edge on a 390px screen
+     swallows a third of the visible card. */
+  --mk-fade: 1.5rem;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--mk-fade), #000 calc(100% - var(--mk-fade)), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 var(--mk-fade), #000 calc(100% - var(--mk-fade)), transparent);
+}
+@media (min-width: 640px) {
+  .mk-marquee { --mk-fade: 5rem; }
+}
+.mk-marquee-track {
+  --mk-gap: 1.25rem;
+  display: flex;
+  gap: var(--mk-gap);
+  width: max-content;
+  animation: mk-marquee var(--mk-marquee-duration, 64s) linear infinite;
+}
+.mk-marquee-row {
+  display: flex;
+  gap: var(--mk-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Hover and focus cover pointer and keyboard. Touch has neither, so the
+   toggled class is what gives a phone any way to stop the thing.
+
+   :focus-visible rather than :focus-within, deliberately. Tapping the region
+   focuses it, so :focus-within would latch the marquee paused and a second tap
+   could never restart it — the pause would stick until you tapped elsewhere.
+   :focus-visible matches keyboard focus but not pointer or touch focus, which
+   is exactly the split needed. The :has() clause keeps this working if a card
+   ever gains a focusable child (a real testimonial with a link, say). */
+.mk-marquee:focus-visible .mk-marquee-track,
+.mk-marquee:has(:focus-visible) .mk-marquee-track,
+.mk-marquee-paused .mk-marquee-track {
+  animation-play-state: paused;
+}
+/* Hover only where hovering is a real thing. Touch browsers emulate a sticky
+   :hover on whatever you last tapped and hold it until you tap elsewhere, so
+   an unguarded :hover rule latches the marquee paused and the second tap
+   appears to do nothing. */
+@media (hover: hover) and (pointer: fine) {
+  .mk-marquee:hover .mk-marquee-track {
+    animation-play-state: paused;
+  }
+}
+@keyframes mk-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(calc(-50% - (var(--mk-gap) / 2)), 0, 0); }
+}
+/* No auto-scroll when motion is reduced: the clone is dropped and the row
+   becomes an ordinary horizontally scrollable list, so the content is still
+   fully reachable. */
+@media (prefers-reduced-motion: reduce) {
+  .mk-marquee {
+    overflow-x: auto;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .mk-marquee-track { animation: none; }
+  .mk-marquee-clone { display: none; }
+}
+
 /* Smooth anchor scrolling. `scroll-behavior` has to sit on the scrolling
    element, so it's scoped with :has() to documents that actually contain the
    marketing page — the dashboard keeps its existing instant jumps rather than

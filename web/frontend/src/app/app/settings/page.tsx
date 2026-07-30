@@ -464,11 +464,11 @@ export default function SettingsPage() {
       <PageHeader title="Settings" subtitle={`Workspace configuration for ${settings.name}`} />
 
       <div className="flex flex-col gap-6 pb-8 lg:flex-row lg:items-start">
-        <SettingsNav items={sections} active={current.id} onSelect={(id) => setActive(id as SectionId)} />
+        <SettingsNav items={sections} active={current.id} onSelect={(id) => setActive(id as SectionId)} data-tour="settings-nav" />
 
         <div className="min-w-0 flex-1 lg:max-w-3xl">
           <motion.div key={current.id} initial={m.page.initial} animate={m.page.animate} transition={m.page.transition}>
-            <Card className="p-5 sm:p-6">
+            <Card className="p-5 sm:p-6" data-tour="settings-panel">
               <div className="mb-5">
                 <h2 className="font-heading text-[18px] font-semibold text-ink">{current.title}</h2>
                 <p className="mt-1 text-[13px] leading-relaxed text-muted">{current.subtitle}</p>

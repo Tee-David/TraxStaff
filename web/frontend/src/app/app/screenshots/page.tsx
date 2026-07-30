@@ -138,7 +138,7 @@ export default function ScreenshotsPage() {
         title="Screenshots"
         subtitle={isAdmin ? "Review captured screenshots across your team" : "Your captured screenshots"}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" data-tour="screenshots-view-toggle">
             {view === "grid" && <DensityControl value={cols} onChange={(d) => setQ({ cols: String(d) })} />}
             {viewButton(
               "grid",
@@ -163,15 +163,17 @@ export default function ScreenshotsPage() {
         }
       />
 
-      <FilterBar>
-        <DateRange value={range} onChange={(v) => setQ({ range: rangeToQuery(v) })} />
-        <MemberFilter value={q.member} onChange={(id) => setQ({ member: id })} enabled={isAdmin} />
-        {shots.length > 0 && (
-          <span className="ml-auto text-[13px] text-muted tnum">
-            {shots.length} loaded{done ? "" : "…"}
-          </span>
-        )}
-      </FilterBar>
+      <div data-tour="screenshots-filter">
+        <FilterBar>
+          <DateRange value={range} onChange={(v) => setQ({ range: rangeToQuery(v) })} />
+          <MemberFilter value={q.member} onChange={(id) => setQ({ member: id })} enabled={isAdmin} />
+          {shots.length > 0 && (
+            <span className="ml-auto text-[13px] text-muted tnum">
+              {shots.length} loaded{done ? "" : "…"}
+            </span>
+          )}
+        </FilterBar>
+      </div>
 
       {loading ? (
         <ShotSkeletons count={cols * 3} className={gridClass} />
@@ -184,7 +186,7 @@ export default function ScreenshotsPage() {
           hint="They appear automatically once the desktop tracker captures them while a member is tracking."
         />
       ) : (
-        <>
+        <div data-tour="screenshots-results">
           {/* ── Grid view ── */}
           {view === "grid" && (
             <motion.div key={`grid-${cols}`} className={`grid gap-3 ${gridClass}`} {...m.stagger()}>
@@ -305,7 +307,7 @@ export default function ScreenshotsPage() {
           {done && shots.length > 0 && (
             <p className="mt-6 text-center text-[13px] text-muted">That&rsquo;s everything in this range.</p>
           )}
-        </>
+        </div>
       )}
 
       {/* Lightbox */}

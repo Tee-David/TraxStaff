@@ -132,7 +132,7 @@ export default function InsightsPage() {
       </FilterBar>
 
       {/* ── KPI stat row ── */}
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4" data-tour="insights-kpis">
         <StatTile icon="🟢" tone="teal" label="Online now" value={String(onlineCount)} />
         <StatTile icon="⏱" tone="brand" label="Tracking now" value={String(trackingCount)} />
         <StatTile icon="📊" tone="teal" label="Avg activity" value={`${avgActivity}%`} />
@@ -150,7 +150,7 @@ export default function InsightsPage() {
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
 
             {/* Live presence */}
-            <Card className="p-5">
+            <Card className="p-5" data-tour="insights-presence">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="font-heading text-base font-semibold">Live Presence</h2>
                 <Badge tone={onlineCount > 0 ? "green" : "muted"} dot>{onlineCount} online</Badge>
@@ -184,7 +184,7 @@ export default function InsightsPage() {
             </Card>
 
             {/* Leaderboard */}
-            <Card className="p-5">
+            <Card className="p-5" data-tour="insights-leaderboard">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="font-heading text-base font-semibold">Productivity Ranking</h2>
                 <span className="text-[11px] text-muted">Hours · Activity%</span>
@@ -227,7 +227,7 @@ export default function InsightsPage() {
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
 
             {/* Daily hours area chart */}
-            <Card className="p-5 lg:col-span-2">
+            <Card className="p-5 lg:col-span-2" data-tour="insights-daily-trend">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="font-heading text-base font-semibold">Daily Hours Trend</h2>
                 <span className="text-[11px] text-muted">Team total per day</span>
@@ -353,7 +353,7 @@ export default function InsightsPage() {
             </Card>
 
             {/* Unusual activity flags */}
-            <Card className="p-5">
+            <Card className="p-5" data-tour="insights-flags">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="font-heading text-base font-semibold">Risk & Anomaly Flags</h2>
                 {openFlags > 0 && (
@@ -405,7 +405,7 @@ export default function InsightsPage() {
 
           {/* ── Row 4: Project health overview ── */}
           {projects.length > 0 && (
-            <Card className="p-5">
+            <Card className="p-5" data-tour="insights-project-health">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="font-heading text-base font-semibold">Project Health</h2>
                 <span className="text-[11px] text-muted">Hours tracked per project this period</span>

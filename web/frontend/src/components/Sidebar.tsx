@@ -13,19 +13,19 @@ import {
 } from "@/components/icons";
 
 type Role = "owner" | "admin" | "member";
-type Item = { href: string; label: string; icon: (p: { className?: string }) => React.ReactNode; roles: Role[] };
+type Item = { href: string; label: string; icon: (p: { className?: string }) => React.ReactNode; roles: Role[]; tourId: string };
 
 const MENU: Item[] = [
-  { href: "/app", label: "Dashboard", icon: IconDashboard, roles: ["owner", "admin", "member"] },
-  { href: "/app/timesheets", label: "Timesheets", icon: IconClock, roles: ["owner", "admin", "member"] },
-  { href: "/app/reports", label: "Reports", icon: IconChart, roles: ["owner", "admin", "member"] },
-  { href: "/app/screenshots", label: "Screenshots", icon: IconImage, roles: ["owner", "admin", "member"] },
-  { href: "/app/insights", label: "Insights", icon: IconTrend, roles: ["owner", "admin"] },
-  { href: "/app/projects", label: "Projects", icon: IconKanban, roles: ["owner", "admin"] },
-  { href: "/app/members", label: "Members", icon: IconUsers, roles: ["owner", "admin"] },
+  { href: "/app", label: "Dashboard", icon: IconDashboard, roles: ["owner", "admin", "member"], tourId: "dashboard" },
+  { href: "/app/timesheets", label: "Timesheets", icon: IconClock, roles: ["owner", "admin", "member"], tourId: "timesheets" },
+  { href: "/app/reports", label: "Reports", icon: IconChart, roles: ["owner", "admin", "member"], tourId: "reports" },
+  { href: "/app/screenshots", label: "Screenshots", icon: IconImage, roles: ["owner", "admin", "member"], tourId: "screenshots" },
+  { href: "/app/insights", label: "Insights", icon: IconTrend, roles: ["owner", "admin"], tourId: "insights" },
+  { href: "/app/projects", label: "Projects", icon: IconKanban, roles: ["owner", "admin"], tourId: "projects" },
+  { href: "/app/members", label: "Members", icon: IconUsers, roles: ["owner", "admin"], tourId: "members" },
 ];
 const SECONDARY: Item[] = [
-  { href: "/app/settings", label: "Settings", icon: IconSettings, roles: ["owner", "admin", "member"] },
+  { href: "/app/settings", label: "Settings", icon: IconSettings, roles: ["owner", "admin", "member"], tourId: "settings" },
 ];
 
 const DOTS = ["var(--color-cat-focus)", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b"];
@@ -67,6 +67,7 @@ export function Sidebar({
         href={item.href}
         onClick={onNavigate}
         title={collapsed ? item.label : undefined}
+        data-tour={`nav-${item.tourId}`}
         className={`relative flex items-center rounded-xl text-sm font-medium transition ${
           collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5"
         } ${on ? "bg-brand/10 text-brand" : "text-muted hover:bg-canvas hover:text-ink"}`}
@@ -115,6 +116,7 @@ export function Sidebar({
           <button
             onClick={onToggleCollapse}
             aria-label="Collapse sidebar"
+            data-tour="sidebar-collapse"
             className="ml-auto rounded-lg p-1.5 text-faint transition hover:bg-canvas hover:text-ink"
           >
             <IconSidebar />

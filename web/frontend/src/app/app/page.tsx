@@ -179,6 +179,7 @@ export default function DashboardPage() {
     switch (id) {
       case "timeline":
         return (
+          <div data-tour="dash-timeline">
           <Section title="Timeline" icon="🕐" bodyClassName="p-5" action={resizeAction("timeline")}>
             <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Metric label="Activity today" value={summary?.avgActivityPct != null ? `${summary.avgActivityPct}%` : "—"} />
@@ -267,9 +268,11 @@ export default function DashboardPage() {
               )}
             </div>
           </Section>
+          </div>
         );
       case "projects":
         return (
+          <div data-tour="dash-projects">
           <Section title="Projects & Tasks" icon="🗂" bodyClassName="p-5" action={resizeAction("projects")}>
             <div className="space-y-5">
               {projects.slice(0, 5).map((p) => {
@@ -299,9 +302,11 @@ export default function DashboardPage() {
               {projects.length === 0 && <p className="text-sm text-muted">No projects yet.</p>}
             </div>
           </Section>
+          </div>
         );
       case "heatmap":
         return (
+          <div data-tour="dash-heatmap">
           <Section title="Work by hours" icon="▦" bodyClassName="p-5" action={resizeAction("heatmap")}>
             {week.length === 0 ? (
               <p className="text-sm text-muted">No sessions this week yet.</p>
@@ -318,9 +323,11 @@ export default function DashboardPage() {
               </>
             )}
           </Section>
+          </div>
         );
       case "weekly":
         return (
+          <div data-tour="dash-weekly">
           <Section title="Weekly goal" icon="🎯" bodyClassName="p-5" action={resizeAction("weekly")}>
             <div className="flex flex-col items-center gap-4 py-1">
               <Donut value={weekGoalPct} size={148} stroke={13} color="var(--color-brand)" label={`${weekGoalPct}%`} sublabel={`${formatDurationShort(workedWeek)} of 40h`} />
@@ -336,6 +343,7 @@ export default function DashboardPage() {
               </div>
             </div>
           </Section>
+          </div>
         );
       case "topweek":
         return (
@@ -359,7 +367,9 @@ export default function DashboardPage() {
           </Section>
         );
       case "history":
-        return week.length === 0 ? (
+        return (
+          <div data-tour="dash-history">
+          {week.length === 0 ? (
           <EmptyState icon="🗓" title="No sessions yet" hint="Start tracking from the Trax desktop app and your activity will appear here." />
         ) : (
           <Section title="Project History" icon="📜" bodyClassName="p-0" action={resizeAction("history")}>
@@ -398,6 +408,8 @@ export default function DashboardPage() {
               </table>
             </div>
           </Section>
+          )}
+          </div>
         );
     }
   }
@@ -414,7 +426,7 @@ export default function DashboardPage() {
         }
       />
 
-      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4" data-tour="dash-kpis">
         <StatTile icon="📁" tone="brand" label="Active projects" value={<CountUp to={activeProjects} duration={1} />} />
         <StatTile icon="⏳" tone="accent" label="Ongoing tasks" value={<CountUp to={ongoingTasks} duration={1} />} />
         <StatTile icon="✅" tone="teal" label="Completed tasks" value={<CountUp to={completedTasks} duration={1} />} />
@@ -424,7 +436,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Customize toolbar */}
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex items-center justify-between gap-3" data-tour="dash-customize">
         <div className="text-sm text-muted">
           {customize ? "Drag cards to rearrange · use ⤢ to resize" : ""}
         </div>

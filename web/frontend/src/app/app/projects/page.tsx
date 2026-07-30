@@ -329,7 +329,7 @@ export default function ProjectsPage() {
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4" data-tour="projects-header">
         <div>
           <h1 className="font-heading text-2xl font-bold text-ink">Projects</h1>
           <p className="mt-0.5 text-sm text-muted">Every workspace your org is tracking time against.</p>
@@ -350,7 +350,7 @@ export default function ProjectsPage() {
       {/* Overview controls — Filter (search) / Sort By, matching the reference's
           workload-dashboard control row. The active/archived split lives in the
           collapsible Archives strip below the rail, not as a second control here. */}
-      <div className="mb-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="mb-5 flex flex-col md:flex-row md:items-center justify-between gap-4" data-tour="projects-controls">
         <span className="text-[13px] font-semibold uppercase tracking-wide text-faint">
           {tab === "active" ? "All projects" : "Archived projects"}
         </span>
@@ -391,7 +391,7 @@ export default function ProjectsPage() {
           hint={tab === "active" ? "Create your first project above." : undefined}
         />
       ) : (
-        <Card className="overflow-hidden border border-border shadow-[var(--shadow-soft)]">
+        <Card className="overflow-hidden border border-border shadow-[var(--shadow-soft)]" data-tour="projects-table">
           {visible.map((p, i) => {
             const total = p.tasks?.length ?? 0;
             const done = p.tasks?.filter((t) => t.status === "done").length ?? 0;
@@ -468,6 +468,7 @@ export default function ProjectsPage() {
       {tab === "active" && !loading && (
         <button
           onClick={() => setTab("archived")}
+          data-tour="projects-archives"
           className="mt-4 flex w-full items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-left text-[13px] font-medium text-muted transition hover:border-border-strong hover:text-ink"
         >
           <Chevron open={false} />

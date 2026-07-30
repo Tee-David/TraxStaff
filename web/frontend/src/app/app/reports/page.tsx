@@ -88,16 +88,18 @@ export default function ReportsPage() {
         title="Reports"
         subtitle="Hours, activity, and time by project"
         actions={
-          <Button variant="ghost" onClick={exportCsv} disabled={projects.length === 0}>
+          <Button variant="ghost" onClick={exportCsv} disabled={projects.length === 0} data-tour="reports-export">
             ↓ Export CSV
           </Button>
         }
       />
 
-      <FilterBar>
-        <DateRange value={range} onChange={setRange} />
-        <MemberFilter value={member} onChange={setMember} enabled={isPrivileged} />
-      </FilterBar>
+      <div data-tour="reports-filter">
+        <FilterBar>
+          <DateRange value={range} onChange={setRange} />
+          <MemberFilter value={member} onChange={setMember} enabled={isPrivileged} />
+        </FilterBar>
+      </div>
 
       {loading ? (
         <div className="space-y-4">
@@ -108,14 +110,14 @@ export default function ReportsPage() {
         </div>
       ) : (
         <>
-          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
+          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-4" data-tour="reports-stats">
             <Stat label="Total hours" value={(summary?.totalSeconds ?? 0) / 3600} suffix="h" decimals={1} i={0} />
             <Stat label="Avg activity" value={summary?.avgActivityPct ?? 0} suffix="%" i={1} />
             <Stat label="Sessions" value={summary?.sessions ?? 0} i={2} />
             <Stat label="Flagged" value={summary?.flaggedSessions ?? 0} i={3} />
           </div>
 
-          <Card className="mb-6 p-5">
+          <Card className="mb-6 p-5" data-tour="reports-by-project">
             <h2 className="mb-4 text-lg">Time by project</h2>
             {projects.length === 0 ? (
               <p className="text-sm text-muted">No tracked time yet.</p>
@@ -147,7 +149,7 @@ export default function ReportsPage() {
             )}
           </Card>
 
-          <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2" data-tour="reports-usage">
             <Card className="p-5">
               <h2 className="mb-4 text-lg">App usage</h2>
               {apps.length === 0 ? (
@@ -207,7 +209,7 @@ export default function ReportsPage() {
             </Card>
           </div>
 
-          <Card className="p-5">
+          <Card className="p-5" data-tour="reports-daily">
             <h2 className="mb-4 text-lg">Daily timesheet</h2>
             {days.length === 0 ? (
               <p className="text-sm text-muted">No entries yet.</p>

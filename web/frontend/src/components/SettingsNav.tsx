@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ReactNode, HTMLAttributes } from "react";
 
 export type SettingsNavItem = {
   id: string;
@@ -17,17 +17,18 @@ export function SettingsNav({
   items,
   active,
   onSelect,
+  ...rest
 }: {
   items: SettingsNavItem[];
   active: string;
   onSelect: (id: string) => void;
-}) {
+} & HTMLAttributes<HTMLElement>) {
   const base =
     "flex items-center gap-2.5 rounded-xl text-[13.5px] font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
   const tone = (on: boolean) => (on ? "bg-brand/10 text-brand" : "text-muted hover:bg-canvas hover:text-ink");
 
   return (
-    <nav aria-label="Settings sections" className="min-w-0 lg:sticky lg:top-4 lg:w-56 lg:shrink-0">
+    <nav aria-label="Settings sections" className="min-w-0 lg:sticky lg:top-4 lg:w-56 lg:shrink-0" {...rest}>
       {/* Rail — lg and up */}
       <div className="hidden lg:flex lg:flex-col lg:gap-0.5">
         {items.map((item) => {

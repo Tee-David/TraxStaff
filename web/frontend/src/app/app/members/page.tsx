@@ -394,7 +394,7 @@ export default function MembersPage() {
   return (
     <div>
       {/* Header */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between" data-tour="members-header">
         <div>
           <h1 className="font-heading text-2xl font-bold text-ink">Team members</h1>
           <p className="mt-0.5 text-sm text-muted">Invite teammates and manage their access</p>
@@ -476,7 +476,7 @@ export default function MembersPage() {
         <div className="space-y-5">
 
           {/* Active & disabled members */}
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden" data-tour="members-table">
             <div className="border-b border-border px-6 py-4 flex items-center justify-between">
               <h2 className="font-heading text-[14px] font-semibold text-ink">People with access</h2>
               <span className="text-[12px] text-muted">{active.length} member{active.length !== 1 ? "s" : ""}</span>
@@ -572,7 +572,7 @@ export default function MembersPage() {
 
           {/* Pending invitations */}
           {pending.length > 0 && (
-            <Card className="overflow-hidden">
+            <Card className="overflow-hidden" data-tour="members-pending">
               <div className="border-b border-border px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <h2 className="font-heading text-[14px] font-semibold text-ink">Pending invitations</h2>

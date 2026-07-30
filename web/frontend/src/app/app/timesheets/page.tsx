@@ -66,9 +66,11 @@ export default function TimesheetsPage() {
     <div>
       <PageHeader title="Timesheets" subtitle="Your tracked time" />
 
-      <FilterBar>
-        <DateRange value={range} onChange={setRange} />
-      </FilterBar>
+      <div data-tour="timesheets-filter">
+        <FilterBar>
+          <DateRange value={range} onChange={setRange} />
+        </FilterBar>
+      </div>
 
       {loading ? (
         <div className="space-y-5">
@@ -82,7 +84,7 @@ export default function TimesheetsPage() {
         </div>
       ) : (
         <>
-          <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-3" data-tour="timesheets-summary">
             <TimesheetCard data={weekdayHours} className="lg:col-span-1" />
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:col-span-2 lg:grid-cols-4">
               <StatTile icon="⏱" tone="brand" label="Total in range" value={<span className="text-[22px]">{formatDurationShort(totalSecs)}</span>} />
@@ -92,12 +94,14 @@ export default function TimesheetsPage() {
             </div>
           </div>
 
-          <DataTable
-            rows={sessions}
-            columns={columns}
-            rowId={(s) => s.id}
-            empty={<EmptyState icon="🕐" title="No time entries in this range" hint="Track time from the desktop app, or widen the date range." />}
-          />
+          <div data-tour="timesheets-table">
+            <DataTable
+              rows={sessions}
+              columns={columns}
+              rowId={(s) => s.id}
+              empty={<EmptyState icon="🕐" title="No time entries in this range" hint="Track time from the desktop app, or widen the date range." />}
+            />
+          </div>
         </>
       )}
     </div>

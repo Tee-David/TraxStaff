@@ -1,4 +1,4 @@
-import type { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes } from "react";
+import type { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes, HTMLAttributes } from "react";
 
 /* ---------- surfaces ---------- */
 
@@ -6,16 +6,18 @@ export function Card({
   children,
   className = "",
   hover = false,
+  ...rest
 }: {
   children: ReactNode;
   className?: string;
   hover?: boolean;
-}) {
+} & HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={`rounded-[var(--radius-card)] border border-border bg-surface shadow-[var(--shadow-soft)] ${
         hover ? "transition hover:shadow-[var(--shadow-lift)]" : ""
       } ${className}`}
+      {...rest}
     >
       {children}
     </div>
@@ -30,6 +32,7 @@ export function Section({
   children,
   className = "",
   bodyClassName = "p-5",
+  ...rest
 }: {
   title?: ReactNode;
   icon?: ReactNode;
@@ -37,9 +40,9 @@ export function Section({
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
-}) {
+} & HTMLAttributes<HTMLDivElement>) {
   return (
-    <Card className={className}>
+    <Card className={className} {...rest}>
       {(title || action) && (
         <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
           <div className="flex items-center gap-2">

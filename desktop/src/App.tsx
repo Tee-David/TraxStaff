@@ -682,9 +682,29 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     return () => { un.then((f) => f()); up.then((f) => f()); };
   }, []);
 
+  // If the window destroy call itself ever fails or hangs (any reason — a
+  // stale webview handle, a plugin hiccup) the exit dialog was previously
+  // left stuck forever at "Records remaining: 0" with no way out, since
+  // nothing here had a fallback. Race a hard cap and fall back to killing
+  // the whole process via the process plugin (already used for relaunch()
+  // elsewhere in this file) so the app always actually closes once the
+  // flush is done, regardless of why the window-level destroy failed.
   async function destroyWindow() {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().destroy();
+    const hardExit = async () => {
+      const { exit } = await import("@tauri-apps/plugin-process");
+      await exit(0);
+    };
+    try {
+      await Promise.race([
+        (async () => {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          await getCurrentWindow().destroy();
+        })(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("destroy timed out")), 5_000)),
+      ]);
+    } catch {
+      await hardExit().catch(() => {});
+    }
   }
   // Preserve a session's time locally so it's never lost on exit, whichever
   // button the user picks (shows in totals next launch; queued blocks still sync).

@@ -72,6 +72,7 @@ const config: ExpoConfig = {
     // background execution is possible there, so the timer would silently stop.
     bundleIdentifier: "com.trax.mobile",
     supportsTablet: false,
+    icon: "./assets/images/ios-icon.png",
   },
 
   plugins: [

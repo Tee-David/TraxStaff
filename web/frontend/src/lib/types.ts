@@ -5,6 +5,8 @@ export interface Project {
   archivedAt: string | null;
   createdAt: string;
   tasks?: Task[];
+  /** Present for admin/owner responses only — current ProjectMember user ids. */
+  assignedUserIds?: string[];
 }
 
 export interface Task {

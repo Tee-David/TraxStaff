@@ -45,7 +45,7 @@ function LiveRibbon({ elapsed }: { elapsed: number }) {
     <div className="mx-auto w-full max-w-xl rounded-2xl border border-border bg-surface p-5 text-left shadow-[var(--shadow-lift)] sm:p-6">
       <div className="flex items-center gap-2">
         <span className="mk-live-dot" />
-        <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-positive">
           Tracking &middot; visible
         </span>
       </div>
@@ -67,21 +67,31 @@ function LiveRibbon({ elapsed }: { elapsed: number }) {
 }
 
 /**
- * The tracking indicator as it appears on each platform that ships today.
- * Same timer, three surfaces — the visual argument for "you can always see
- * it's on", made without a screenshot of anyone's real work.
+ * The tracking indicator as it appears on each platform that ships today —
+ * the visual argument for "you can always see it's on", made without a
+ * screenshot of anyone's real work.
+ *
+ * Each chip counts from its own `offset` so the two read as two independent
+ * sessions on two machines, both live, rather than three copies of the same
+ * frozen-looking number. They still advance off the single page-level tick,
+ * so the seconds stay in step with each other and with the ribbon.
+ *
+ * `offset` starting the same on server and client keeps first paint matching;
+ * the value only moves once mounted.
  */
 function PlatformChip({
   icon,
   surface,
   title,
   elapsed,
+  offset,
   className,
 }: {
   icon: React.ReactNode;
   surface: string;
   title: string;
   elapsed: number;
+  offset: number;
   className: string;
 }) {
   return (
@@ -98,7 +108,7 @@ function PlatformChip({
         <span className="text-xs font-semibold text-ink">{title}</span>
       </div>
       <div className="mt-1 font-heading text-lg font-bold leading-none tracking-[-0.02em] text-ink tabular-nums">
-        {formatElapsed(elapsed)}
+        {formatElapsed(offset + elapsed)}
       </div>
     </div>
   );
@@ -126,6 +136,7 @@ export function Hero() {
           surface="Desktop tray"
           title="Tracking"
           elapsed={elapsed}
+          offset={2 * 3600 + 41 * 60 + 18}
           className="left-0 top-[43%] -rotate-3 xl:-left-6"
         />
         <PlatformChip
@@ -133,6 +144,7 @@ export function Hero() {
           surface="Android notification"
           title="Tracking"
           elapsed={elapsed}
+          offset={47 * 60 + 6}
           className="right-0 top-[55%] rotate-3 xl:-right-6"
         />
 

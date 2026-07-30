@@ -283,14 +283,17 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* The live indicator. One pulsing dot, used only where tracking is genuinely
-   running — the hero ribbon and the platform chips that mirror it. */
+   running — the hero ribbon and the platform chips that mirror it.
+   Green rather than the orange accent: it reads as "live" the way a recording
+   light does, and it matches the colour the app's own tracking pill already
+   uses. Orange stays reserved for brand emphasis (the marker underline). */
 .mk-live-dot {
   position: relative;
   display: inline-block;
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 999px;
-  background: var(--color-accent);
+  background: var(--color-positive);
   flex: none;
 }
 .mk-live-dot::after {
@@ -298,7 +301,7 @@ h1, h2, h3, h4, h5, h6 {
   position: absolute;
   inset: 0;
   border-radius: 999px;
-  background: var(--color-accent);
+  background: var(--color-positive);
   animation: mk-pulse 2s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 @keyframes mk-pulse {

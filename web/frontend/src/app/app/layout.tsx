@@ -8,6 +8,8 @@ import type { AuthUser } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { DownloadApp } from "@/components/DownloadApp";
+import { TourProvider } from "@/components/tour/tour-provider";
+import { TourLauncher } from "@/components/tour/tour-launcher";
 
 // Top-bar profile: avatar (uploaded picture if present, else initials) with a
 // menu to jump to Settings or sign out.
@@ -93,6 +95,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   }
 
   return (
+    <TourProvider role={user.role}>
     <div className="flex min-h-screen">
       {/* Desktop sidebar: spacer reserves width so content reflows; the panel
           is fixed so a collapsed rail can expand over the content on hover. */}
@@ -139,6 +142,7 @@ function Shell({ children }: { children: React.ReactNode }) {
               className="rounded-lg p-1.5 text-xl hover:bg-canvas lg:hidden"
               onClick={() => setDrawer(true)}
               aria-label="Open menu"
+              data-tour="mobile-menu"
             >
               ☰
             </button>
@@ -146,6 +150,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             <img src="/brand/icon-badge.svg" alt="" className="h-7 w-7 lg:hidden" />
           </div>
           <div className="flex items-center gap-1.5">
+            <TourLauncher />
             <DownloadApp />
             <NotificationsBell />
             <ProfileMenu user={user} onLogout={logout} />
@@ -159,6 +164,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
     </div>
+    </TourProvider>
   );
 }
 

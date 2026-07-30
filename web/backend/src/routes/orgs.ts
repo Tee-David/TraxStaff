@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 
 const settingsSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
   screenshotsPerBlock: z.number().int().min(0).max(3).optional(),
   blurScreenshots: z.boolean().optional(),
   idleTimeoutMinutes: z.number().int().min(1).max(60).optional(),

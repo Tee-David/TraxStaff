@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, PageHeader, Skeleton } from "@/components/ui";
+import { Button, Card, Input, PageHeader, Skeleton } from "@/components/ui";
 import { Select } from "@/components/Select";
 import { SettingsNav, type SettingsNavItem } from "@/components/SettingsNav";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -139,6 +139,7 @@ export default function SettingsPage() {
       const updated = await api<OrgSettings>("/orgs/settings", {
         method: "PATCH",
         body: JSON.stringify({
+          name: settings.name.trim(),
           screenshotsPerBlock: settings.screenshotsPerBlock,
           blurScreenshots: settings.blurScreenshots,
           idleTimeoutMinutes: settings.idleTimeoutMinutes,
@@ -300,9 +301,13 @@ export default function SettingsPage() {
     organisation: (
       <SettingsPanel title="Details">
         <SettingsRow label="Organisation name" hint="The display name used across the dashboard.">
-          <div className="max-w-full truncate rounded-lg border border-border bg-surface px-3 py-2 text-[13px] font-medium text-ink sm:min-w-[180px]">
-            {settings.name}
-          </div>
+          <Input
+            value={settings.name}
+            onChange={(e) => setSettings({ ...settings, name: e.target.value })}
+            maxLength={120}
+            disabled={!isAdmin}
+            className="sm:min-w-[220px] disabled:cursor-default disabled:opacity-70"
+          />
         </SettingsRow>
       </SettingsPanel>
     ),

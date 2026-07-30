@@ -1,6 +1,6 @@
 # Release workflows
 
-Trax ships three artifacts per release. Two workflows produce them:
+TraxStaff ships three artifacts per release. Two workflows produce them:
 
 | Workflow                 | Artifact                          | Runner         |
 | ------------------------ | --------------------------------- | -------------- |
@@ -67,7 +67,7 @@ anchors need rechecking.
 ### Generating the keystore
 
 Do this once, on a machine with a JDK, and keep the `.jks` somewhere safe — if
-it is lost, no future build can update an already-installed Trax APK.
+it is lost, no future build can update an already-installed TraxStaff APK.
 
 ```bash
 keytool -genkeypair -v \
@@ -76,7 +76,7 @@ keytool -genkeypair -v \
   -keyalg RSA -keysize 2048 \
   -validity 10000 \
   -storepass '<STORE_PASSWORD>' -keypass '<KEY_PASSWORD>' \
-  -dname "CN=Trax, O=Trax, C=NG"
+  -dname "CN=TraxStaff, O=TraxStaff, C=NG"
 ```
 
 Then base64-encode it for the secret:
@@ -128,7 +128,7 @@ That string is stamped into the generated `android/app/build.gradle` as
 counter CI has — Android requires it to increase for every upgrade.
 
 Note this diverges from the hand-maintained `versionCode: 1` in
-`mobile/app.config.ts`, which exists for manual Play Store uploads. If Trax ever
+`mobile/app.config.ts`, which exists for manual Play Store uploads. If TraxStaff ever
 goes to Play, pick one source of truth; CI-built APKs will already be at a much
 higher code than the checked-in value.
 

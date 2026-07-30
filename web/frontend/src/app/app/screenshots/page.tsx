@@ -97,12 +97,18 @@ export default function ScreenshotsPage() {
       const params = new URLSearchParams();
       if (from) params.set("from", from);
       if (to) params.set("to", to);
+      // "All members" (the default) previously meant "whole org" with no
+      // userId sent at all. The backend now defaults a privileged caller to
+      // "just me" unless told otherwise, so ask explicitly when no specific
+      // member is picked — otherwise an admin's own default view silently
+      // narrows to their own screenshots.
       if (q.member) params.set("userId", q.member);
+      else if (isAdmin) params.set("scope", "team");
       params.set("limit", String(PAGE_SIZE));
       if (cursor) params.set("cursor", cursor);
       return `/screenshots?${params.toString()}`;
     },
-    [range, q.member]
+    [range, q.member, isAdmin]
   );
 
   const { items: shots, loading, loadingMore, error, done, sentinelRef } = useInfiniteList<Shot>(buildPath);

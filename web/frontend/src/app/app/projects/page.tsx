@@ -259,7 +259,14 @@ export default function ProjectsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    api<Project[]>(`/projects${tab === "archived" ? "?archived=1" : ""}`)
+    // This is the admin project-management view (assign members, archive,
+    // etc.), so it explicitly asks for every org project — the default
+    // /projects response is now scoped to "projects I'm assigned to", same as
+    // everyone else, and would otherwise hide unassigned/other-members'
+    // projects from the very screen used to assign them.
+    const params = new URLSearchParams({ scope: "all" });
+    if (tab === "archived") params.set("archived", "1");
+    api<Project[]>(`/projects?${params.toString()}`)
       .then(setProjects)
       .catch(() => {
         setProjects([]);

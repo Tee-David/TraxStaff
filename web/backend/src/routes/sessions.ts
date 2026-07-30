@@ -300,8 +300,12 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
     return reply.code(201).send(session);
   });
 
-  // List sessions. Members see only their own; admins/owners see the whole org.
-  // Optional ?userId= and ?from=/?to= (ISO) filters.
+  // List sessions. Everyone defaults to seeing only their OWN sessions — this
+  // backs ordinary "my work" surfaces (Dashboard, Timesheets) for every role,
+  // admins included. An admin/owner may explicitly look up one other member
+  // via ?userId=, which is how Timesheets' own-org drill-down would work if
+  // ever wired up; without it, a privileged caller is never handed the whole
+  // org by default just for opening their own page.
   fastify.get("/sessions", async (req, reply) => {
     const q = req.query as { userId?: string; from?: string; to?: string };
 
@@ -310,7 +314,7 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
 
     if (isPrivileged) {
       where.user = { orgId: req.user.orgId };
-      if (q.userId) where.userId = q.userId;
+      where.userId = q.userId ?? req.user.userId;
     } else {
       where.userId = req.user.userId;
     }

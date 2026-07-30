@@ -73,12 +73,18 @@ export default function InsightsPage() {
     // See reports/page.tsx — day buckets are computed in this zone, not UTC.
     qs.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone);
     const qStr = qs.toString();
+    // These two endpoints default to "just me" for a privileged caller now
+    // (see reports.ts) — Insights is the one place that legitimately wants
+    // the whole org's numbers, so it asks for that explicitly.
+    const teamQs = new URLSearchParams(qs);
+    teamQs.set("scope", "team");
+    const teamStr = teamQs.toString();
     Promise.all([
       api<PresenceRow[]>("/insights/presence"),
       api<UnusualFlag[]>("/insights/unusual-activity"),
       api<LeaderRow[]>(`/insights/leaderboard?${qStr}`),
-      api<ByProjectRow[]>(`/reports/by-project?${qStr}`),
-      api<TimesheetDay[]>(`/reports/timesheet?${qStr}`),
+      api<ByProjectRow[]>(`/reports/by-project?${teamStr}`),
+      api<TimesheetDay[]>(`/reports/timesheet?${teamStr}`),
     ])
       .then(([p, f, b, proj, ts]) => {
         setPresence(p);

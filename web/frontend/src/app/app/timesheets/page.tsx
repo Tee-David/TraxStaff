@@ -2,20 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
 import type { Session } from "@/lib/types";
 import { Badge, EmptyState, PageHeader, Skeleton, StatTile } from "@/components/ui";
 import { DataTable, type Column } from "@/components/DataTable";
-import { DateRange, MemberFilter, FilterBar, rangeToParams, type DateRangeValue } from "@/components/filters";
+import { DateRange, FilterBar, rangeToParams, type DateRangeValue } from "@/components/filters";
 import { formatDurationShort, formatDate, formatTime, sessionSeconds } from "@/lib/format";
 
 export default function TimesheetsPage() {
-  const { user } = useAuth();
-  const isPrivileged = user?.role === "owner" || user?.role === "admin";
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<DateRangeValue>({ type: "preset", preset: "week" });
-  const [member, setMember] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -23,12 +19,13 @@ export default function TimesheetsPage() {
     const qs = new URLSearchParams();
     if (from) qs.set("from", from);
     if (to) qs.set("to", to);
-    if (member) qs.set("userId", member);
+    // No userId param: this is always the caller's own timesheet, regardless
+    // of role — the server defaults to self for everyone now.
     api<Session[]>(`/sessions?${qs.toString()}`)
       .then(setSessions)
       .catch(() => setSessions([]))
       .finally(() => setLoading(false));
-  }, [range, member]);
+  }, [range]);
 
   useEffect(() => {
     load();
@@ -42,9 +39,6 @@ export default function TimesheetsPage() {
   const flagged = sessions.filter((s) => s.tamperSuspected).length;
 
   const columns: Column<Session>[] = [
-    ...(isPrivileged
-      ? [{ key: "member", header: "Member", sortValue: (s: Session) => s.user.email, render: (s: Session) => <span className="text-muted">{s.user.email}</span> }]
-      : []),
     { key: "project", header: "Project", sortValue: (s) => s.project.name, render: (s) => (
       <div>
         <div className="font-medium">{s.project.name}</div>
@@ -68,7 +62,7 @@ export default function TimesheetsPage() {
 
   return (
     <div>
-      <PageHeader title="Timesheets" subtitle={isPrivileged ? "All team time entries" : "Your tracked time"} />
+      <PageHeader title="Timesheets" subtitle="Your tracked time" />
 
       <div className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatTile icon="⏱" tone="brand" label="Total in range" value={<span className="text-[22px]">{formatDurationShort(totalSecs)}</span>} />
@@ -79,7 +73,6 @@ export default function TimesheetsPage() {
 
       <FilterBar>
         <DateRange value={range} onChange={setRange} />
-        <MemberFilter value={member} onChange={setMember} enabled={isPrivileged} />
       </FilterBar>
 
       {loading ? (

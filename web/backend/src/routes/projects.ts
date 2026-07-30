@@ -20,15 +20,21 @@ const updateMembersSchema = z.object({
 export default async function projectRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
 
+  // Default: only projects the caller is assigned to — this is what backs the
+  // ordinary "my projects" surfaces (e.g. the Dashboard widget) for EVERY
+  // role, admins included. ?scope=all is the explicit admin-management
+  // opt-in used by the Projects admin page, which needs every org project
+  // (plus current assignment) so it can manage who's assigned where.
   fastify.get("/projects", async (req, reply) => {
-    const { archived } = req.query as { archived?: string };
+    const { archived, scope } = req.query as { archived?: string; scope?: string };
     const archivedFilter = archived === "1" || archived === "true" ? { not: null } : null;
     const isPrivileged = req.user.role === "owner" || req.user.role === "admin";
 
-    if (isPrivileged) {
-      // Admin/owner see every org project regardless of assignment — they need
-      // full visibility to manage it — plus the current assignment set so the
-      // UI can render it without an extra round trip per project.
+    if (isPrivileged && scope === "all") {
+      // Admin/owner management view: every org project regardless of
+      // assignment — they need full visibility to manage it — plus the
+      // current assignment set so the UI can render it without an extra
+      // round trip per project.
       const projects = await prisma.project.findMany({
         where: { orgId: req.user.orgId, archivedAt: archivedFilter },
         include: { tasks: true, members: { select: { userId: true } } },
@@ -39,7 +45,8 @@ export default async function projectRoutes(fastify: FastifyInstance) {
       );
     }
 
-    // Regular members only see projects they've been explicitly assigned to.
+    // Everyone else (and a privileged caller not asking for the management
+    // view) only sees projects they've been explicitly assigned to.
     const projects = await prisma.project.findMany({
       where: {
         orgId: req.user.orgId,

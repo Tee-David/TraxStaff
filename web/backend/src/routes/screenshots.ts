@@ -23,6 +23,11 @@ const confirmSchema = z.object({
 const listQuery = z.object({
   sessionId: z.string().uuid().optional(),
   userId: z.string().uuid().optional(),
+  // Explicit opt-in for a privileged caller to get the whole org rather than
+  // just themselves — mirrors reports.ts's ?scope=team. Without it, a
+  // privileged caller opening their own Screenshots page must not be handed
+  // the whole org by default just for viewing their own activity.
+  scope: z.enum(["self", "team"]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
   // One screen of a ×6 grid is ~30 tiles; 48 gives a page of headroom without
@@ -91,7 +96,13 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
     return reply.code(201).send(shot);
   });
 
-  // 3) List screenshots (with short-lived view URLs). Members see own; admins all.
+  // 3) List screenshots (with short-lived view URLs). Everyone defaults to
+  // their own — this is the ordinary Screenshots page every role uses, and an
+  // admin opening it must not be handed the whole org by default just for
+  // viewing their own activity. ?userId=<id> lets a privileged caller
+  // explicitly pull one other member's screenshots; ?scope=team asks for the
+  // whole org (privileged only), which is what the Screenshots page's "All
+  // members" default sends.
   //
   // Keyset ("cursor") paginated, newest first. The old implementation returned a
   // flat `take: 200` slice with no indication that anything had been cut off, so
@@ -110,7 +121,13 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
     const sessionWhere: Record<string, unknown> = {};
     if (privileged) {
       sessionWhere.user = { orgId: req.user.orgId };
-      if (q.userId) sessionWhere.userId = q.userId;
+      if (q.userId) {
+        sessionWhere.userId = q.userId;
+      } else if (q.scope !== "team") {
+        sessionWhere.userId = req.user.userId;
+      }
+      // scope === "team" and no userId: leave sessionWhere.userId unset →
+      // whole org.
     } else {
       sessionWhere.userId = req.user.userId;
     }

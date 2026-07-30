@@ -6,6 +6,10 @@ const rangeSchema = z.object({
   from: z.string().datetime({ offset: true }).optional(),
   to: z.string().datetime({ offset: true }).optional(),
   userId: z.string().uuid().optional(),
+  // Explicit opt-in for a privileged caller to get the whole org rather than
+  // just themselves (see loadSessions below) — only the admin-only Insights
+  // dashboard sets this today.
+  scope: z.enum(["self", "team"]).optional(),
   // IANA zone the caller wants days bucketed in. Defaults to UTC, which is what
   // this endpoint always did — so an old client keeps its previous behaviour.
   tz: z.string().min(1).max(64).optional(),
@@ -114,13 +118,25 @@ export default async function reportRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
 
   // Shared: resolve the session set this caller may see, within a range.
+  //
+  // Used by both the ordinary Timesheets/Reports/Dashboard pages (where every
+  // caller, admin included, must default to their OWN data) and the
+  // admin-only Insights dashboard (which needs the whole org's numbers by
+  // default). The two are told apart by explicit query params rather than
+  // role alone: no filter → self; ?userId=<id> → that one member (privileged
+  // only); ?scope=team → the whole org (privileged only, what Insights sends).
   async function loadSessions(req: import("fastify").FastifyRequest) {
     const q = rangeSchema.parse(req.query);
     const privileged = req.user.role === "owner" || req.user.role === "admin";
     const where: Record<string, unknown> = {};
     if (privileged) {
       where.user = { orgId: req.user.orgId };
-      if (q.userId) where.userId = q.userId;
+      if (q.userId) {
+        where.userId = q.userId;
+      } else if (q.scope !== "team") {
+        where.userId = req.user.userId;
+      }
+      // scope === "team" and no userId: leave where.userId unset → whole org.
     } else {
       where.userId = req.user.userId;
     }

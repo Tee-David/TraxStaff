@@ -28,7 +28,12 @@ export default function ReportsPage() {
     const qs = new URLSearchParams();
     if (from) qs.set("from", from);
     if (to) qs.set("to", to);
+    // No member picked: an admin/owner still expects the whole org here (this
+    // page's original behaviour) — the backend now defaults a privileged
+    // caller to "just me" unless told otherwise, so ask explicitly. Picking a
+    // specific member sends userId instead, which the backend prefers anyway.
     if (member) qs.set("userId", member);
+    else if (isPrivileged) qs.set("scope", "team");
     // Days are bucketed server-side; without this the split falls on UTC
     // midnight and evening work lands on the wrong date.
     qs.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -49,7 +54,7 @@ export default function ReportsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [range, member]);
+  }, [range, member, isPrivileged]);
 
   useEffect(() => {
     load();

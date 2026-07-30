@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Button, Card, Input, PageHeader, Skeleton } from "@/components/ui";
 import { Select } from "@/components/Select";
@@ -13,7 +13,7 @@ import { Toggle } from "@/components/Toggle";
 import { useTheme } from "@/lib/theme";
 import { useMotionPresets } from "@/lib/motion";
 import { toggleThemeWithTransition } from "@/lib/theme-transition";
-import { IconClock, IconFlag, IconImage, IconMoon, IconSun, IconUsers } from "@/components/icons";
+import { IconClock, IconFlag, IconImage, IconMoon, IconSun, IconUser, IconUsers } from "@/components/icons";
 
 interface OrgSettings {
   id: string;
@@ -26,7 +26,7 @@ interface OrgSettings {
   weeklyTargetMinutes: number;
 }
 
-type SectionId = "appearance" | "screenshots" | "tracking" | "targets" | "organisation";
+type SectionId = "account" | "appearance" | "screenshots" | "tracking" | "targets" | "organisation";
 
 type Section = SettingsNavItem & {
   id: SectionId;
@@ -36,6 +36,14 @@ type Section = SettingsNavItem & {
 };
 
 const SECTIONS: Section[] = [
+  {
+    id: "account",
+    label: "Account",
+    icon: IconUser,
+    title: "Account",
+    subtitle: "Your name and password. Visible only to you.",
+    adminOnly: false,
+  },
   {
     id: "appearance",
     label: "Appearance",
@@ -114,15 +122,28 @@ function UnitField({
 }
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const isAdmin = user?.role === "owner" || user?.role === "admin";
   const [settings, setSettings] = useState<OrgSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [active, setActive] = useState<SectionId>("appearance");
+  const [active, setActive] = useState<SectionId>("account");
   const [theme, setTheme] = useTheme();
   const m = useMotionPresets();
+
+  // Account section: display name.
+  const [accountName, setAccountName] = useState(user?.name ?? "");
+  const [savingName, setSavingName] = useState(false);
+  const [savedName, setSavedName] = useState(false);
+
+  // Account section: change password.
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSaved, setPasswordSaved] = useState(false);
 
   useEffect(() => {
     api<OrgSettings>("/orgs/settings")
@@ -130,6 +151,56 @@ export default function SettingsPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  // Keep the name field in sync once the user finishes loading (it starts
+  // out null while /auth/me is still in flight).
+  useEffect(() => {
+    setAccountName(user?.name ?? "");
+  }, [user?.name]);
+
+  async function saveName() {
+    setSavingName(true);
+    setSavedName(false);
+    try {
+      await api("/auth/me", {
+        method: "PATCH",
+        body: JSON.stringify({ name: accountName.trim() }),
+      });
+      await refresh();
+      setSavedName(true);
+      setTimeout(() => setSavedName(false), 3000);
+    } finally {
+      setSavingName(false);
+    }
+  }
+
+  async function changePassword() {
+    setPasswordError(null);
+    if (newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New passwords do not match.");
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      await api("/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordSaved(true);
+      setTimeout(() => setPasswordSaved(false), 3000);
+    } catch (err) {
+      setPasswordError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setChangingPassword(false);
+    }
+  }
 
   async function save() {
     if (!settings) return;
@@ -173,6 +244,81 @@ export default function SettingsPage() {
   const current = sections.find((s) => s.id === active) ?? sections[0];
 
   const body: Record<SectionId, ReactNode> = {
+    account: (
+      <>
+        <SettingsPanel title="Profile">
+          <SettingsRow label="Display name" hint="Shown across the dashboard wherever your name appears.">
+            <div className="flex flex-wrap items-center gap-3">
+              <Input
+                value={accountName}
+                onChange={(e) => setAccountName(e.target.value)}
+                maxLength={120}
+                placeholder={user?.email ?? ""}
+                className="sm:min-w-[220px]"
+              />
+              <Button
+                onClick={saveName}
+                disabled={savingName || accountName.trim().length === 0}
+                variant="ghost"
+                className="min-w-[92px]"
+              >
+                {savingName ? "Saving…" : "Save"}
+              </Button>
+              {savedName && (
+                <span className="text-[13px] font-medium text-[var(--color-positive)]">Saved</span>
+              )}
+            </div>
+          </SettingsRow>
+        </SettingsPanel>
+
+        <SettingsPanel title="Password">
+          <SettingsRow label="Current password" hint="Confirm it's you before setting a new password.">
+            <Input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="sm:min-w-[220px]"
+            />
+          </SettingsRow>
+          <SettingsRow label="New password" hint="At least 8 characters.">
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="sm:min-w-[220px]"
+            />
+          </SettingsRow>
+          <SettingsRow label="Confirm new password" hint="Re-enter the new password to confirm.">
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="sm:min-w-[220px]"
+            />
+          </SettingsRow>
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <Button
+              onClick={changePassword}
+              disabled={changingPassword || !currentPassword || !newPassword || !confirmPassword}
+              variant="ghost"
+              className="min-w-[140px]"
+            >
+              {changingPassword ? "Updating…" : "Change password"}
+            </Button>
+            {passwordSaved && (
+              <span className="text-[13px] font-medium text-[var(--color-positive)]">Password updated</span>
+            )}
+            {passwordError && (
+              <span className="text-[13px] font-medium text-[var(--color-negative)]">{passwordError}</span>
+            )}
+          </div>
+        </SettingsPanel>
+      </>
+    ),
+
     appearance: (
       <SettingsPanel title="Theme">
         <SettingsRow label="Colour mode" hint="Switch between light and dark. Applies to this browser only.">
@@ -331,7 +477,7 @@ export default function SettingsPage() {
             </Card>
           </motion.div>
 
-          {isAdmin && (
+          {isAdmin && current.id !== "account" && (
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <Button onClick={save} disabled={saving} className="min-w-[120px]">
                 {saving ? "Saving…" : "Save changes"}

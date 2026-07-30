@@ -25,7 +25,7 @@ const MENU: Item[] = [
   { href: "/app/members", label: "Members", icon: IconUsers, roles: ["owner", "admin"] },
 ];
 const SECONDARY: Item[] = [
-  { href: "/app/settings", label: "Settings", icon: IconSettings, roles: ["owner", "admin"] },
+  { href: "/app/settings", label: "Settings", icon: IconSettings, roles: ["owner", "admin", "member"] },
 ];
 
 const DOTS = ["var(--color-cat-focus)", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b"];
@@ -194,12 +194,12 @@ export function Sidebar({
       {/* User */}
       <div className={`flex items-center border-t border-border ${collapsed ? "justify-center px-2 py-3.5" : "gap-3 px-4 py-3.5"}`}>
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-sm font-semibold uppercase text-brand">
-          {user.email.slice(0, 1)}
+          {(user.name?.trim() || user.email).slice(0, 1)}
         </span>
         {!collapsed && (
           <>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">{user.email.split("@")[0]}</div>
+              <div className="truncate text-sm font-medium">{user.name?.trim() || user.email.split("@")[0]}</div>
               <div className="truncate text-xs text-muted">{user.email}</div>
             </div>
             <button onClick={onLogout} aria-label="Sign out" className="rounded-lg p-1.5 text-faint transition hover:bg-canvas hover:text-ink">

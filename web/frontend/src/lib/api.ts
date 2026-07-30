@@ -4,6 +4,7 @@ export const API_BASE =
 export interface AuthUser {
   id: string;
   email: string;
+  name?: string | null;
   role: "owner" | "admin" | "member";
   orgId?: string;
 }

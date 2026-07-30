@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
 import { APP_URL } from "@/lib/site";
-import { IconClock, IconAndroid, IconWindows } from "@/components/icons";
+import { IconClock, IconAndroid, IconWindows, IconLinux } from "@/components/icons";
 
 /**
  * Seconds since this component mounted. Real elapsed time, not a scripted
- * animation — the hero's whole point is that the number you're looking at is
+ * animation — the point of the hero is that the number you're looking at is
  * the honest one.
  *
  * Starts at 0 on both server and client so the first paint matches, then
@@ -36,68 +36,30 @@ function formatElapsed(total: number) {
 }
 
 /**
- * The signature. Instead of describing the always-visible indicator, the page
- * runs one on itself: the same timer, the same live dot, counting the time
- * you've actually spent here. Every claim it makes about itself is true.
- */
-function LiveRibbon({ elapsed }: { elapsed: number }) {
-  return (
-    <div className="mx-auto w-full max-w-xl rounded-2xl border border-border bg-surface p-5 text-left shadow-[var(--shadow-lift)] sm:p-6">
-      <div className="flex items-center gap-2">
-        <span className="mk-live-dot" />
-        <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-positive">
-          Tracking &middot; visible
-        </span>
-      </div>
-
-      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:gap-5">
-        {/* Plain text, deliberately: no aria-live, so a screen reader reads the
-            value once with the caption rather than re-announcing it every
-            second. The caption below says what the number is. */}
-        <span className="font-heading text-[2.75rem] font-bold leading-none tracking-[-0.03em] text-ink tabular-nums">
-          {formatElapsed(elapsed)}
-        </span>
-        <p className="text-sm leading-relaxed text-muted">
-          How long this page has been open. You could see it counting the whole
-          time &mdash; that&rsquo;s the entire product.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/**
- * The tracking indicator as it appears on each platform that ships today —
- * the visual argument for "you can always see it's on", made without a
- * screenshot of anyone's real work.
+ * The tracking indicator as it appears on each platform that ships today.
  *
- * Each chip counts from its own `offset` so the two read as two independent
- * sessions on two machines, both live, rather than three copies of the same
- * frozen-looking number. They still advance off the single page-level tick,
- * so the seconds stay in step with each other and with the ribbon.
- *
- * `offset` starting the same on server and client keeps first paint matching;
- * the value only moves once mounted.
+ * Each card counts from its own offset while advancing off the single
+ * page-level tick, so they read as separate machines all running live rather
+ * than as copies of one number — but their seconds stay in step. Offsets are
+ * part of the illustration; the centred card below the buttons is the one
+ * showing real time, and it says so.
  */
-function PlatformChip({
+function TimerCard({
   icon,
   surface,
-  title,
   elapsed,
   offset,
   className,
 }: {
   icon: React.ReactNode;
   surface: string;
-  title: string;
   elapsed: number;
   offset: number;
-  className: string;
+  className?: string;
 }) {
   return (
     <div
-      aria-hidden
-      className={`pointer-events-none absolute hidden w-52 rounded-2xl border border-border bg-surface p-3.5 shadow-[var(--shadow-lift)] lg:block ${className}`}
+      className={`w-52 rounded-2xl border border-border bg-surface p-4 shadow-[var(--shadow-lift)] ${className ?? ""}`}
     >
       <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
         <span className="text-muted">{icon}</span>
@@ -105,53 +67,137 @@ function PlatformChip({
       </div>
       <div className="mt-2.5 flex items-center gap-2">
         <span className="mk-live-dot" />
-        <span className="text-xs font-semibold text-ink">{title}</span>
+        <span className="text-xs font-semibold text-ink">Tracking</span>
       </div>
-      <div className="mt-1 font-heading text-lg font-bold leading-none tracking-[-0.02em] text-ink tabular-nums">
+      <div className="mt-1 font-heading text-xl font-bold leading-none tracking-[-0.02em] text-ink tabular-nums">
         {formatElapsed(offset + elapsed)}
       </div>
     </div>
   );
 }
 
+/** The same indicator at its smallest — how it sits in a menu bar. */
+function TimerPill({
+  label,
+  elapsed,
+  offset,
+  className,
+}: {
+  label: string;
+  elapsed: number;
+  offset: number;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2.5 rounded-full border border-border bg-surface py-2.5 pl-3.5 pr-4 shadow-[var(--shadow-lift)] ${className ?? ""}`}
+    >
+      <span className="mk-live-dot" />
+      <span className="text-[11px] font-semibold text-muted">{label}</span>
+      <span className="font-heading text-sm font-bold leading-none tracking-[-0.02em] text-ink tabular-nums">
+        {formatElapsed(offset + elapsed)}
+      </span>
+    </div>
+  );
+}
+
 export function Hero() {
-  const { stagger, item } = useMotionPresets();
+  const { stagger, item, reduce } = useMotionPresets();
   const elapsed = useElapsed();
 
-  return (
-    <section id="top" className="mk-grid relative overflow-hidden">
-      <div
-        className="pointer-events-none absolute inset-0 -z-10"
-        style={{
-          background:
-            "radial-gradient(65% 55% at 50% -8%, color-mix(in srgb, var(--color-brand) 13%, transparent) 0%, transparent 62%)",
-        }}
-      />
-
-      <div className="relative mx-auto max-w-6xl px-5 pb-20 pt-12 text-center sm:px-8 sm:pt-16 lg:pb-28">
-        {/* Positioned to flank the subhead and buttons, where the centered
-            column is at its narrowest — never the headline. */}
-        <PlatformChip
+  /* Floating objects live in the margins beside the headline column, the way
+     the reference scatters its illustrations. That needs roughly 1280px before
+     they stop colliding with the type, so below `xl` they're dropped and the
+     single centred card below the buttons carries the live timer instead —
+     every width still shows one running clock. */
+  const floaters = [
+    {
+      key: "windows",
+      node: (
+        <TimerCard
           icon={<IconWindows width={13} height={13} />}
-          surface="Desktop tray"
-          title="Tracking"
+          surface="Windows tray"
           elapsed={elapsed}
           offset={2 * 3600 + 41 * 60 + 18}
-          className="left-0 top-[43%] -rotate-3 xl:-left-6"
+          className="-rotate-3"
         />
-        <PlatformChip
+      ),
+      className: "left-0 top-[16%]",
+      float: -8,
+    },
+    {
+      key: "android",
+      node: (
+        <TimerCard
           icon={<IconAndroid width={13} height={13} />}
-          surface="Android notification"
-          title="Tracking"
+          surface="Android"
           elapsed={elapsed}
           offset={47 * 60 + 6}
-          className="right-0 top-[55%] rotate-3 xl:-right-6"
+          className="rotate-3"
         />
+      ),
+      className: "right-0 top-[24%]",
+      float: 8,
+    },
+    {
+      key: "focus",
+      node: <TimerPill label="Focus" elapsed={elapsed} offset={72 * 60 + 9} className="-rotate-2" />,
+      className: "left-[6%] top-[64%]",
+      float: 7,
+    },
+    {
+      key: "linux",
+      node: (
+        <TimerCard
+          icon={<IconLinux width={13} height={13} />}
+          surface="Linux tray"
+          elapsed={elapsed}
+          offset={5 * 3600 + 3 * 60 + 51}
+          className="rotate-2"
+        />
+      ),
+      className: "right-[4%] top-[62%]",
+      float: -7,
+    },
+  ];
 
-        <motion.div {...stagger()}>
+  return (
+    <section id="top" className="mk-hero relative overflow-hidden">
+      <div className="relative mx-auto max-w-7xl px-5 pb-24 pt-16 text-center sm:px-8 sm:pt-24 lg:pb-32">
+        {floaters.map((f) => (
+          <motion.div
+            key={f.key}
+            aria-hidden
+            className={`pointer-events-none absolute hidden xl:block ${f.className}`}
+            initial={{ opacity: 0, y: 16, scale: 0.96 }}
+            animate={
+              reduce
+                ? { opacity: 1, y: 0, scale: 1 }
+                : { opacity: 1, y: [0, f.float, 0], scale: 1 }
+            }
+            transition={
+              reduce
+                ? { duration: 0 }
+                : {
+                    opacity: { duration: 0.5, delay: 0.35 },
+                    scale: { duration: 0.5, delay: 0.35 },
+                    y: {
+                      duration: 7 + Math.abs(f.float) * 0.2,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                      delay: 0.35,
+                    },
+                  }
+            }
+          >
+            {f.node}
+          </motion.div>
+        ))}
+
+        <motion.div {...stagger()} className="relative z-10">
           <motion.span
             {...item}
-            className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted shadow-[var(--shadow-soft)]"
+            className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15"
           >
             <IconClock width={13} height={13} className="text-accent" />
             Never covert, by design
@@ -159,39 +205,58 @@ export function Hero() {
 
           <motion.h1
             {...item}
-            className="mx-auto mt-7 max-w-3xl font-heading text-[clamp(2.5rem,5.6vw,4.25rem)] font-bold leading-[1.04] tracking-[-0.04em] text-ink"
+            className="mx-auto mt-8 max-w-[52rem] font-heading text-[clamp(2.25rem,5.2vw,4rem)] font-bold leading-[1.06] tracking-[-0.04em] text-ink"
           >
-            Time tracking your team can{" "}
+            {/* Broken here rather than at "team" so the two lines come out
+                near-equal; the sizing above keeps each on one line right down
+                to the point the break is dropped on small screens. */}
+            Time tracking your
+            <br className="hidden sm:block" /> team can{" "}
             <span className="mk-mark">actually see</span>
           </motion.h1>
 
           <motion.p
             {...item}
-            className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-muted sm:text-lg"
+            className="mx-auto mt-7 max-w-xl text-base leading-relaxed text-muted sm:text-lg"
           >
-            TraxStaff runs a visible, always-on indicator while it tracks &mdash;
-            never hidden, never quiet in the background. Every session is
-            hash-chained and capped against the server&rsquo;s clock, so the
-            record is tamper-evident, not just self-reported.
+            A visible, always-on indicator the whole time it runs. Every session
+            hash-chained and capped against the server&rsquo;s clock &mdash;
+            tamper-evident, never self-reported.
           </motion.p>
 
-          <motion.div {...item} className="mt-9 flex flex-wrap items-center justify-center gap-3">
+          <motion.div {...item} className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
             <a
               href={`${APP_URL}/app`}
-              className="rounded-full bg-brand px-7 py-3.5 text-sm font-semibold text-brand-fg transition hover:bg-brand-600"
+              className="rounded-full bg-accent px-8 py-4 text-sm font-bold text-field transition hover:brightness-105 sm:py-3.5"
             >
               Start free
             </a>
             <a
               href="#download"
-              className="rounded-full border border-border bg-surface px-7 py-3.5 text-sm font-semibold text-ink transition hover:border-border-strong"
+              className="rounded-full border border-border-strong bg-surface px-8 py-4 text-sm font-semibold text-ink transition hover:border-muted sm:py-3.5"
             >
               Download the app
             </a>
           </motion.div>
 
-          <motion.div {...item} className="mt-14">
-            <LiveRibbon elapsed={elapsed} />
+          {/* Stand-in for the floating cards below xl, and the only timer on
+              the page showing genuinely real elapsed time. */}
+          <motion.div {...item} className="mt-14 flex justify-center xl:hidden">
+            <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 text-left shadow-[var(--shadow-lift)]">
+              <div className="flex items-center gap-2">
+                <span className="mk-live-dot" />
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-positive">
+                  Tracking &middot; visible
+                </span>
+              </div>
+              <div className="mt-3 font-heading text-[2.5rem] font-bold leading-none tracking-[-0.03em] text-ink tabular-nums">
+                {formatElapsed(elapsed)}
+              </div>
+              <p className="mt-3 text-sm leading-relaxed text-muted">
+                How long this page has been open. You could see it counting the
+                whole time &mdash; that&rsquo;s the entire product.
+              </p>
+            </div>
           </motion.div>
         </motion.div>
       </div>

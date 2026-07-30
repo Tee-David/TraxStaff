@@ -79,7 +79,7 @@ export function MarketingNav() {
           </a>
           <a
             href={`${APP_URL}/app`}
-            className="rounded-full bg-brand px-4 py-2 text-sm font-semibold text-brand-fg transition hover:bg-brand-600"
+            className="rounded-full bg-accent px-4 py-2 text-sm font-bold text-field transition hover:brightness-105"
           >
             Start free
           </a>
@@ -126,7 +126,7 @@ export function MarketingNav() {
               </a>
               <a
                 href={`${APP_URL}/app`}
-                className="rounded-full bg-brand px-4 py-2.5 text-center text-sm font-semibold text-brand-fg transition hover:bg-brand-600"
+                className="rounded-full bg-accent px-4 py-2.5 text-center text-sm font-bold text-field transition hover:brightness-105"
               >
                 Start free
               </a>

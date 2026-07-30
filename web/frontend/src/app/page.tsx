@@ -4,7 +4,7 @@ import { Hero } from "@/components/marketing/Hero";
 import { PlatformStrip } from "@/components/marketing/PlatformStrip";
 import { Features } from "@/components/marketing/Features";
 import { Integrity } from "@/components/marketing/Integrity";
-import { Statements } from "@/components/marketing/Statements";
+import { Testimonials } from "@/components/marketing/Testimonials";
 import { Transparency } from "@/components/marketing/Transparency";
 import { DownloadCta } from "@/components/marketing/DownloadCta";
 import { Footer } from "@/components/marketing/Footer";
@@ -30,7 +30,7 @@ export default function Home() {
       <PlatformStrip />
       <Features />
       <Integrity />
-      <Statements />
+      <Testimonials />
       <Transparency />
       <DownloadCta />
       <Footer currentYear={currentYear} />

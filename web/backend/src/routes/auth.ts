@@ -44,6 +44,15 @@ const resetPasswordSchema = z.object({
   password: z.string().min(8),
 });
 
+const updateMeSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
 // Short — a reset link is a bearer credential for the account.
 const RESET_TTL_MS = 60 * 60 * 1000;
 
@@ -242,6 +251,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
     return reply.send({
       id: user.id,
       email: user.email,
+      name: user.name,
       role: user.role,
       orgId: user.orgId,
       consentAcceptedAt: user.consentAcceptedAt,
@@ -261,6 +271,38 @@ export default async function authRoutes(fastify: FastifyInstance) {
       where: { id: req.user.userId },
       data: { consentAcceptedAt: new Date(), consentVersion: body.version },
     });
+    return reply.send({ ok: true });
+  });
+
+  // Every role may edit their own display name — this is self-service, not an
+  // admin action, so there is no role check beyond being authenticated.
+  fastify.patch("/auth/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
+    const body = updateMeSchema.parse(req.body);
+    const user = await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { name: body.name },
+    });
+    return reply.send({ id: user.id, email: user.email, name: user.name, role: user.role });
+  });
+
+  // Authenticated password change (current + new), distinct from the
+  // signed-out forgot/reset-password token flow above. JWTs here are short
+  // (7d TTL, see TOKEN_TTL) and there is no session store to revoke against,
+  // so this does not attempt to invalidate other devices' tokens.
+  fastify.post("/auth/change-password", { preHandler: [fastify.authenticate] }, async (req, reply) => {
+    const body = changePasswordSchema.parse(req.body);
+
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user.userId } });
+    if (!user.passwordHash) {
+      return reply.code(400).send({ error: "Current password is incorrect" });
+    }
+    const valid = await verifyPassword(body.currentPassword, user.passwordHash);
+    if (!valid) {
+      return reply.code(400).send({ error: "Current password is incorrect" });
+    }
+
+    const passwordHash = await hashPassword(body.newPassword);
+    await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
     return reply.send({ ok: true });
   });
 }

@@ -8,7 +8,7 @@ import { useEffect } from "react";
 import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, needsConsent, useAuth } from "../src/auth/AuthContext";
-import { colors } from "../src/theme";
+import { ThemeProvider, useTheme } from "../src/ThemeProvider";
 import { TrackerProvider } from "../src/tracker/TrackerContext";
 import { Loading } from "../src/ui";
 
@@ -29,6 +29,7 @@ const AUTH_ROUTES: readonly string[] = ["welcome", "login"];
  */
 function Gate() {
   const { status, me } = useAuth();
+  const { colors } = useTheme();
   const segments = useSegments();
   const router = useRouter();
 
@@ -87,13 +88,25 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return null;
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="light" backgroundColor={colors.brand} />
-      <AuthProvider>
-        <TrackerProvider>
-          <Gate />
-        </TrackerProvider>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <ThemeProvider>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <TrackerProvider>
+            <AppStatusBar />
+            <Gate />
+          </TrackerProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </ThemeProvider>
   );
+}
+
+/** The Android status bar background always carries the brand colour (a thin
+ *  branded strip above every screen), which is dark-toned in both palettes —
+ *  navy in light mode, a lit navy-blue in dark mode — so white content stays
+ *  legible in both and only the background needs to follow the resolved
+ *  theme. */
+function AppStatusBar() {
+  const { colors } = useTheme();
+  return <StatusBar style="light" backgroundColor={colors.brand} />;
 }

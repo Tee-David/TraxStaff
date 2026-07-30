@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Badge, Button } from "@/components/ui";
 import {
@@ -11,56 +11,12 @@ import {
   IconApple,
   IconExternalLink,
 } from "@/components/icons";
-
-interface LatestRelease {
-  version: string;
-  publishedAt: string | null;
-  htmlUrl: string | null;
-  windows: string | null;
-  linuxAppImage: string | null;
-  linuxDeb: string | null;
-  android: string | null;
-}
-
-type LoadState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; data: LatestRelease };
-
-// Public fallback so the panel never dead-ends even if the API route itself
-// is unreachable (not just GitHub) — this is just the releases page.
-const RELEASES_FALLBACK_URL = "https://github.com/Tee-David/trax/releases";
-
-type DesktopPlatform = "windows" | "linux" | "mac" | "unknown";
-
-// Best-effort client-side OS sniff for the primary CTA only. Deliberately does
-// NOT special-case Android here — the Android UA also contains "Linux", and
-// per design Android is always offered as an explicit secondary option below
-// rather than something we try to auto-select as the "primary" download.
-function detectDesktopPlatform(): DesktopPlatform {
-  if (typeof navigator === "undefined") return "unknown";
-  const ua = navigator.userAgent || "";
-  const platformHint = navigator.platform || "";
-  if (/android/i.test(ua)) return "unknown";
-  if (/mac/i.test(platformHint) || /Mac OS X/i.test(ua)) return "mac";
-  if (/win/i.test(platformHint) || /windows/i.test(ua)) return "windows";
-  if (/linux/i.test(platformHint) || /linux/i.test(ua)) return "linux";
-  return "unknown";
-}
-
-function formatDate(iso: string | null): string | null {
-  if (!iso) return null;
-  try {
-    return new Date(iso).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return null;
-  }
-}
+import {
+  RELEASES_FALLBACK_URL,
+  detectDesktopPlatform,
+  formatReleaseDate as formatDate,
+  useLatestRelease,
+} from "@/lib/releases";
 
 /** A download row used for the non-primary platform options. */
 function PlatformRow({
@@ -109,29 +65,12 @@ function PlatformRow({
 
 export function DownloadApp() {
   const [open, setOpen] = useState(false);
-  const [state, setState] = useState<LoadState>({ status: "idle" });
   const ref = useRef<HTMLDivElement>(null);
-
-  const load = useCallback(async () => {
-    setState({ status: "loading" });
-    try {
-      const res = await fetch("/api/releases/latest");
-      const json = await res.json();
-      if (!res.ok || json?.error) {
-        throw new Error(json?.error || `Request failed (${res.status})`);
-      }
-      setState({ status: "ready", data: json as LatestRelease });
-    } catch (err) {
-      setState({
-        status: "error",
-        message: err instanceof Error ? err.message : "Something went wrong.",
-      });
-    }
-  }, []);
 
   // Lazy-load: only hit the API the first time someone actually opens this,
   // rather than on every dashboard load — the route is cached server-side
   // too, but there's no reason to fetch for users who never click it.
+  const { state, load } = useLatestRelease({ lazy: true });
   useEffect(() => {
     if (open && state.status === "idle") load();
   }, [open, state.status, load]);

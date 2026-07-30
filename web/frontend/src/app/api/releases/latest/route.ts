@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { LatestRelease } from "@/lib/releases";
 
 /**
  * Surfaces the latest GitHub Release for the "Download app" feature, so the
@@ -24,15 +25,7 @@ const REPO = "Tee-David/trax";
 const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-export interface LatestRelease {
-  version: string;
-  publishedAt: string | null;
-  htmlUrl: string | null;
-  windows: string | null;
-  linuxAppImage: string | null;
-  linuxDeb: string | null;
-  android: string | null;
-}
+export type { LatestRelease };
 
 interface GithubAsset {
   name: string;

@@ -233,10 +233,6 @@ export default function TimerScreen() {
           ) : null}
         </View>
 
-        <Text style={s.footnote}>
-          Trax mobile records time only. No screenshots, no activity score, no location — see Profile
-          for the full list.
-        </Text>
       </ScrollView>
 
       <PickerSheet
@@ -359,11 +355,9 @@ const s = StyleSheet.create({
   totalLabel: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.textMuted },
   totalValue: { fontFamily: fonts.heading, fontSize: 26, color: colors.text, letterSpacing: -0.8 },
 
-  syncRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  syncText: { flex: 1, fontFamily: fonts.body, fontSize: 13, color: colors.faint },
+  syncRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm },
+  syncText: { fontFamily: fonts.body, fontSize: 13, color: colors.faint },
   syncAction: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.accent },
-
-  footnote: { fontFamily: fonts.body, fontSize: 12, color: colors.faint, lineHeight: 18 },
 
   updateBanner: {
     flexDirection: "row",

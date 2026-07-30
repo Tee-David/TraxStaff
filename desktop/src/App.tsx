@@ -79,6 +79,16 @@ function loadLocalSessions(): Session[] {
 function saveLocalSessions(list: Session[]) {
   try { localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
 }
+// Cleared exactly at a re-authentication boundary (a fresh login, or either
+// sign-out path) — never on a same-user restart, since a persisted valid
+// token skips the login screen entirely. Without this, a different person
+// logging into the same installed app inherits whatever completed sessions
+// the previous user left cached here and they get merged straight into the
+// new user's totals with no ownership check (mergeSessions dedupes by id
+// only) — a real cross-user data leak on a shared/reused machine.
+function clearLocalSessionsCache() {
+  try { localStorage.removeItem(LOCAL_SESSIONS_KEY); } catch { /* ignore */ }
+}
 // Merge server + local sessions, de-duplicated by id (client & server share the
 // id, so a synced session is never counted twice). Prefer whichever copy is
 // marked ended: a stale still-open server row must not override a locally-closed
@@ -181,6 +191,7 @@ function ConsentGate({ onLogout }: { onLogout: () => void }) {
 
   function signOut() {
     clearToken();
+    clearLocalSessionsCache();
     pushSyncAuth();
     onLogout();
   }
@@ -442,6 +453,11 @@ function Login({ onLogin }: { onLogin: () => void }) {
     try {
       const res = await api<{ token: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
       setToken(res.token);
+      // Clear whatever the previous session on this device left cached — this
+      // is the actual re-auth boundary, and it's the one place a different
+      // person logging into a shared/reused install would otherwise inherit
+      // the last user's locally-cached tracked time.
+      clearLocalSessionsCache();
       notify("TraxStaff", `Signed in as ${email}`);
       onLogin();
     } catch (err) { setError(err instanceof Error ? err.message : "Login failed"); }
@@ -899,6 +915,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   async function signOut() {
     if (activeRef.current) { try { await stop(); } catch { /* stop best-effort */ } }
     clearToken();
+    clearLocalSessionsCache();
     pushSyncAuth(); // clear the sync engine's credentials
     onLogout();
   }
@@ -1100,7 +1117,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
           active={active} workedToday={liveToday} workedWeek={workedWeek}
           dayTarget={dayTarget} weekTarget={weekTarget}
           today={today} elapsed={elapsed} onStart={start} onStop={stop} error={error}
-          onSignOut={() => { clearToken(); onLogout(); }}
+          onSignOut={() => { void signOut(); }}
           onRefresh={load} lastUpdated={lastUpdated} expanded={expanded} onToggleExpand={toggleExpand}
           sync={sync} onAddNote={() => setNoteOpen(true)}
           settingsOpen={settingsOpen} onToggleSettings={() => setSettingsOpen((s) => !s)}

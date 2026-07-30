@@ -6,6 +6,7 @@ import type { Session } from "@/lib/types";
 import { Badge, EmptyState, PageHeader, Skeleton, StatTile } from "@/components/ui";
 import { DataTable, type Column } from "@/components/DataTable";
 import { DateRange, FilterBar, rangeToParams, type DateRangeValue } from "@/components/filters";
+import { TimesheetCard, weekdayHoursFromSessions } from "@/components/TimesheetCard";
 import { formatDurationShort, formatDate, formatTime, sessionSeconds } from "@/lib/format";
 
 export default function TimesheetsPage() {
@@ -37,6 +38,7 @@ export default function TimesheetsPage() {
     [sessions]
   );
   const flagged = sessions.filter((s) => s.tamperSuspected).length;
+  const weekdayHours = useMemo(() => weekdayHoursFromSessions(sessions), [sessions]);
 
   const columns: Column<Session>[] = [
     { key: "project", header: "Project", sortValue: (s) => s.project.name, render: (s) => (
@@ -64,26 +66,39 @@ export default function TimesheetsPage() {
     <div>
       <PageHeader title="Timesheets" subtitle="Your tracked time" />
 
-      <div className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatTile icon="⏱" tone="brand" label="Total in range" value={<span className="text-[22px]">{formatDurationShort(totalSecs)}</span>} />
-        <StatTile icon="🖊" tone="accent" label="Manual time" value={<span className="text-[22px]">{formatDurationShort(manualSecs)}</span>} />
-        <StatTile icon="📋" tone="teal" label="Entries" value={sessions.length} />
-        <StatTile icon="⚑" tone="muted" label="Flagged" value={flagged} />
-      </div>
-
       <FilterBar>
         <DateRange value={range} onChange={setRange} />
       </FilterBar>
 
       {loading ? (
-        <Skeleton className="h-96" />
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Skeleton className="h-56 lg:col-span-1" />
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:col-span-2 lg:grid-cols-4">
+              {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24" />)}
+            </div>
+          </div>
+          <Skeleton className="h-96" />
+        </div>
       ) : (
-        <DataTable
-          rows={sessions}
-          columns={columns}
-          rowId={(s) => s.id}
-          empty={<EmptyState icon="🕐" title="No time entries in this range" hint="Track time from the desktop app, or widen the date range." />}
-        />
+        <>
+          <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <TimesheetCard data={weekdayHours} className="lg:col-span-1" />
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:col-span-2 lg:grid-cols-4">
+              <StatTile icon="⏱" tone="brand" label="Total in range" value={<span className="text-[22px]">{formatDurationShort(totalSecs)}</span>} />
+              <StatTile icon="🖊" tone="accent" label="Manual time" value={<span className="text-[22px]">{formatDurationShort(manualSecs)}</span>} />
+              <StatTile icon="📋" tone="teal" label="Entries" value={sessions.length} />
+              <StatTile icon="⚑" tone="muted" label="Flagged" value={flagged} />
+            </div>
+          </div>
+
+          <DataTable
+            rows={sessions}
+            columns={columns}
+            rowId={(s) => s.id}
+            empty={<EmptyState icon="🕐" title="No time entries in this range" hint="Track time from the desktop app, or widen the date range." />}
+          />
+        </>
       )}
     </div>
   );

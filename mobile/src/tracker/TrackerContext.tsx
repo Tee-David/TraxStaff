@@ -16,7 +16,20 @@ import { useAuth } from "../auth/AuthContext";
 // real installed package's version from the Android PackageManager instead.
 // It can be null in Expo Go / a dev client with no real package installed,
 // which is the only case the fallback below is for.
-const APP_VERSION = Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? "0.0.0";
+//
+// Wrapped in try/catch deliberately: this runs at module-evaluation time (the
+// instant this file is imported, before React ever mounts), so if the native
+// module ever fails to resolve on a given device/OS version, an unguarded
+// property read here would crash the entire app on every launch with no
+// chance for any component-level error handling to catch it.
+function readAppVersion(): string {
+  try {
+    return Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? "0.0.0";
+  } catch {
+    return Constants.expoConfig?.version ?? "0.0.0";
+  }
+}
+const APP_VERSION = readAppVersion();
 const POLL_MS = 1_000;
 const HEARTBEAT_MS = 60_000;
 

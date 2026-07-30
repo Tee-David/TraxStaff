@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "@/lib/api";
@@ -139,68 +140,107 @@ function AssignMembersDialog({
 
 type Tab = "active" | "archived";
 
+const MENU_WIDTH = 160;
+
+/**
+ * Portalled to document.body at fixed coordinates taken from the button's own
+ * rect — same fix as the Members page menu. This table sits in a Card with
+ * overflow-hidden (to clip its rounded corners) inside an overflow-x-auto
+ * scroller, and an absolutely positioned child cannot escape either, so the
+ * menu used to draw clipped inside the row instead of floating above it.
+ */
 function ActionMenu({ project, onRefresh, onAssign }: { project: Project; onRefresh: () => void; onAssign: () => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const open = rect !== null;
 
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+    if (!open) return;
+    function outside(e: MouseEvent) {
+      const t = e.target as Node;
+      if (!btnRef.current?.contains(t) && !menuRef.current?.contains(t)) setRect(null);
     }
-    if (open) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setRect(null);
+    }
+    const close = () => setRect(null);
+    document.addEventListener("mousedown", outside);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", outside);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
   }, [open]);
 
   async function toggleArchive() {
     await api(`/projects/${project.id}`, { method: "PATCH", body: JSON.stringify({ archived: !project.archivedAt }) });
-    setOpen(false);
+    setRect(null);
     onRefresh();
   }
 
+  const pos = rect
+    ? {
+        left: Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8)),
+        top: rect.bottom + 8 + 140 > window.innerHeight ? undefined : rect.bottom + 8,
+        bottom: rect.bottom + 8 + 140 > window.innerHeight ? window.innerHeight - rect.top + 8 : undefined,
+      }
+    : null;
+
   return (
-    <div className="relative inline-block text-left" ref={ref}>
-      <button 
-        onClick={() => setOpen(!open)}
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => setRect(open ? null : (btnRef.current?.getBoundingClientRect() ?? null))}
         className="text-muted hover:text-ink hover:bg-canvas rounded-lg px-2 py-1 transition focus:outline-none focus:ring-2 focus:ring-brand"
+        aria-expanded={open}
       >
         ⋯
       </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -10 }}
-            transition={{ duration: 0.15 }}
-            className="absolute right-0 top-8 z-50 w-36 overflow-hidden rounded-xl border border-border bg-surface shadow-xl"
-          >
-            <div className="py-1">
-              <Link
-                href={`/app/projects/${project.id}`}
-                className="block w-full px-4 py-2 text-left text-sm text-ink hover:bg-canvas transition"
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {pos && (
+              <motion.div
+                ref={menuRef}
+                initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                transition={{ duration: 0.15 }}
+                style={{ position: "fixed", width: MENU_WIDTH, ...pos }}
+                className="z-[60] overflow-hidden rounded-xl border border-border bg-surface shadow-xl"
               >
-                View details
-              </Link>
-              <button
-                onClick={() => { setOpen(false); onAssign(); }}
-                className="block w-full px-4 py-2 text-left text-sm text-ink hover:bg-canvas transition"
-              >
-                Assign members
-              </button>
-              <button
-                onClick={toggleArchive}
-                className="block w-full px-4 py-2 text-left text-sm text-ink hover:bg-canvas transition"
-              >
-                {project.archivedAt ? "Unarchive" : "Archive"}
-              </button>
-            </div>
-          </motion.div>
+                <div className="py-1">
+                  <Link
+                    href={`/app/projects/${project.id}`}
+                    onClick={() => setRect(null)}
+                    className="block w-full px-4 py-2 text-left text-sm text-ink hover:bg-canvas transition"
+                  >
+                    View details
+                  </Link>
+                  <button
+                    onClick={() => { setRect(null); onAssign(); }}
+                    className="block w-full px-4 py-2 text-left text-sm text-ink hover:bg-canvas transition"
+                  >
+                    Assign members
+                  </button>
+                  <button
+                    onClick={toggleArchive}
+                    className="block w-full px-4 py-2 text-left text-sm text-ink hover:bg-canvas transition"
+                  >
+                    {project.archivedAt ? "Unarchive" : "Archive"}
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body
         )}
-      </AnimatePresence>
-    </div>
+    </>
   );
 }
 

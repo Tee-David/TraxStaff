@@ -15,6 +15,10 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM: z.string().optional(),
+  // HTTPS relay used in production: Render blocks outbound SMTP, so mail is
+  // physically sent from the Vercel deployment instead (see lib/mailer.ts).
+  MAIL_RELAY_URL: z.string().url().optional(),
+  MAIL_RELAY_SECRET: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

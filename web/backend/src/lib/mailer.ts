@@ -1,20 +1,45 @@
 import nodemailer from "nodemailer";
 import { env, smtpConfigured } from "../env";
 
+const relayConfigured = Boolean(env.MAIL_RELAY_URL && env.MAIL_RELAY_SECRET);
+
+// Direct SMTP still works locally (verified: Truehost accepts it from this
+// machine in under a second) — kept as the dev-time path so testing mail
+// doesn't require the relay to be reachable. Render itself blocks outbound
+// SMTP entirely (confirmed: the identical call hangs there for ~120s and then
+// fails), which is what the relay exists to route around.
 const transporter = smtpConfigured
   ? nodemailer.createTransport({
       host: env.SMTP_HOST,
       port: env.SMTP_PORT,
       secure: env.SMTP_PORT === 465,
       auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
-      // Render blocks outbound SMTP, so the TCP connect never completes there and
-      // nodemailer's default leaves the request hanging ~2 minutes before failing.
-      // Fail fast instead: a caller waiting on us is holding an HTTP request open.
       connectionTimeout: 10_000,
       greetingTimeout: 10_000,
       socketTimeout: 20_000,
     })
   : null;
+
+/** Send via the Vercel relay. Throws on failure — the caller decides what a
+ *  failure means (send() below turns it into `false`, never an exception). */
+async function sendViaRelay(to: string, subject: string, html: string, text: string): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(`${env.MAIL_RELAY_URL}/api/mail/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-relay-secret": env.MAIL_RELAY_SECRET! },
+      body: JSON.stringify({ to, subject, html, text }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`relay responded ${res.status}: ${body.slice(0, 200)}`);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 /* ─────────────────────────────  Templating  ─────────────────────────────
 
@@ -131,9 +156,22 @@ async function send(
   text: string,
   logLabel: string
 ): Promise<boolean> {
+  if (relayConfigured) {
+    try {
+      await sendViaRelay(to, subject, html, text);
+      return true;
+    } catch (err) {
+      console.error(
+        `[mailer] ${logLabel} to ${to} FAILED via relay: ${err instanceof Error ? err.message : err}. ${text}`
+      );
+      return false;
+    }
+  }
+
   if (!transporter) {
-    // SMTP not configured yet — log the link so development/testing isn't blocked.
-    console.warn(`[mailer] SMTP not configured — ${logLabel} NOT sent to ${to}. ${text}`);
+    // Neither the relay nor direct SMTP is configured — log the link so
+    // development/testing isn't blocked.
+    console.warn(`[mailer] mail not configured — ${logLabel} NOT sent to ${to}. ${text}`);
     return false;
   }
   try {

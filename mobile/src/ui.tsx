@@ -1,7 +1,6 @@
 import { ReactNode, useMemo } from "react";
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -10,6 +9,7 @@ import {
   View,
   ViewStyle,
 } from "react-native";
+import { AnimatedPressable } from "./motion";
 import { useTheme } from "./ThemeProvider";
 import { Colors, fonts, radius, shadow, spacing } from "./theme";
 
@@ -59,19 +59,15 @@ export function Button({
   const fg = variant === "ghost" ? colors.brand : colors.onDark;
   const off = disabled || busy;
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityState={{ disabled: !!off, busy: !!busy }}
       onPress={onPress}
       disabled={off}
-      style={({ pressed }) => [
-        s.btn,
-        { backgroundColor: bg, opacity: off ? 0.5 : pressed ? 0.85 : 1 },
-        variant === "ghost" && s.btnGhost,
-      ]}
+      style={[s.btn, { backgroundColor: bg, opacity: off ? 0.5 : 1 }, variant === "ghost" && s.btnGhost]}
     >
       {busy ? <ActivityIndicator color={fg} /> : <Text style={[s.btnLabel, { color: fg }]}>{label}</Text>}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

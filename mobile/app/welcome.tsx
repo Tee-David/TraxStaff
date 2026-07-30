@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Dimensions, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { AnimatedPressable } from "../src/motion";
 import { useTheme } from "../src/ThemeProvider";
 import { Colors, fonts, radius, spacing } from "../src/theme";
 
@@ -53,13 +54,13 @@ export default function Welcome() {
             Track time, boost productivity, and grow together — without the surveillance.
           </Text>
 
-          <Pressable
+          <AnimatedPressable
             accessibilityRole="button"
             onPress={() => router.push("/login")}
-            style={({ pressed }) => [s.primary, pressed && { opacity: 0.9 }]}
+            style={s.primary}
           >
             <Text style={s.primaryLabel}>Login</Text>
-          </Pressable>
+          </AnimatedPressable>
 
           {/* Trax accounts are created by an admin invitation, never self-serve —
               a staff tracker that let anyone sign themselves in would be a hole,

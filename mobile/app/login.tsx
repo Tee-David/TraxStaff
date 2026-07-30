@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { API_URL } from "../src/api/client";
 import { useAuth } from "../src/auth/AuthContext";
+import { AnimatedPressable } from "../src/motion";
 import { useTheme } from "../src/ThemeProvider";
 import { Colors, fonts, radius, spacing } from "../src/theme";
 import { Banner } from "../src/ui";
@@ -168,18 +169,14 @@ export default function Login() {
                 </Banner>
               ) : null}
 
-              <Pressable
+              <AnimatedPressable
                 accessibilityRole="button"
                 onPress={submit}
                 disabled={!canSubmit}
-                style={({ pressed }) => [
-                  s.submit,
-                  !canSubmit && { opacity: 0.5 },
-                  pressed && canSubmit && { opacity: 0.9 },
-                ]}
+                style={[s.submit, !canSubmit && { opacity: 0.5 }]}
               >
                 <Text style={s.submitLabel}>{busy ? "Signing in…" : "Log In"}</Text>
-              </Pressable>
+              </AnimatedPressable>
 
               {/* Accounts are created by an admin invitation, never self-serve, so
                   this explains the route in rather than offering a signup form

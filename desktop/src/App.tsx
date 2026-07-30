@@ -490,6 +490,13 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   // Last authoritative elapsed value + the monotonic instant it arrived, so the
   // 1 Hz interpolator counts on from Rust's clock instead of competing with it.
   const elapsedAnchor = useRef<{ secs: number; at: number } | null>(null);
+  // Purely to force a re-render once a minute so `dayStartMs`/`weekStartMs`
+  // below (computed fresh from `Date.now()` on every render) roll over at
+  // local midnight even with no active session. Without this, "Tracked today"
+  // would freeze at yesterday's total past midnight until some unrelated
+  // event (window focus, a new session starting) happened to re-render —
+  // the per-second ticker further below only runs while `active` is set.
+  const [, setDayBoundaryTick] = useState(0);
   // Must match the window size tauri.conf.json actually opens at (420x640).
   // Starting this `true` meant the first click on the chevron *shrank* an
   // already-narrow window, so the control looked dead.
@@ -551,6 +558,17 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         notify("TraxStaff", "You're not tracking time right now.");
       }
     }, 5 * 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Forces a re-render once a minute so `dayStartMs`/`weekStartMs` below
+  // (computed fresh from `Date.now()` on every render) roll over at local
+  // midnight even with nothing tracking. Without this, "Tracked today" would
+  // freeze at yesterday's total past midnight until some unrelated event
+  // (window focus, a new session starting) happened to re-render — the
+  // per-second ticker further below only runs while a session is active.
+  useEffect(() => {
+    const id = setInterval(() => setDayBoundaryTick((t) => t + 1), 60_000);
     return () => clearInterval(id);
   }, []);
 

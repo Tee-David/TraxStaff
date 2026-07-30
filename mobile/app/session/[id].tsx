@@ -81,7 +81,7 @@ export default function SessionDetail() {
   const back = () => (router.canGoBack() ? router.back() : router.replace("/timesheets"));
 
   return (
-    <SafeAreaView style={s.safe} edges={["top"]}>
+    <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
       <View style={s.bar}>
         <Pressable
           accessibilityRole="button"

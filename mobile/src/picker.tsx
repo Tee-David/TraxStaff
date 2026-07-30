@@ -15,6 +15,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "./ThemeProvider";
 import { Colors, fonts, radius, spacing } from "./theme";
 import { Empty } from "./ui";
@@ -104,6 +105,11 @@ export function PickerSheet({
 }) {
   const { colors } = useTheme();
   const s = useMemo(() => createSheetStyles(colors), [colors]);
+  // RN's Modal is its own full-screen surface, not a child laid out under the
+  // screen's SafeAreaView, so the sheet needs its own bottom inset or its last
+  // row (or the search box, on a short list) sits under a gesture-nav pill or
+  // 3-button Android nav bar.
+  const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
 
   // A filter left over from the last time the sheet was open would hide options
@@ -133,7 +139,7 @@ export function PickerSheet({
           accessibilityRole="button"
           accessibilityLabel={`Close ${title.toLowerCase()}`}
         />
-        <View style={s.sheet}>
+        <View style={[s.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
           <View style={s.head}>
             <Text style={s.title}>{title}</Text>
             <Pressable

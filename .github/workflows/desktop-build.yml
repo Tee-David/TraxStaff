@@ -139,7 +139,12 @@ jobs:
           find desktop/src-tauri/target/release/bundle \
             -type f \( -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \) \
             -exec cp {} dist/ \;
-          cp "desktop/fragment-${{ matrix.platform }}.json" dist/
+          # The fragment only exists on a tag push (see "Emit updater manifest
+          # fragment" above, gated the same way) — a plain branch push has
+          # nothing to copy here, and that must not fail the whole step.
+          if [ -f "desktop/fragment-${{ matrix.platform }}.json" ]; then
+            cp "desktop/fragment-${{ matrix.platform }}.json" dist/
+          fi
           # An empty dist means the bundle layout moved; fail here rather than
           # publishing a release with a missing platform.
           if [ -z "$(find dist -type f \( -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \) -print -quit)" ]; then

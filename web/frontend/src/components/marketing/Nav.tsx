@@ -34,7 +34,7 @@ export function MarketingNav() {
         <a href="#top" className="flex items-center gap-2.5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/icon-badge.svg" alt="" width={32} height={32} className="h-8 w-8" />
-          <span className="font-heading text-lg font-bold tracking-tight text-ink">Trax</span>
+          <span className="font-heading text-lg font-bold tracking-tight text-ink">TraxStaff</span>
         </a>
 
         <nav className="hidden items-center gap-8 md:flex">

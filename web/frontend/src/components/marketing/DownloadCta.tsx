@@ -88,7 +88,7 @@ export function DownloadCta() {
       <motion.div {...page} className="rounded-3xl border border-border bg-surface p-8 shadow-[var(--shadow-lift)] sm:p-12">
         <div className="mx-auto max-w-xl text-center">
           <h2 className="font-heading text-3xl font-bold tracking-tight text-ink sm:text-4xl">
-            Get Trax on your machine
+            Get TraxStaff on your machine
           </h2>
           <p className="mt-3 text-base text-muted">
             Real builds from our latest GitHub release &mdash; the same one the

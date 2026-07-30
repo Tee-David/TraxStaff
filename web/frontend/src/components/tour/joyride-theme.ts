@@ -25,7 +25,7 @@ export const BRAND_OPTIONS: Partial<Options> = {
   buttons: ["back", "skip", "primary"],
   // Joyride derives hover/lighten-darken shades from this internally, so it
   // needs a literal color rather than a `var()` the color-math can't parse.
-  // This is Trax's brand navy (`--color-brand` in light mode).
+  // This is TraxStaff's brand navy (`--color-brand` in light mode).
   primaryColor: "#000065",
   textColor: "var(--color-ink, #12162b)",
   backgroundColor: "var(--color-surface, #ffffff)",

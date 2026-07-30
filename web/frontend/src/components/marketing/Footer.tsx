@@ -15,7 +15,7 @@ export function Footer({ currentYear }: { currentYear: number }) {
             <a href="#top" className="flex items-center gap-2.5">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/icon-badge.svg" alt="" width={28} height={28} className="h-7 w-7" />
-              <span className="font-heading text-base font-bold tracking-tight text-ink">Trax</span>
+              <span className="font-heading text-base font-bold tracking-tight text-ink">TraxStaff</span>
             </a>
             <p className="mt-3 max-w-xs text-sm text-muted">
               Visible time tracking for teams &mdash; on Windows, Linux and Android.
@@ -51,7 +51,7 @@ export function Footer({ currentYear }: { currentYear: number }) {
         </div>
 
         <div className="mt-12 border-t border-border pt-6">
-          <p className="text-xs text-faint">&copy; {currentYear} Trax. All rights reserved.</p>
+          <p className="text-xs text-faint">&copy; {currentYear} TraxStaff. All rights reserved.</p>
         </div>
       </div>
     </footer>

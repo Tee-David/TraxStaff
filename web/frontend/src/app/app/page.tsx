@@ -370,7 +370,7 @@ export default function DashboardPage() {
         return (
           <div data-tour="dash-history">
           {week.length === 0 ? (
-          <EmptyState icon="🗓" title="No sessions yet" hint="Start tracking from the Trax desktop app and your activity will appear here." />
+          <EmptyState icon="🗓" title="No sessions yet" hint="Start tracking from the TraxStaff desktop app and your activity will appear here." />
         ) : (
           <Section title="Project History" icon="📜" bodyClassName="p-0" action={resizeAction("history")}>
             <div className="overflow-x-auto">

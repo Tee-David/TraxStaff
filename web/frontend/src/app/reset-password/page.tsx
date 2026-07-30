@@ -43,7 +43,7 @@ function ResetPasswordForm() {
       <Card className="w-full max-w-sm p-8">
         <div className="mb-6 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/logo-color.svg" alt="Trax" className="mx-auto mb-3 h-20 w-auto" />
+          <img src="/brand/logo-color.svg" alt="TraxStaff" className="mx-auto mb-3 h-20 w-auto" />
           <p className="text-sm text-muted">Choose a new password</p>
         </div>
         {!token ? (

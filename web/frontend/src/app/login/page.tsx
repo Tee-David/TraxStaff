@@ -104,7 +104,7 @@ function LoginForm() {
           <div className="flex items-center justify-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/icon-badge.svg" alt="" className="h-16 w-16" />
-            <span className="font-heading text-4xl font-bold tracking-tight">Trax</span>
+            <span className="font-heading text-4xl font-bold tracking-tight">TraxStaff</span>
           </div>
           <h1 className="mt-5 text-center font-heading text-4xl font-bold tracking-tight">Welcome back</h1>
           <p className="mx-auto mt-2 max-w-xs text-center text-sm text-muted">

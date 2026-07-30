@@ -7,7 +7,7 @@ import { prefersReducedMotion } from "./wait-for-target";
  * prefers reduced motion.
  */
 
-/** Trax brand navy + accent orange/teal/positive-green, plus white. */
+/** TraxStaff brand navy + accent orange/teal/positive-green, plus white. */
 const COLORS = ["#000065", "#ff6600", "#12b5a5", "#1f9d63", "#ffffff"];
 
 const DURATION = 2000;

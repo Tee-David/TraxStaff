@@ -2,9 +2,9 @@ import type { Step } from "react-joyride";
 import type { TourIconName } from "./tour-icon";
 
 /**
- * Tour registry — the single source of truth for every guided tour in Trax.
+ * Tour registry — the single source of truth for every guided tour in TraxStaff.
  *
- * A `TourStep` is a react-joyride `Step` plus a few Trax-specific fields:
+ * A `TourStep` is a react-joyride `Step` plus a few TraxStaff-specific fields:
  *  - `key`          stable id for the step (debugging / React keys)
  *  - `route`        walkthrough steps that live on another page set this; the
  *                   provider decorates them with a `before` hook that navigates
@@ -13,11 +13,11 @@ import type { TourIconName } from "./tour-icon";
  *                   "N pages to go" in the walkthrough.
  *  - `optional`     the step is dropped silently if its target isn't in the DOM
  *                   (empty tables, unconfigured widgets, …).
- *  - `desktopOnly`  dropped below the `lg` breakpoint — Trax's own sidebar rail
+ *  - `desktopOnly`  dropped below the `lg` breakpoint — TraxStaff's own sidebar rail
  *                   is `hidden lg:block` (see `Sidebar.tsx` / `app/layout.tsx`),
  *                   so its anchors exist but are invisible.
  *  - `mobileOnly`   dropped at `lg` and up (e.g. the drawer's hamburger).
- *  - `adminOnly`    dropped for a plain `member` — Trax gates Insights,
+ *  - `adminOnly`    dropped for a plain `member` — TraxStaff gates Insights,
  *                   Projects and Members to `owner`/`admin` in `Sidebar.tsx`'s
  *                   `MENU` array, and a member visiting those routes directly
  *                   should never have a tour try to spotlight them anyway.
@@ -29,7 +29,7 @@ import type { TourIconName } from "./tour-icon";
  * Copy rule: say what is *actually* on the page and what the operator can do
  * with it. No filler, no "this is the dashboard".
  *
- * Unlike the reference this is modeled on, Trax is one app with role-gated
+ * Unlike the reference this is modeled on, TraxStaff is one app with role-gated
  * navigation rather than separate client/admin portals — so there is a single
  * welcome tour and a single walkthrough, and `adminOnly` steps within them
  * fold away for a plain member instead of a whole second tour existing.
@@ -461,7 +461,7 @@ export const TOURS: Record<string, TourDef> = {
     steps: [
       centerStep(
         "welcome",
-        "Welcome to Trax",
+        "Welcome to TraxStaff",
         "This is your home base for time tracking — dashboard, timesheets, reports and screenshots, all in one place. Here's a quick look around.",
         { icon: "sparkles", showEstimate: true },
       ),
@@ -681,7 +681,7 @@ export const TOURS: Record<string, TourDef> = {
       ),
       centerStep(
         "outro",
-        "That's Trax",
+        "That's TraxStaff",
         "Track from the desktop app, review it all here. The help button replays any of this whenever you want it — welcome aboard!",
         { route: "/app", page: "Dashboard", icon: "check" },
       ),

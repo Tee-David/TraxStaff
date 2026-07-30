@@ -49,7 +49,7 @@ const SECTIONS: Section[] = [
     label: "Appearance",
     icon: IconSun,
     title: "Appearance",
-    subtitle: "Personalise how Trax looks on this device. Saved locally, not shared with your team.",
+    subtitle: "Personalise how TraxStaff looks on this device. Saved locally, not shared with your team.",
     adminOnly: false,
   },
   {

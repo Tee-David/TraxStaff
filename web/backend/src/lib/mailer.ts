@@ -47,7 +47,7 @@ async function sendViaRelay(to: string, subject: string, html: string, text: str
    styles (most clients strip <style>), 600px cap. Light/dark is best-effort —
    we declare `color-scheme`, default to light inline, and override via a
    prefers-color-scheme block for the clients that honour it (Apple Mail, iOS).
-   Colours are the Trax brand tokens: navy #000065, orange #FF6600.           */
+   Colours are the TraxStaff brand tokens: navy #000065, orange #FF6600.           */
 
 const C = {
   navy: "#000065",
@@ -118,8 +118,8 @@ function emailLayout(bodyHtml: string, preheader: string): string {
         <!-- header: the real brand lockup, left-aligned. Two variants because a
              navy logo is invisible on a dark card. -->
         <tr><td align="left" class="pad" style="padding:34px 40px 16px;">
-          <img src="${ASSETS}/brand/email-logo-navy.png" width="160" height="41" alt="Trax" class="logo-light" style="display:block;border:0;outline:none;">
-          <img src="${ASSETS}/brand/email-logo-white.png" width="160" height="41" alt="Trax" class="logo-dark" style="display:none;border:0;outline:none;mso-hide:all;">
+          <img src="${ASSETS}/brand/email-logo-navy.png" width="160" height="41" alt="TraxStaff" class="logo-light" style="display:block;border:0;outline:none;">
+          <img src="${ASSETS}/brand/email-logo-white.png" width="160" height="41" alt="TraxStaff" class="logo-dark" style="display:none;border:0;outline:none;mso-hide:all;">
         </td></tr>
         <!-- body -->
         <tr><td class="ink pad" style="padding:22px 40px 36px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:${C.ink};">
@@ -128,11 +128,11 @@ function emailLayout(bodyHtml: string, preheader: string): string {
         <!-- footer: quiet, centred, generous -->
         <tr><td class="foot hair pad" align="center" style="padding:24px 40px 30px;border-top:1px solid ${C.hair};background:${C.card};">
           <p class="muted" style="margin:0 0 12px;font-size:12px;line-height:1.7;color:${C.muted};">
-            Trax · Time tracking &amp; productivity for your team
+            TraxStaff · Time tracking &amp; productivity for your team
           </p>
           <p class="muted" style="margin:0;font-size:11px;line-height:1.6;color:${C.muted};">
-            You received this because you have a Trax account.<br>
-            © ${year} Trax. All rights reserved.
+            You received this because you have a TraxStaff account.<br>
+            © ${year} TraxStaff. All rights reserved.
           </p>
         </td></tr>
       </table>
@@ -189,20 +189,20 @@ export async function sendInviteEmail(to: string, inviteUrl: string, orgName: st
   const html = emailLayout(
     `
     <p style="margin:0 0 6px;font-size:20px;font-weight:700;">You've been invited to ${orgName} 👋</p>
-    <p class="body" style="margin:0 0 22px;color:${C.body};">Set your password to join the workspace on Trax — track your time, see your activity, and keep your projects moving.</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">Set your password to join the workspace on TraxStaff — track your time, see your activity, and keep your projects moving.</p>
     <p style="margin:0 0 24px;">${emailButton(inviteUrl, "Accept invite", "→")}</p>
     <p class="muted" style="margin:0 0 6px;font-size:13px;color:${C.muted};">Or paste this link into your browser:</p>
     <p style="margin:0 0 18px;font-size:12px;word-break:break-all;"><a href="${inviteUrl}" style="color:${C.brand};">${inviteUrl}</a></p>
     <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">This link expires in 7 days. If you weren't expecting this, you can ignore this email.</p>
   `,
-    `Set your password to join ${orgName} on Trax.`
+    `Set your password to join ${orgName} on TraxStaff.`
   );
 
   return send(
     to,
-    `You've been invited to join ${orgName} on Trax`,
+    `You've been invited to join ${orgName} on TraxStaff`,
     html,
-    `You've been invited to join ${orgName} on Trax.\n\nAccept your invite: ${inviteUrl}\n\nThis link expires in 7 days.`,
+    `You've been invited to join ${orgName} on TraxStaff.\n\nAccept your invite: ${inviteUrl}\n\nThis link expires in 7 days.`,
     "invite email"
   );
 }
@@ -211,20 +211,20 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
   const html = emailLayout(
     `
     <p style="margin:0 0 6px;font-size:20px;font-weight:700;">Reset your password</p>
-    <p class="body" style="margin:0 0 22px;color:${C.body};">We received a request to reset your Trax password. Choose a new one below — the link expires in 1 hour.</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">We received a request to reset your TraxStaff password. Choose a new one below — the link expires in 1 hour.</p>
     <p style="margin:0 0 24px;">${emailButton(resetUrl, "Reset password", "→")}</p>
     <p class="muted" style="margin:0 0 6px;font-size:13px;color:${C.muted};">Or paste this link into your browser:</p>
     <p style="margin:0 0 18px;font-size:12px;word-break:break-all;"><a href="${resetUrl}" style="color:${C.brand};">${resetUrl}</a></p>
     <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">If you didn't request this, you can safely ignore this email — your password won't change.</p>
   `,
-    "Reset your Trax password (link expires in 1 hour)."
+    "Reset your TraxStaff password (link expires in 1 hour)."
   );
 
   return send(
     to,
-    "Reset your Trax password",
+    "Reset your TraxStaff password",
     html,
-    `Someone asked to reset the password for your Trax account.\n\nReset it here: ${resetUrl}\n\nThis link expires in 1 hour. If this wasn't you, ignore this email — your password stays unchanged.`,
+    `Someone asked to reset the password for your TraxStaff account.\n\nReset it here: ${resetUrl}\n\nThis link expires in 1 hour. If this wasn't you, ignore this email — your password stays unchanged.`,
     "reset email"
   );
 }

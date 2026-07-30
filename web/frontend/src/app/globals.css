@@ -112,7 +112,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ---------- First-load preloader ----------
    Pure HTML+CSS so it paints on the first frame, before the JS bundle
-   downloads or React hydrates. The white Trax mark pulses for 700ms on a
+   downloads or React hydrates. The white TraxStaff mark pulses for 700ms on a
    navy brand field, then expands + fades over 600ms to reveal the app.
    A session guard in the root layout sets [data-preloaded] on repeat loads
    so the intro only plays the first time you load the site this session. */

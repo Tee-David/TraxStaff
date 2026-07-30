@@ -13,9 +13,9 @@ import { Footer } from "@/components/marketing/Footer";
 // request reaches here. See `middleware.ts` for why the split happens there
 // instead of a `headers()` check in this file.
 export const metadata: Metadata = {
-  title: "Trax — Time tracking your team can actually see",
+  title: "TraxStaff — Time tracking your team can actually see",
   description:
-    "Trax tracks work time on Windows, Linux and Android with a visible, always-on indicator. Tamper-evident by design, never covert.",
+    "TraxStaff tracks work time on Windows, Linux and Android with a visible, always-on indicator. Tamper-evident by design, never covert.",
 };
 
 export default function Home() {

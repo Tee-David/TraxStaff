@@ -24,7 +24,7 @@ const SEGMENTS: { key: keyof WorkloadCounts; label: string; color: string }[] = 
  * dashboard. Built on recharts (a single stacked horizontal bar, one category)
  * rather than hand-rolled divs, per the milestone's charting constraint.
  *
- * Note: the reference design shows a 4th "Under Review" segment. Trax's Task
+ * Note: the reference design shows a 4th "Under Review" segment. TraxStaff's Task
  * model only has todo/in_progress/done (see lib/types.ts) — there's no review
  * status to source that segment from, so it's omitted here rather than
  * inventing a fake backend field. Flagged in the final report.

@@ -55,7 +55,7 @@ export function Features() {
           Everything you need, nothing you can&rsquo;t see
         </h2>
         <p className="mt-3 text-base text-muted">
-          Trax collects what it takes to account for time honestly &mdash;
+          TraxStaff collects what it takes to account for time honestly &mdash;
           never what you type, never full URLs, always visibly.
         </p>
       </div>

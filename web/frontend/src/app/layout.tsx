@@ -15,7 +15,7 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "Trax",
+  title: "TraxStaff",
   description: "Time tracking & productivity for your team",
 };
 

@@ -108,7 +108,7 @@ export function DownloadApp() {
             {/* Header */}
             <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3.5">
               <div className="min-w-0">
-                <div className="font-heading text-sm font-semibold">Download Trax</div>
+                <div className="font-heading text-sm font-semibold">Download TraxStaff</div>
                 <div className="text-xs text-muted">Desktop tracker &amp; mobile app</div>
               </div>
               {state.status === "ready" && (
@@ -198,7 +198,7 @@ export function DownloadApp() {
                       )}
                       {platform === "mac" && (
                         <p className="mt-2 text-xs text-muted">
-                          Trax isn&rsquo;t packaged for macOS yet — Windows and Linux builds are ready below.
+                          TraxStaff isn&rsquo;t packaged for macOS yet — Windows and Linux builds are ready below.
                         </p>
                       )}
                     </div>

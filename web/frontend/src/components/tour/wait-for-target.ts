@@ -39,7 +39,7 @@ export function waitForTarget(sel: string, timeout = 8000): Promise<boolean> {
 }
 
 /** True on `lg` and wider viewports (matches Tailwind's 1024px breakpoint, and
- * Trax's own sidebar which is `hidden lg:block`). */
+ * TraxStaff's own sidebar which is `hidden lg:block`). */
 export function isDesktop(): boolean {
   if (typeof window === "undefined" || !window.matchMedia) return true;
   return window.matchMedia("(min-width: 1024px)").matches;

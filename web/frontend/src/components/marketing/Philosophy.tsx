@@ -42,7 +42,7 @@ export function Philosophy() {
             Tamper-evident by design, not tamper-proof by claim
           </h2>
           <p className="mt-3 text-base text-brand-fg/75">
-            We&rsquo;d rather tell you exactly what Trax can and can&rsquo;t
+            We&rsquo;d rather tell you exactly what TraxStaff can and can&rsquo;t
             guarantee than oversell it.
           </p>
         </div>
@@ -61,7 +61,7 @@ export function Philosophy() {
         </motion.div>
 
         <p className="mt-10 text-center text-sm font-medium text-brand-fg/60">
-          &mdash; the Trax team
+          &mdash; the TraxStaff team
         </p>
       </div>
     </section>

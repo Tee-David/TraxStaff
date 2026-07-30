@@ -79,7 +79,7 @@ export function Hero() {
           </motion.h1>
 
           <motion.p {...item} className="mt-5 max-w-lg text-base text-muted sm:text-lg">
-            Trax tracks work time on desktop and mobile with a visible, always-on
+            TraxStaff tracks work time on desktop and mobile with a visible, always-on
             indicator &mdash; never hidden, never running quietly in the
             background. Every session is hashed and capped against the
             server&rsquo;s clock, so the record is tamper-evident, not just

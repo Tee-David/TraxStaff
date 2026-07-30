@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import type { AuthUser } from "@/lib/api";
+import { SUPPORT_EMAIL } from "@/lib/site";
 import { useTheme } from "@/lib/theme";
 import { toggleThemeWithTransition } from "@/lib/theme-transition";
 import {
@@ -111,7 +112,7 @@ export function Sidebar({
             <img src="/brand/icon-white.svg" alt="" className="h-5 w-5" />
           </span>
         )}
-        {!collapsed && <span className="font-heading text-lg font-bold">Trax</span>}
+        {!collapsed && <span className="font-heading text-lg font-bold">TraxStaff</span>}
         {!collapsed && onToggleCollapse && (
           <button
             onClick={onToggleCollapse}
@@ -155,7 +156,7 @@ export function Sidebar({
             <div className="my-3 border-t border-border" />
             <div className="space-y-0.5">{secondary.map((i) => <NavRow key={i.href} item={i} />)}</div>
             <a
-              href="mailto:support@trax.app"
+              href={`mailto:${SUPPORT_EMAIL}`}
               title={collapsed ? "Support" : undefined}
               className={`flex items-center rounded-xl text-sm font-medium text-muted transition hover:bg-canvas hover:text-ink ${
                 collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5"

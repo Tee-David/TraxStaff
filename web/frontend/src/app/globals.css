@@ -253,6 +253,21 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--color-accent);
 }
 
+/* Smooth anchor scrolling. `scroll-behavior` has to sit on the scrolling
+   element, so it's scoped with :has() to documents that actually contain the
+   marketing page — the dashboard keeps its existing instant jumps rather than
+   inheriting a behaviour change nobody asked for. The reduced-motion block
+   further up already resets this to `auto`.
+
+   The scroll-margin keeps a jumped-to section clear of the 4.5rem sticky nav,
+   which would otherwise cover the heading you just navigated to. */
+:root:has(.mk-page) {
+  scroll-behavior: smooth;
+}
+.mk-page [id] {
+  scroll-margin-top: 5.5rem;
+}
+
 /* Keyboard focus. The marketing page is built from plain <a> elements rather
    than the shared `Button`, which carries its own ring — so the ring is
    defined once here instead. Scoped to `.mk-page` so it can't override the

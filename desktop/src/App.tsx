@@ -1144,7 +1144,7 @@ function TrackingWidget(props: {
 
       <div className="widget-stats">
         <div className="ws-item"><span className="wm-label">This week</span><span className="wm-val">{fmtClock(workedWeek)}</span></div>
-        <div className="ws-item"><span className="wm-label">Daily target</span><span className="wm-val">{fmtClock(dayTarget)}</span></div>
+        <div className="ws-item"><span className="wm-label">Tracked today</span><span className="wm-val">{fmtClock(workedToday)}</span></div>
       </div>
 
       <div className="proj-search">

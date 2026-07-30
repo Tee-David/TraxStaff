@@ -53,7 +53,6 @@ export default function CircularTimer({
           <span className="ring-dot" /> {active ? "Tracking" : "Not tracking"}
         </div>
         <div className="ring-time">{time}</div>
-        <div className="ring-sub">{Math.round(pct * 100)}% of daily goal</div>
         {/* This control ends the session — it does not pause it. Labelled and
             drawn as Stop so the destructive action isn't disguised as a pause. */}
         <button className={`ring-toggle ${active ? "on" : ""}`} onClick={onToggle} aria-label={active ? "Stop tracking" : "Start tracking"}>

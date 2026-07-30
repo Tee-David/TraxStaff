@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/AuthContext";
+import { ScreenFade } from "../src/motion";
 import { useTheme } from "../src/ThemeProvider";
 import { Colors, fonts, radius, spacing } from "../src/theme";
 import { Banner, Button } from "../src/ui";
@@ -57,6 +58,7 @@ export default function Disclosure() {
 
   return (
     <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
+      <ScreenFade style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={s.scroll}>
         <Text style={s.kicker}>Before you start</Text>
         <Text style={s.title}>What Trax records on this phone</Text>
@@ -91,6 +93,7 @@ export default function Disclosure() {
           <Button label="Sign out instead" variant="ghost" onPress={() => void signOut()} disabled={busy} />
         </View>
       </ScrollView>
+      </ScreenFade>
     </SafeAreaView>
   );
 }

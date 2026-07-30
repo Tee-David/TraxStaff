@@ -6,6 +6,7 @@ import { api } from "../../src/api/client";
 import type { Project, Task } from "../../src/api/types";
 import { Ring } from "../../src/charts";
 import { fmtClock, fmtShort, startOfToday, startOfWeek } from "../../src/format";
+import { ScreenFade } from "../../src/motion";
 import { PickerField, PickerSheet } from "../../src/picker";
 import { useTheme } from "../../src/ThemeProvider";
 import { Colors, fonts, radius, shadow, spacing } from "../../src/theme";
@@ -110,6 +111,7 @@ export default function TimerScreen() {
 
   return (
     <SafeAreaView style={s.safe} edges={["top"]}>
+      <ScreenFade style={{ flex: 1 }}>
       <ScrollView
         contentContainerStyle={s.scroll}
         refreshControl={
@@ -237,6 +239,7 @@ export default function TimerScreen() {
         </View>
 
       </ScrollView>
+      </ScreenFade>
 
       <PickerSheet
         visible={picking === "project"}

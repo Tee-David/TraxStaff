@@ -15,6 +15,7 @@ import { api } from "../../src/api/client";
 import type { Session } from "../../src/api/types";
 import { DayTimeline } from "../../src/charts";
 import { clampSeconds, dayLabel, fmtShort, fmtTime, localDayKey } from "../../src/format";
+import { ScreenFade } from "../../src/motion";
 import { useTheme } from "../../src/ThemeProvider";
 import { Colors, fonts, radius, spacing } from "../../src/theme";
 import { Banner, Button, Card, Empty, Field, Heading, Loading, Title } from "../../src/ui";
@@ -82,6 +83,7 @@ export default function SessionDetail() {
 
   return (
     <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
+      <ScreenFade style={{ flex: 1 }}>
       <View style={s.bar}>
         <Pressable
           accessibilityRole="button"
@@ -191,6 +193,7 @@ export default function SessionDetail() {
           </ScrollView>
         </KeyboardAvoidingView>
       )}
+      </ScreenFade>
     </SafeAreaView>
   );
 }

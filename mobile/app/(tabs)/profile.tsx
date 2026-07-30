@@ -6,6 +6,7 @@ import { Alert, AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View
 import { SafeAreaView } from "react-native-safe-area-context";
 import Tracker from "../../modules/trax-tracker";
 import { useAuth } from "../../src/auth/AuthContext";
+import { ScreenFade } from "../../src/motion";
 import { ThemePreference, useTheme } from "../../src/ThemeProvider";
 import { Colors, fonts, radius, spacing } from "../../src/theme";
 import { useTracker } from "../../src/tracker/TrackerContext";
@@ -97,6 +98,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={s.safe} edges={["top"]}>
+      <ScreenFade style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={s.scroll}>
         <Text style={s.title}>Profile</Text>
 
@@ -168,6 +170,7 @@ export default function ProfileScreen() {
 
         <Button label="Sign out" variant="ghost" onPress={confirmSignOut} busy={busy} />
       </ScrollView>
+      </ScreenFade>
     </SafeAreaView>
   );
 }

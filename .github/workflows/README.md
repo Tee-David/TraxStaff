@@ -37,7 +37,7 @@ secrets**.
 | `ANDROID_KEYSTORE_BASE64`    | `mobile-android.yml` | The release keystore (`.jks`), base64-encoded. Its presence is what switches the build from debug-signed to release-signed. |
 | `ANDROID_KEYSTORE_PASSWORD`  | `mobile-android.yml` | Password for the keystore file. |
 | `ANDROID_KEY_ALIAS`          | `mobile-android.yml` | Alias of the signing key inside the keystore. |
-| `ANDROID_KEY_PASSWORD`       | `mobile-android.yml` | Password for that key (often the same as the keystore password). |
+| `ANDROID_KEY_PASSWORD`       | `mobile-android.yml` | Password for that key. **Only actually used if `ANDROID_KEYSTORE_TYPE=JKS`** — see the PKCS12 caveat below. For the PKCS12 default, set it to the same value as `ANDROID_KEYSTORE_PASSWORD` (or just leave it — the workflow ignores it for PKCS12 and uses the store password instead). |
 | `TAURI_SIGNING_PRIVATE_KEY`  | `desktop-build.yml`  | Tauri updater signing key (already configured). |
 | `GITHUB_TOKEN`               | both                 | Provided automatically by Actions — nothing to create. |
 
@@ -95,6 +95,25 @@ base64 -w0 trax-release.jks > trax-release.jks.b64
 Paste the contents of `trax-release.jks.b64` into `ANDROID_KEYSTORE_BASE64`, and
 set `ANDROID_KEY_ALIAS=trax` plus the two passwords. `.jks` is already gitignored
 by `mobile/.gitignore` — never commit the keystore or the base64 file.
+
+**Caveat — `-storepass`/`-keypass` and PKCS12:** despite the `.jks` filename,
+`keytool` on any JDK since 8u211 (this includes JDK 17, which CI and most local
+machines run) creates a **PKCS12** store by default, not a legacy JKS one. A
+PKCS12 key entry cannot be encrypted with a password different from the store's:
+if you pass a `-keypass` that differs from `-storepass` above, keytool prints a
+one-line warning and silently encrypts the key with `-storepass` anyway. If
+`ANDROID_KEY_PASSWORD` is then set to that ignored, distinct `-keypass` value,
+Gradle tries to decrypt the key with the wrong password and `assembleRelease`
+fails with:
+```
+KeytoolException: Failed to read key ... Get Key failed: Given final block not properly padded.
+```
+The workflow works around this: for the default PKCS12 type it always decrypts
+the key with `ANDROID_KEYSTORE_PASSWORD`, ignoring `ANDROID_KEY_PASSWORD`
+entirely (`ANDROID_KEY_PASSWORD` only takes effect if `ANDROID_KEYSTORE_TYPE` is
+explicitly set to `JKS`, i.e. a store generated with `-storetype JKS`, which does
+support distinct passwords). Simplest is still to just use the same value for
+both passwords when generating the keystore.
 
 ## Versioning
 

@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import type { AuthUser } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
 import { NotificationsBell } from "@/components/NotificationsBell";
+import { DownloadApp } from "@/components/DownloadApp";
 
 // Top-bar profile: avatar (uploaded picture if present, else initials) with a
 // menu to jump to Settings or sign out.
@@ -145,6 +146,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             <img src="/brand/icon-badge.svg" alt="" className="h-7 w-7 lg:hidden" />
           </div>
           <div className="flex items-center gap-1.5">
+            <DownloadApp />
             <NotificationsBell />
             <ProfileMenu user={user} onLogout={logout} />
           </div>

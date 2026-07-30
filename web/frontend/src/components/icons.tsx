@@ -67,4 +67,37 @@ export const IconLogout = (p: SVGProps<SVGSVGElement>) => (
 export const IconCalendar = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
 );
+export const IconDownload = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M12 3v12" /><path d="M7 10l5 5 5-5" /><path d="M5 21h14" /></svg>
+);
+export const IconWindows = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><rect x="3" y="4" width="7.5" height="7.5" rx="0.5" /><rect x="13.5" y="4" width="7.5" height="7.5" rx="0.5" /><rect x="3" y="14.5" width="7.5" height="7.5" rx="0.5" /><rect x="13.5" y="14.5" width="7.5" height="7.5" rx="0.5" /></svg>
+);
+export const IconLinux = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <ellipse cx="12" cy="10" rx="4.2" ry="5" />
+    <path d="M8.4 14.5c-1.8 1-2.9 3-2.9 5.5h13c0-2.5-1.1-4.5-2.9-5.5" />
+    <circle cx="10.2" cy="9" r="0.55" fill="currentColor" stroke="none" />
+    <circle cx="13.8" cy="9" r="0.55" fill="currentColor" stroke="none" />
+  </svg>
+);
+export const IconAndroid = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M7 10v6.5" />
+    <path d="M17 10v6.5" />
+    <path d="M7.5 10h9v7a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7Z" />
+    <path d="M7.5 10a4.5 4.5 0 0 1 9 0" />
+    <path d="M9.3 5.2L8.2 3.6M14.7 5.2l1.1-1.6" />
+    <path d="M9.5 20.5v1.3M14.5 20.5v1.3" />
+  </svg>
+);
+export const IconExternalLink = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M14 4h6v6" /><path d="M20 4l-9.5 9.5" /><path d="M8 6H6a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-2" /></svg>
+);
+export const IconApple = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M15.5 12.1c0-2.1 1.6-3.1 1.7-3.2-.9-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7-.6 0-1.6-.7-2.6-.7-1.3 0-2.6.8-3.2 2-1.4 2.4-.4 6 1 8 .7 1 1.5 2.1 2.5 2.1 1 0 1.4-.7 2.6-.7s1.6.7 2.7.6c1.1 0 1.8-1 2.5-2 .5-.7.9-1.5 1.1-2.3-1.5-.6-1.9-1.9-1.9-2.9Z" />
+    <path d="M13 5.6c.5-.6.9-1.5.8-2.4-.8.1-1.8.6-2.3 1.3-.5.6-.9 1.5-.8 2.3.9.1 1.8-.5 2.3-1.2Z" />
+  </svg>
+);
 

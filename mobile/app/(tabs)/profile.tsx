@@ -22,7 +22,7 @@ const DISCLOSURE_CARDS: { icon: keyof typeof Ionicons.glyphMap; title: string; s
   { icon: "notifications-outline", title: "Notification always visible", sub: "Shown the whole time a timer runs." },
   { icon: "images-outline", title: "No screenshots", sub: "Never captured, on any schedule." },
   { icon: "eye-off-outline", title: "No activity data", sub: "No activity %, keystrokes, or mouse tracking." },
-  { icon: "location-outline", title: "No location, ever", sub: "Trax never reads GPS or location." },
+  { icon: "location-outline", title: "No location, ever", sub: "TraxStaff never reads GPS or location." },
   { icon: "people-outline", title: "Admins see time only", sub: "Just entries, projects and tasks." },
 ];
 
@@ -74,7 +74,7 @@ export default function ProfileScreen() {
       // out drops the token the queue needs to drain.
       Alert.alert(
         "Unsynced time",
-        `${pendingCount} entr${pendingCount === 1 ? "y is" : "ies are"} still waiting to reach Trax. Sync first so nothing is lost.`,
+        `${pendingCount} entr${pendingCount === 1 ? "y is" : "ies are"} still waiting to reach TraxStaff. Sync first so nothing is lost.`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Sync now", onPress: () => void sync() },
@@ -115,7 +115,7 @@ export default function ProfileScreen() {
         </View>
 
         <View style={s.section}>
-          <Text style={s.sectionTitle}>What Trax records about me</Text>
+          <Text style={s.sectionTitle}>What TraxStaff records about me</Text>
           <View style={s.grid}>
             {DISCLOSURE_CARDS.map((card) => (
               <DisclosureCard key={card.title} {...card} />
@@ -131,7 +131,7 @@ export default function ProfileScreen() {
 
         {!notificationsOk && available ? (
           <Banner tone="warn">
-            Notifications are blocked. Trax will not track without a visible notification, so the
+            Notifications are blocked. TraxStaff will not track without a visible notification, so the
             timer may be stopped by Android.
           </Banner>
         ) : null}
@@ -140,8 +140,8 @@ export default function ProfileScreen() {
           <Text style={s.sectionTitle}>Background limits</Text>
           <Text style={s.note}>
             Some phones (Xiaomi, Huawei, OnePlus, Samsung and others) kill background apps aggressively
-            and there is no API that fixes it. If your timer keeps stopping, allow Trax to run in the
-            background in your phone&apos;s battery settings. Trax will always tell you when a timer was
+            and there is no API that fixes it. If your timer keeps stopping, allow TraxStaff to run in the
+            background in your phone&apos;s battery settings. TraxStaff will always tell you when a timer was
             stopped rather than quietly losing the time.
           </Text>
           <Button label="Allow permissions" onPress={() => void askForPermissions()} />

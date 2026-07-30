@@ -147,7 +147,7 @@ export default function Login() {
                     // An unhandled rejection here (no browser, blocked intent)
                     // would surface as a red-box crash in a dev build.
                     void Linking.openURL(`${APP_WEB_URL}/forgot-password`).catch(() =>
-                      setNotice("Couldn't open the browser. Reset your password on the Trax website.")
+                      setNotice("Couldn't open the browser. Reset your password on the TraxStaff website.")
                     )
                   }
                   accessibilityRole="link"
@@ -164,7 +164,7 @@ export default function Login() {
                   like a hang. */}
               {slow ? (
                 <Banner tone="warn">
-                  Waking the Trax server — this can take up to a minute after a quiet
+                  Waking the TraxStaff server — this can take up to a minute after a quiet
                   period. Leave this open.
                 </Banner>
               ) : null}
@@ -189,7 +189,7 @@ export default function Login() {
                   accessibilityRole="button"
                   onPress={() =>
                     setNotice(
-                      "Trax accounts are created by your workspace admin. Ask them to invite your work email, then sign in here."
+                      "TraxStaff accounts are created by your workspace admin. Ask them to invite your work email, then sign in here."
                     )
                   }
                 >

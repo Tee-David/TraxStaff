@@ -77,7 +77,7 @@ export default function Welcome() {
 
           {notice ? (
             <Text style={s.notice}>
-              Trax accounts are created by your workspace admin. Ask them to invite your work
+              TraxStaff accounts are created by your workspace admin. Ask them to invite your work
               email, then sign in above.
             </Text>
           ) : null}

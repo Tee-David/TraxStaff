@@ -22,12 +22,12 @@ const DOES = [
   "Records the time you spend on a timer you started yourself, with the project and task you picked.",
   "Keeps a persistent notification on screen for as long as a timer is running.",
   "Notes when the device clock, timezone or boot state changes while a timer is running, so an unexplained jump can be reviewed.",
-  "Sends those time entries to your organisation's Trax workspace, where your admins can see them.",
+  "Sends those time entries to your organisation's TraxStaff workspace, where your admins can see them.",
 ];
 
 const DOES_NOT = [
-  "No screenshots. Android will not allow periodic screen capture without asking you every single time, so Trax mobile does not attempt it at all.",
-  "No activity percentage. There is no keyboard or mouse activity API on Android — the only route was an accessibility service, and Trax will not use one.",
+  "No screenshots. Android will not allow periodic screen capture without asking you every single time, so TraxStaff mobile does not attempt it at all.",
+  "No activity percentage. There is no keyboard or mouse activity API on Android — the only route was an accessibility service, and TraxStaff will not use one.",
   "No location or GPS, ever.",
   "No reading of the apps or websites you use.",
   "No microphone, no camera, no keystroke content.",
@@ -61,9 +61,9 @@ export default function Disclosure() {
       <ScreenFade style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={s.scroll}>
         <Text style={s.kicker}>Before you start</Text>
-        <Text style={s.title}>What Trax records on this phone</Text>
+        <Text style={s.title}>What TraxStaff records on this phone</Text>
         <Text style={s.lede}>
-          Trax is a work time tracker. On Android it records only the timers you start.
+          TraxStaff is a work time tracker. On Android it records only the timers you start.
           {me ? ` You are signed in as ${me.email}.` : ""}
         </Text>
 

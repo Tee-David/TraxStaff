@@ -79,7 +79,7 @@ export default function TimesheetsScreen() {
     return (
       <SafeAreaView style={s.safe} edges={["top"]}>
         <Loading
-          text={sessions.slow ? "Waking the Trax server — this can take a minute." : "Loading your timesheet…"}
+          text={sessions.slow ? "Waking the TraxStaff server — this can take a minute." : "Loading your timesheet…"}
         />
       </SafeAreaView>
     );

@@ -86,7 +86,7 @@ async function request<T>(
       0,
       aborted
         ? "The server did not respond in time. It may still be starting up — try again."
-        : "Can't reach Trax. Check your connection.",
+        : "Can't reach TraxStaff. Check your connection.",
       err
     );
   } finally {

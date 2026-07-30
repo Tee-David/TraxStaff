@@ -104,7 +104,7 @@ export default function TimerScreen() {
   if (projects.loading) {
     return (
       <SafeAreaView style={s.safe} edges={["top"]}>
-        <Loading text={projects.slow ? "Waking the Trax server — this can take a minute." : "Loading projects…"} />
+        <Loading text={projects.slow ? "Waking the TraxStaff server — this can take a minute." : "Loading projects…"} />
       </SafeAreaView>
     );
   }
@@ -127,7 +127,7 @@ export default function TimerScreen() {
         }
       >
         <View style={s.header}>
-          <Text style={s.wordmark}>trax</Text>
+          <Text style={s.wordmark}>traxstaff</Text>
           <Text style={s.date}>
             {new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
           </Text>
@@ -296,7 +296,7 @@ function UpdateBanner({ update, onDismiss }: { update: UpdateCheckResult; onDism
     <View style={s.updateBanner}>
       <Ionicons name="arrow-up-circle-outline" size={20} color={colors.textMuted} />
       <Text style={s.updateBannerText}>
-        Trax v{update.latestVersion} is available. Update to get the latest fixes.
+        TraxStaff v{update.latestVersion} is available. Update to get the latest fixes.
       </Text>
       <Pressable onPress={openDownload} hitSlop={8}>
         <Text style={s.updateBannerAction}>Update</Text>

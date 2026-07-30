@@ -99,7 +99,7 @@ export default function SessionDetail() {
 
       {query.loading ? (
         <Loading
-          text={query.slow ? "Waking the Trax server — this can take a minute." : "Loading this entry…"}
+          text={query.slow ? "Waking the TraxStaff server — this can take a minute." : "Loading this entry…"}
         />
       ) : query.error ? (
         <View style={s.pad}>

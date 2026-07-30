@@ -95,7 +95,7 @@ export default function TasksScreen() {
   if (projects.loading) {
     return (
       <SafeAreaView style={s.safe} edges={["top"]}>
-        <Loading text={projects.slow ? "Waking the Trax server — this can take a minute." : "Loading projects…"} />
+        <Loading text={projects.slow ? "Waking the TraxStaff server — this can take a minute." : "Loading projects…"} />
       </SafeAreaView>
     );
   }

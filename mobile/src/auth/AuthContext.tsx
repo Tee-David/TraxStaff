@@ -80,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError("Your session expired. Sign in again.");
       } else {
         setStatus("signedIn");
-        setError(err instanceof Error ? err.message : "Couldn't reach Trax.");
+        setError(err instanceof Error ? err.message : "Couldn't reach TraxStaff.");
       }
     }
   }, [clear, withSlowHint]);

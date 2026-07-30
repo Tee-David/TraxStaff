@@ -7,6 +7,7 @@ import { api } from "../../src/api/client";
 import type { Session } from "../../src/api/types";
 import { DayTimeline, MeterRow } from "../../src/charts";
 import { clampSeconds, dayLabel, fmtShort, fmtTime, localDayKey } from "../../src/format";
+import { ScreenFade, StaggerItem, useListEntrance } from "../../src/motion";
 import { useTheme } from "../../src/ThemeProvider";
 import { Colors, fonts, radius, spacing } from "../../src/theme";
 import { Banner, Empty, Loading } from "../../src/ui";
@@ -28,6 +29,7 @@ export default function TimesheetsScreen() {
   const s = useMemo(() => createStyles(colors), [colors]);
   const from = useMemo(() => new Date(Date.now() - DAYS_BACK * 86_400_000).toISOString(), []);
   const sessions = useAsync<Session[]>(() => api.sessions({ from }), []);
+  const listGeneration = useListEntrance(sessions.loading);
 
   const sections = useMemo(() => {
     const byDay = new Map<string, Session[]>();
@@ -85,6 +87,7 @@ export default function TimesheetsScreen() {
 
   return (
     <SafeAreaView style={s.safe} edges={["top"]}>
+      <ScreenFade style={{ flex: 1 }}>
       <SectionList
         sections={sections}
         keyExtractor={(item) => item.id}
@@ -125,39 +128,42 @@ export default function TimesheetsScreen() {
             <DayTimeline spans={section.spans} />
           </View>
         )}
-        renderItem={({ item }) => (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${item.project.name}, ${fmtShort(sessionSeconds(item))}, opens entry details`}
-            onPress={() =>
-              router.push({ pathname: "/session/[id]", params: { id: item.id, at: item.startedAt } })
-            }
-            style={({ pressed }) => [s.row, pressed && { backgroundColor: colors.surfaceAlt }]}
-          >
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={s.rowTitle} numberOfLines={1}>
-                {item.project.name}
-                {item.task ? ` · ${item.task.title}` : ""}
-              </Text>
-              <Text style={s.rowMeta}>
-                {fmtTime(item.startedAt)} — {item.endedAt ? fmtTime(item.endedAt) : "running"}
-                {item.endReason === "abrupt_exit" ? " · interrupted" : ""}
-              </Text>
-              {item.notes.length > 0 ? (
-                <Text style={s.rowNote} numberOfLines={2}>
-                  {item.notes[item.notes.length - 1].body}
+        renderItem={({ item, index }) => (
+          <StaggerItem index={index} generation={listGeneration}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${item.project.name}, ${fmtShort(sessionSeconds(item))}, opens entry details`}
+              onPress={() =>
+                router.push({ pathname: "/session/[id]", params: { id: item.id, at: item.startedAt } })
+              }
+              style={({ pressed }) => [s.row, pressed && { backgroundColor: colors.surfaceAlt }]}
+            >
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={s.rowTitle} numberOfLines={1}>
+                  {item.project.name}
+                  {item.task ? ` · ${item.task.title}` : ""}
                 </Text>
-              ) : null}
-            </View>
-            <View style={{ alignItems: "flex-end", gap: 4 }}>
-              <Text style={s.rowDuration}>{fmtShort(sessionSeconds(item))}</Text>
-              {item.isManual ? <Badge text="Manual" /> : null}
-              {item.tamperSuspected ? <Badge text="Flagged" tone="warn" /> : null}
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.faint} style={{ alignSelf: "center" }} />
-          </Pressable>
+                <Text style={s.rowMeta}>
+                  {fmtTime(item.startedAt)} — {item.endedAt ? fmtTime(item.endedAt) : "running"}
+                  {item.endReason === "abrupt_exit" ? " · interrupted" : ""}
+                </Text>
+                {item.notes.length > 0 ? (
+                  <Text style={s.rowNote} numberOfLines={2}>
+                    {item.notes[item.notes.length - 1].body}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={{ alignItems: "flex-end", gap: 4 }}>
+                <Text style={s.rowDuration}>{fmtShort(sessionSeconds(item))}</Text>
+                {item.isManual ? <Badge text="Manual" /> : null}
+                {item.tamperSuspected ? <Badge text="Flagged" tone="warn" /> : null}
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.faint} style={{ alignSelf: "center" }} />
+            </Pressable>
+          </StaggerItem>
         )}
       />
+      </ScreenFade>
     </SafeAreaView>
   );
 }

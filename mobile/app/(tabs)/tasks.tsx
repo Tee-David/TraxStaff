@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../src/api/client";
 import type { Project, Task } from "../../src/api/types";
+import { ScreenFade, StaggerItem, useListEntrance } from "../../src/motion";
 import { PickerField, PickerSheet } from "../../src/picker";
 import { useTheme } from "../../src/ThemeProvider";
 import { Colors, fonts, radius, spacing } from "../../src/theme";
@@ -33,6 +34,7 @@ export default function TasksScreen() {
   const [draft, setDraft] = useState("");
   const [creating, setCreating] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const listGeneration = useListEntrance(loadingTasks);
 
   useEffect(() => {
     if (!projectId && projects.data?.length) setProjectId(projects.data[0].id);
@@ -117,6 +119,7 @@ export default function TasksScreen() {
 
   return (
     <SafeAreaView style={s.safe} edges={["top"]}>
+      <ScreenFade style={{ flex: 1 }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={s.header}>
           <Text style={s.title}>Tasks</Text>
@@ -156,34 +159,36 @@ export default function TasksScreen() {
               />
             }
             ListEmptyComponent={<Empty text="No tasks on this project yet. Add the first one below." />}
-            renderItem={({ item }) => {
+            renderItem={({ item, index }) => {
               const isDone = item.status === "done";
               return (
-                <Pressable
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: isDone }}
-                  onPress={() => void toggle(item)}
-                  disabled={pendingId === item.id}
-                  style={({ pressed }) => [s.task, pressed && { backgroundColor: colors.surfaceAlt }]}
-                >
-                  {pendingId === item.id ? (
-                    <ActivityIndicator size="small" color={colors.brand} />
-                  ) : (
-                    <Ionicons
-                      name={isDone ? "checkmark-circle" : "ellipse-outline"}
-                      size={22}
-                      color={isDone ? colors.success : colors.borderStrong}
-                    />
-                  )}
-                  <Text style={[s.taskTitle, isDone && s.taskDone]} numberOfLines={2}>
-                    {item.title}
-                  </Text>
-                  {item.priority === "urgent" ? (
-                    <View style={s.urgent}>
-                      <Text style={s.urgentText}>Urgent</Text>
-                    </View>
-                  ) : null}
-                </Pressable>
+                <StaggerItem index={index} generation={listGeneration}>
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: isDone }}
+                    onPress={() => void toggle(item)}
+                    disabled={pendingId === item.id}
+                    style={({ pressed }) => [s.task, pressed && { backgroundColor: colors.surfaceAlt }]}
+                  >
+                    {pendingId === item.id ? (
+                      <ActivityIndicator size="small" color={colors.brand} />
+                    ) : (
+                      <Ionicons
+                        name={isDone ? "checkmark-circle" : "ellipse-outline"}
+                        size={22}
+                        color={isDone ? colors.success : colors.borderStrong}
+                      />
+                    )}
+                    <Text style={[s.taskTitle, isDone && s.taskDone]} numberOfLines={2}>
+                      {item.title}
+                    </Text>
+                    {item.priority === "urgent" ? (
+                      <View style={s.urgent}>
+                        <Text style={s.urgentText}>Urgent</Text>
+                      </View>
+                    ) : null}
+                  </Pressable>
+                </StaggerItem>
               );
             }}
           />
@@ -218,6 +223,7 @@ export default function TasksScreen() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+      </ScreenFade>
 
       <PickerSheet
         visible={picking}

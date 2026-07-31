@@ -498,6 +498,18 @@ h1, h2, h3, h4, h5, h6 {
   display: none;
 }
 
+/* The label on an accent (orange) CTA. Deep navy on the light theme; white on
+   the dark one, where the near-black field colour reads as a hole in the
+   button rather than as type on it. Worth knowing before this spreads: white
+   on #ff6600 is about 2.9:1, under the 4.5:1 WCAG AA needs for body text, so
+   it stays on these large bold button labels only. */
+.mk-cta {
+  color: var(--color-field);
+}
+:root[data-theme="dark"] .mk-cta {
+  color: #ffffff;
+}
+
 /* The running clock, wherever one is shown. Ink in the light theme; plain
    white on the dark stage, where the slightly blue --color-ink sits back into
    the near-black panel instead of reading as the lit thing on it. */

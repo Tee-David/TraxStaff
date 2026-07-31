@@ -229,7 +229,7 @@ export function Hero() {
             <motion.a
               {...press}
               href={`${APP_URL}/app`}
-              className="cursor-target rounded-full bg-accent px-8 py-4 text-sm font-bold text-field transition-colors hover:brightness-105 sm:py-3.5"
+              className="mk-cta cursor-target rounded-full bg-accent px-8 py-4 text-sm font-bold transition-colors hover:brightness-105 sm:py-3.5"
             >
               Start free
             </motion.a>

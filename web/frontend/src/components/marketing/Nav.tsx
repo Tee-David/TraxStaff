@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { APP_URL } from "@/lib/site";
+import { useTheme } from "@/lib/theme";
+import { toggleThemeWithTransition } from "@/lib/theme-transition";
+import { IconMoon, IconSun } from "@/components/icons";
 
 /**
  * Only sections that actually exist on the page — there is no pricing,
@@ -27,6 +30,38 @@ function IconClose() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden>
       <path d="M6 6l12 12M18 6L6 18" />
     </svg>
+  );
+}
+
+/**
+ * Light/dark switch, the same one the dashboard carries — same `trax_theme`
+ * key, same circular view transition — so a visitor's choice here is the theme
+ * they land in once they sign in.
+ *
+ * It shows the theme you'd switch *to*, and only after mount: the saved theme
+ * isn't known during the server render, so drawing a sun before hydration
+ * would flip to a moon in front of the visitor on every dark-theme load. The
+ * button keeps its box either way, so nothing shifts when the icon arrives.
+ */
+function ThemeToggle() {
+  const [theme, setTheme] = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  const next = theme === "dark" ? "light" : "dark";
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => toggleThemeWithTransition(e, next, setTheme)}
+      aria-label={`Switch to the ${next} theme`}
+      title={`Switch to the ${next} theme`}
+      className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface text-ink transition hover:border-border-strong md:h-9 md:w-9"
+    >
+      {mounted &&
+        (theme === "dark" ? <IconSun width={17} height={17} /> : <IconMoon width={17} height={17} />)}
+    </button>
   );
 }
 
@@ -70,30 +105,36 @@ export function MarketingNav() {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-2 md:flex">
-          <a
-            href={`${APP_URL}/login`}
-            className="cursor-target rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-ink transition hover:border-border-strong"
-          >
-            Log in
-          </a>
-          <a
-            href={`${APP_URL}/app`}
-            className="cursor-target rounded-full bg-accent px-4 py-2 text-sm font-bold text-field transition hover:brightness-105"
-          >
-            Start free
-          </a>
-        </div>
+        {/* The switch sits outside the desktop-only group so it's reachable on
+            a phone too, next to the menu button rather than buried inside it. */}
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
 
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface text-ink transition hover:border-border-strong md:hidden"
-          aria-label={open ? "Close menu" : "Open menu"}
-          aria-expanded={open}
-        >
-          {open ? <IconClose /> : <IconMenu />}
-        </button>
+          <div className="hidden items-center gap-2 md:flex">
+            <a
+              href={`${APP_URL}/login`}
+              className="cursor-target rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-ink transition hover:border-border-strong"
+            >
+              Log in
+            </a>
+            <a
+              href={`${APP_URL}/app`}
+              className="mk-cta cursor-target rounded-full bg-accent px-4 py-2 text-sm font-bold transition hover:brightness-105"
+            >
+              Start free
+            </a>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface text-ink transition hover:border-border-strong md:hidden"
+            aria-label={open ? "Close menu" : "Open menu"}
+            aria-expanded={open}
+          >
+            {open ? <IconClose /> : <IconMenu />}
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -126,7 +167,7 @@ export function MarketingNav() {
               </a>
               <a
                 href={`${APP_URL}/app`}
-                className="rounded-full bg-accent px-4 py-2.5 text-center text-sm font-bold text-field transition hover:brightness-105"
+                className="mk-cta rounded-full bg-accent px-4 py-2.5 text-center text-sm font-bold transition hover:brightness-105"
               >
                 Start free
               </a>

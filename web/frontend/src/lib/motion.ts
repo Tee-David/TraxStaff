@@ -75,6 +75,23 @@ export function useMotionPresets() {
       },
 
       /**
+       * Fade-up for an individual element inside a revealed section — an
+       * eyebrow, a heading, a paragraph, a card. Travels further and runs
+       * longer than `item`, which is tuned for dense dashboard lists where
+       * movement that size would be noise. Pair with `revealStagger`.
+       */
+      revealItem: {
+        variants: {
+          hidden: { opacity: 0, y: reduce ? 0 : 24 },
+          show: {
+            opacity: 1,
+            y: 0,
+            transition: { duration: reduce ? 0 : 0.5, ease: EASE },
+          },
+        } satisfies Variants,
+      },
+
+      /**
        * Scroll-triggered version of `stagger`, for grids and card rows. Pair
        * with `item` on the children exactly as with `stagger`.
        */

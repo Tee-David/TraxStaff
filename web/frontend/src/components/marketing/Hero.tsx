@@ -103,7 +103,7 @@ function TimerPill({
 }
 
 export function Hero() {
-  const { stagger, item, reduce, press } = useMotionPresets();
+  const { revealStagger, revealItem, reduce, press } = useMotionPresets();
   const elapsed = useElapsed();
 
   /* Floating objects live in the margins beside the headline column, the way
@@ -195,9 +195,9 @@ export function Hero() {
           </motion.div>
         ))}
 
-        <motion.div {...stagger()} className="relative z-10">
+        <motion.div {...revealStagger()} className="relative z-10">
           <motion.span
-            {...item}
+            {...revealItem}
             className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15"
           >
             <IconClock width={13} height={13} className="text-accent" />
@@ -205,7 +205,7 @@ export function Hero() {
           </motion.span>
 
           <motion.h1
-            {...item}
+            {...revealItem}
             className="mx-auto mt-8 max-w-[52rem] font-heading text-[clamp(2.25rem,5.2vw,4rem)] font-bold leading-[1.06] tracking-[-0.04em] text-ink"
           >
             {/* Broken here rather than at "team" so the two lines come out
@@ -217,7 +217,7 @@ export function Hero() {
           </motion.h1>
 
           <motion.p
-            {...item}
+            {...revealItem}
             className="mx-auto mt-7 max-w-xl text-base leading-relaxed text-muted sm:text-lg"
           >
             A visible, always-on indicator the whole time it runs. Every session
@@ -225,18 +225,18 @@ export function Hero() {
             tamper-evident, never self-reported.
           </motion.p>
 
-          <motion.div {...item} className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
+          <motion.div {...revealItem} className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
             <motion.a
               {...press}
               href={`${APP_URL}/app`}
-              className="rounded-full bg-accent px-8 py-4 text-sm font-bold text-field transition-colors hover:brightness-105 sm:py-3.5"
+              className="cursor-target rounded-full bg-accent px-8 py-4 text-sm font-bold text-field transition-colors hover:brightness-105 sm:py-3.5"
             >
               Start free
             </motion.a>
             <motion.a
               {...press}
               href="#download"
-              className="rounded-full border border-border-strong bg-surface px-8 py-4 text-sm font-semibold text-ink transition-colors hover:border-muted sm:py-3.5"
+              className="cursor-target rounded-full border border-border-strong bg-surface px-8 py-4 text-sm font-semibold text-ink transition-colors hover:border-muted sm:py-3.5"
             >
               Download the app
             </motion.a>
@@ -244,7 +244,7 @@ export function Hero() {
 
           {/* Stand-in for the floating cards below xl, and the only timer on
               the page showing genuinely real elapsed time. */}
-          <motion.div {...item} className="mt-14 flex justify-center xl:hidden">
+          <motion.div {...revealItem} className="mt-14 flex justify-center xl:hidden">
             <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 text-left shadow-[var(--shadow-lift)]">
               <div className="flex items-center gap-2">
                 <span className="mk-live-dot" />

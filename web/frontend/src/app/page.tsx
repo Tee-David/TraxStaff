@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import TargetCursor from "@/components/marketing/TargetCursor";
 import { MarketingNav } from "@/components/marketing/Nav";
 import { Hero } from "@/components/marketing/Hero";
 import { PlatformStrip } from "@/components/marketing/PlatformStrip";
@@ -26,6 +27,10 @@ export default function Home() {
 
   return (
     <main className="mk-page min-h-screen bg-canvas">
+      {/* Renders nothing on touch devices or under prefers-reduced-motion —
+          it hides the system pointer, so it must not be the only cursor a
+          visitor has. */}
+      <TargetCursor spinDuration={2} hideDefaultCursor parallaxOn hoverDuration={0.2} cursorColor="#ff6600" />
       <MarketingNav />
       <Hero />
       <PlatformStrip />

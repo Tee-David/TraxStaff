@@ -180,25 +180,25 @@ function Row({
 }
 
 export function Testimonials() {
-  const { reveal, reduce } = useMotionPresets();
+  const { revealStagger, revealItem, reduce } = useMotionPresets();
   // Hover covers pointers and :focus-visible covers keyboards, but a phone has
   // neither — without this a touch user can't stop the rows to read them.
   const [paused, setPaused] = useState(false);
 
   return (
     <section className="bg-surface pb-24 lg:pb-28">
-      <motion.div {...reveal} className="mx-auto max-w-2xl px-5 text-center sm:px-8">
-        <span className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15">
+      <motion.div {...revealStagger()} className="mx-auto max-w-2xl px-5 text-center sm:px-8">
+        <motion.span {...revealItem} className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15">
           <span className="text-accent">
             <IconStar />
           </span>
           What teams say
-        </span>
-        <h2 className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em] text-ink">
+        </motion.span>
+        <motion.h2 {...revealItem} className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em] text-ink">
           Words from teams who
           <br className="hidden sm:block" /> stopped{" "}
           <Mark>fighting</Mark> the timer.
-        </h2>
+        </motion.h2>
       </motion.div>
 
       {/* Full-bleed on purpose: the rows run past both edges so they read as a

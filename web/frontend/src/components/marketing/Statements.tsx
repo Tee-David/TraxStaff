@@ -85,25 +85,25 @@ function StatementCard({ item, reduce }: { item: Statement; reduce: boolean }) {
 }
 
 export function Statements() {
-  const { reveal, reduce } = useMotionPresets();
+  const { revealStagger, revealItem, reduce } = useMotionPresets();
   // Hover covers pointers and :focus-visible covers keyboards, but a phone has
   // neither — without this a touch user can't stop the row to read it.
   const [paused, setPaused] = useState(false);
 
   return (
     <section className="bg-surface pb-24 lg:pb-28">
-      <motion.div {...reveal} className="mx-auto max-w-2xl px-5 text-center sm:px-8">
-        <span className="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
+      <motion.div {...revealStagger()} className="mx-auto max-w-2xl px-5 text-center sm:px-8">
+        <motion.span {...revealItem} className="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
           Where we stand
-        </span>
-        <h2 className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em] text-ink">
+        </motion.span>
+        <motion.h2 {...revealItem} className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em] text-ink">
           Positions we&rsquo;ll put
           <br className="hidden sm:block" /> <Mark>in writing</Mark>
-        </h2>
-        <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-muted">
+        </motion.h2>
+        <motion.p {...revealItem} className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-muted">
           Not marketing lines. Each one is checkable against the product or the
           code that runs it.
-        </p>
+        </motion.p>
       </motion.div>
 
       {/* Full-bleed on purpose: the row runs past both edges so it reads as a

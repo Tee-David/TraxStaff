@@ -63,7 +63,7 @@ export function MarketingNav() {
             <a
               key={l.href}
               href={l.href}
-              className="py-2.5 text-sm font-medium text-muted transition-colors hover:text-ink"
+              className="cursor-target py-2.5 text-sm font-medium text-muted transition-colors hover:text-ink"
             >
               {l.label}
             </a>
@@ -73,13 +73,13 @@ export function MarketingNav() {
         <div className="hidden items-center gap-2 md:flex">
           <a
             href={`${APP_URL}/login`}
-            className="rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-ink transition hover:border-border-strong"
+            className="cursor-target rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-ink transition hover:border-border-strong"
           >
             Log in
           </a>
           <a
             href={`${APP_URL}/app`}
-            className="rounded-full bg-accent px-4 py-2 text-sm font-bold text-field transition hover:brightness-105"
+            className="cursor-target rounded-full bg-accent px-4 py-2 text-sm font-bold text-field transition hover:brightness-105"
           >
             Start free
           </a>

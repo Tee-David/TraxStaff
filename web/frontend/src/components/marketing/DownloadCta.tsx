@@ -42,7 +42,7 @@ function DownloadButton({
       {...press}
       href={href}
       rel="noopener noreferrer"
-      className={`flex items-center gap-3 rounded-2xl border px-5 py-4 transition ${
+      className={`cursor-target flex items-center gap-3 rounded-2xl border px-5 py-4 transition ${
         primary
           ? "border-transparent bg-white text-field hover:bg-white/90"
           : "border-white/25 bg-white/[0.09] text-white hover:bg-white/[0.14]"
@@ -84,7 +84,7 @@ function ComingSoonButton({ icon, label }: { icon: React.ReactNode; label: strin
 }
 
 export function DownloadCta() {
-  const { reveal } = useMotionPresets();
+  const { revealStagger, revealItem } = useMotionPresets();
   const { state, load } = useLatestRelease();
   const platform = detectDesktopPlatform();
   const primary: "windows" | "linux" = platform === "linux" ? "linux" : "windows";
@@ -92,17 +92,17 @@ export function DownloadCta() {
   return (
     <section id="download" className="bg-surface px-5 pb-24 sm:px-8 lg:pb-28">
       <motion.div
-        {...reveal}
+        {...revealStagger()}
         className="mk-on-field mk-grid mk-grid-invert relative mx-auto max-w-5xl overflow-hidden rounded-[2rem] bg-field px-6 py-16 text-white sm:px-12 lg:py-20"
       >
         <div className="mx-auto max-w-xl text-center">
-          <h2 className="font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em]">
+          <motion.h2 {...revealItem} className="font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em]">
             Put it on your <Mark>machine</Mark>
-          </h2>
-          <p className="mt-5 text-base leading-relaxed text-white/70">
+          </motion.h2>
+          <motion.p {...revealItem} className="mt-5 text-base leading-relaxed text-white/70">
             Real builds from the latest GitHub release &mdash; the same one the
             dashboard&rsquo;s own download button uses.
-          </p>
+          </motion.p>
           {state.status === "ready" && (
             <div className="mt-5 flex items-center justify-center gap-2">
               <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-xs font-semibold text-white">
@@ -115,7 +115,7 @@ export function DownloadCta() {
           )}
         </div>
 
-        <div className="mt-10">
+        <motion.div {...revealItem} className="mt-10">
           {/* The shared `.skeleton` shimmer is tuned for the light canvas and
               disappears on navy, so the placeholders get their own here. */}
           {state.status === "loading" && (
@@ -234,7 +234,7 @@ export function DownloadCta() {
                 </div>
               );
             })()}
-        </div>
+        </motion.div>
       </motion.div>
     </section>
   );

@@ -44,25 +44,25 @@ const layers = [
 ];
 
 export function Integrity() {
-  const { reveal, revealStagger, item } = useMotionPresets();
+  const { revealStagger, revealItem, item } = useMotionPresets();
 
   return (
     <section className="bg-surface px-5 pb-24 sm:px-8 lg:pb-28">
       <div className="mk-on-field mk-grid mk-grid-invert relative mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-field px-6 py-20 text-white sm:px-10 lg:py-24">
-        <motion.div {...reveal} className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">
+        <motion.div {...revealStagger()} className="mx-auto max-w-2xl text-center">
+          <motion.span {...revealItem} className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">
             Integrity
-          </span>
-          <h2 className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em]">
+          </motion.span>
+          <motion.h2 {...revealItem} className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em]">
             Tamper-evident by design,
             <br className="hidden sm:block" /> not tamper-proof by{" "}
             <Mark>claim</Mark>
-          </h2>
-          <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-white/70">
+          </motion.h2>
+          <motion.p {...revealItem} className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-white/70">
             Four layers stand between a tracked hour and a number you can trust.
             Here is exactly where each one lives &mdash; and where the last one
             stops.
-          </p>
+          </motion.p>
         </motion.div>
 
         <motion.div {...revealStagger()} className="mt-14 grid gap-4 sm:grid-cols-2">
@@ -70,7 +70,7 @@ export function Integrity() {
             <motion.div
               key={l.where}
               {...item}
-              className="min-w-0 rounded-2xl border border-white/12 bg-white/[0.04] p-7"
+              className="cursor-target min-w-0 rounded-2xl border border-white/12 bg-white/[0.04] p-7"
             >
               <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">
                 {l.where}

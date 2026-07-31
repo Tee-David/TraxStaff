@@ -84,24 +84,24 @@ function MarkOff() {
 }
 
 export function Transparency() {
-  const { reveal, revealStagger, item } = useMotionPresets();
+  const { revealStagger, revealItem, item } = useMotionPresets();
 
   return (
     <section id="transparency" className="bg-surface px-5 pb-24 sm:px-8 lg:pb-28">
       <div className="mx-auto max-w-6xl">
-        <motion.div {...reveal} className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
+        <motion.div {...revealStagger()} className="mx-auto max-w-2xl text-center">
+          <motion.span {...revealItem} className="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
             Transparency
-          </span>
-          <h2 className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em] text-ink">
+          </motion.span>
+          <motion.h2 {...revealItem} className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em] text-ink">
             What&rsquo;s recorded,
             <br className="hidden sm:block" /> and what{" "}
             <Mark>never</Mark> is
-          </h2>
-          <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-muted">
+          </motion.h2>
+          <motion.p {...revealItem} className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-muted">
             The same disclosure every staff member reads and accepts before
             tracking can start. Not a summary of it &mdash; the list itself.
-          </p>
+          </motion.p>
         </motion.div>
 
         <motion.div

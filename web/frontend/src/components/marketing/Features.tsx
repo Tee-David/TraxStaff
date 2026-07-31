@@ -159,23 +159,23 @@ const compact = [
 ];
 
 export function Features() {
-  const { reveal, revealStagger, item, reduce } = useMotionPresets();
+  const { revealStagger, revealItem, item, reduce } = useMotionPresets();
 
   return (
     <section id="features" className="bg-surface">
       <div className="mx-auto max-w-6xl px-5 py-24 sm:px-8 lg:py-28">
-        <motion.div {...reveal} className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
+        <motion.div {...revealStagger()} className="mx-auto max-w-2xl text-center">
+          <motion.span {...revealItem} className="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
             Features
-          </span>
-          <h2 className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em] text-ink">
+          </motion.span>
+          <motion.h2 {...revealItem} className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em] text-ink">
             Everything you need,
             <br className="hidden sm:block" /> nothing you can&rsquo;t see
-          </h2>
-          <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-muted">
+          </motion.h2>
+          <motion.p {...revealItem} className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-muted">
             TraxStaff collects what it takes to account for time honestly &mdash;
             never what you type, never full URLs, always visibly.
-          </p>
+          </motion.p>
         </motion.div>
 
         <motion.div {...revealStagger()} className="mt-14 grid gap-5 lg:grid-cols-2">
@@ -195,7 +195,7 @@ export function Features() {
               </p>
               <a
                 href={`${APP_URL}/app`}
-                className="mt-7 inline-flex rounded-full bg-brand px-5 py-3 text-sm font-semibold text-brand-fg transition hover:bg-brand-600"
+                className="cursor-target mt-7 inline-flex rounded-full bg-brand px-5 py-3 text-sm font-semibold text-brand-fg transition hover:bg-brand-600"
               >
                 Explore the dashboard
               </a>
@@ -250,7 +250,7 @@ export function Features() {
               {...item}
               whileHover={reduce ? undefined : { y: -4 }}
               transition={{ duration: 0.2, ease: [0.22, 0.61, 0.36, 1] }}
-              className="rounded-3xl border border-border bg-canvas/70 p-7"
+              className="cursor-target rounded-3xl border border-border bg-canvas/70 p-7"
             >
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand/10 text-brand">
                 <Icon width={18} height={18} />

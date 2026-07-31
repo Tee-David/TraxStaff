@@ -8,6 +8,11 @@
   --color-accent: #ff6600;
   --color-accent-fg: #ffffff;
 
+  /* Showcase panel behind the app screenshots. A soft wash of the accent —
+     the one place orange is used as a surface rather than a mark, which keeps
+     the section distinct from the two navy panels further down the page. */
+  --color-showcase: #ffefe2;
+
   /* Marketing dark fields. Deliberately *not* `--color-brand`: that token
      flips to a lit periwinkle in dark mode so accents stay legible on a dark
      canvas, which is right for the app but would turn the landing page's
@@ -68,6 +73,9 @@
      keep the edge between panel and page readable. */
   --color-field: #0b0b40;
   --color-field-deep: #06062a;
+  /* The accent wash would glare at full strength on a dark canvas; this keeps
+     the same warmth at a weight that sits behind the screenshots. */
+  --color-showcase: #1d1408;
 }
 
 * {

@@ -4,6 +4,7 @@ import { MarketingNav } from "@/components/marketing/Nav";
 import { Hero } from "@/components/marketing/Hero";
 import { PlatformStrip } from "@/components/marketing/PlatformStrip";
 import { Features } from "@/components/marketing/Features";
+import { Showcase } from "@/components/marketing/Showcase";
 import { Integrity } from "@/components/marketing/Integrity";
 import { Testimonials } from "@/components/marketing/Testimonials";
 import { Statements } from "@/components/marketing/Statements";
@@ -35,6 +36,7 @@ export default function Home() {
       <Hero />
       <PlatformStrip />
       <Features />
+      <Showcase />
       {/* Social proof straight after the feature case, then the two honesty
           sections, then the positions as the closing argument before the CTA.
           The ordering also keeps the page's two marquees apart — back to back

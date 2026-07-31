@@ -1,0 +1,160 @@
+"use client";
+
+import { motion } from "motion/react";
+import { useMotionPresets } from "@/lib/motion";
+import { APP_URL } from "@/lib/site";
+import { Mark } from "./Mark";
+
+/**
+ * The product, shown rather than described.
+ *
+ * Every image in this section is a genuine capture of the app running — the
+ * Tauri desktop UI and the Expo mobile UI, rendered from their own source with
+ * the native layers stubbed and the backend served fixture data. They are not
+ * drawings of the product, and not marketing renders of a design file.
+ *
+ * The data inside them is invented (there is no seeded database to shoot
+ * against) but it is consistent across the two: the same three projects, the
+ * same 3h 36m today and 28h 01m this week, the same live session on Design
+ * sprint. If the app's UI changes, these go stale — re-shoot rather than
+ * retouch.
+ */
+
+/** Desktop window chrome, the way the reference frames its browser shot. */
+function WindowFrame({
+  children,
+  className = "",
+  label,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  label: string;
+}) {
+  return (
+    <div
+      className={`overflow-hidden rounded-2xl border border-black/10 bg-surface shadow-[0_28px_70px_-24px_rgba(18,22,43,0.45)] ${className}`}
+    >
+      <div className="flex items-center gap-2 border-b border-border bg-canvas px-3.5 py-2.5">
+        <span className="flex gap-1.5" aria-hidden>
+          <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+        </span>
+        <span className="mx-auto truncate rounded-md bg-surface px-3 py-0.5 text-[10px] font-medium text-faint">
+          {label}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Phone body — rounded shell, bezel and speaker slot around the capture. */
+function PhoneFrame({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div
+      className={`rounded-[2.25rem] border border-black/10 bg-[#12162b] p-2 shadow-[0_28px_70px_-24px_rgba(18,22,43,0.55)] ${className}`}
+    >
+      <div className="relative overflow-hidden rounded-[1.75rem] bg-surface">
+        <span
+          aria-hidden
+          className="absolute left-1/2 top-2 z-10 h-1.5 w-16 -translate-x-1/2 rounded-full bg-black/25"
+        />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export function Showcase() {
+  const { revealStagger, revealItem, press } = useMotionPresets();
+
+  return (
+    <section id="showcase" className="bg-surface px-5 pb-24 sm:px-8 lg:pb-28">
+      <motion.div
+        {...revealStagger()}
+        className="mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-showcase px-6 pt-14 sm:px-10 sm:pt-16 lg:px-14"
+      >
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
+          <motion.h2
+            {...revealItem}
+            className="max-w-xl font-heading text-[clamp(1.875rem,3.6vw,2.75rem)] font-bold leading-[1.08] tracking-[-0.035em] text-ink"
+          >
+            Set it up in minutes. <Mark>Visible</Mark> from the first second.
+          </motion.h2>
+
+          <motion.div {...revealItem} className="flex flex-wrap gap-3 lg:shrink-0 lg:pt-2">
+            <motion.a
+              {...press}
+              href="#download"
+              className="cursor-target rounded-full bg-field px-6 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-brand-600"
+            >
+              Download the app
+            </motion.a>
+            <motion.a
+              {...press}
+              href={`${APP_URL}/app`}
+              className="cursor-target rounded-full border border-ink/15 bg-surface px-6 py-3.5 text-sm font-semibold text-ink transition-colors hover:border-ink/30"
+            >
+              Open the dashboard
+            </motion.a>
+          </motion.div>
+        </div>
+
+        {/* Devices run off the panel's bottom edge, as in the reference — the
+            frames are cropped rather than floated inside it. */}
+        <motion.div {...revealItem} className="relative mt-12 sm:mt-14">
+          {/* Below `sm` the desktop capture shrinks to the point of being
+              unreadable, so the phone carries the section on its own there and
+              the window frames come back once there's width for them. */}
+          <div className="flex items-end justify-center gap-5 lg:gap-8">
+            <div className="relative hidden min-w-0 flex-1 sm:block">
+              <WindowFrame label="TraxStaff — Dashboard">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/screens/desktop-dashboard.webp"
+                  alt="The TraxStaff desktop app expanded, showing the live tracker beside a week of hours, activity and work-by-hour breakdowns."
+                  width={1800}
+                  height={1157}
+                  loading="lazy"
+                  className="block w-full"
+                />
+              </WindowFrame>
+
+              {/* The tray window it collapses to. Kept over the right-hand
+                  side: the expanded window already carries the same circular
+                  timer down its left rail, and sitting beside it read as two
+                  competing clocks rather than one app in two states. */}
+              <WindowFrame
+                label="Tracker"
+                className="absolute -bottom-3 right-5 hidden w-[9rem] rotate-2 xl:block"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/screens/desktop-tracker.webp"
+                  alt="The TraxStaff tray window with a session running on Design sprint."
+                  width={700}
+                  height={1190}
+                  loading="lazy"
+                  className="block w-full"
+                />
+              </WindowFrame>
+            </div>
+
+            <PhoneFrame className="w-[13.5rem] shrink-0 sm:w-[10.5rem] lg:w-[13rem]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/screens/mobile-timer.webp"
+                alt="The TraxStaff Android app, showing today's tracked time and the timer ready to start."
+                width={780}
+                height={1688}
+                loading="lazy"
+                className="block w-full"
+              />
+            </PhoneFrame>
+          </div>
+        </motion.div>
+      </motion.div>
+    </section>
+  );
+}

@@ -486,6 +486,28 @@ h1, h2, h3, h4, h5, h6 {
   --mk-focus: #ffffff;
 }
 
+/* Feature carousel. A plain scroll-snap track — the arrows and dots scroll it
+   programmatically, a swipe scrolls it natively — with its scrollbar hidden so
+   the cards sit flush in the section the way the grid they replaced did. The
+   scrollbar is decoration here: the controls beneath it say what it does, and
+   the track stays keyboard-scrollable. */
+.mk-carousel {
+  scrollbar-width: none;
+}
+.mk-carousel::-webkit-scrollbar {
+  display: none;
+}
+
+/* The running clock, wherever one is shown. Ink in the light theme; plain
+   white on the dark stage, where the slightly blue --color-ink sits back into
+   the near-black panel instead of reading as the lit thing on it. */
+.mk-clock {
+  color: var(--color-ink);
+}
+:root[data-theme="dark"] .mk-clock {
+  color: #ffffff;
+}
+
 /* The live indicator. One pulsing dot, used only where tracking is genuinely
    running — the hero ribbon and the platform chips that mirror it.
    Green rather than the orange accent: it reads as "live" the way a recording

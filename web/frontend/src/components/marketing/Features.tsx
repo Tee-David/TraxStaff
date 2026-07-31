@@ -1,8 +1,9 @@
 "use client";
 
+import { useCallback, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
-import { IconUsers, IconTrend } from "@/components/icons";
+import { IconUsers, IconTrend, IconChevron } from "@/components/icons";
 import { APP_URL } from "@/lib/site";
 import { Mark } from "./Mark";
 
@@ -76,6 +77,188 @@ function Shot({
   );
 }
 
+/**
+ * The four screens, one per slide. Same cards as before — the copy, the
+ * captures, the badges and the one CTA are unchanged; they are shown one at a
+ * time now rather than stacked down the page. `mirrored` puts the capture on
+ * the left and the words on the right, alternating slide by slide the way the
+ * grid alternated row by row.
+ */
+type Slide = {
+  key: string;
+  title: string;
+  body: string;
+  cta?: { label: string; href: string };
+  shot: keyof typeof SHOTS;
+  alt: string;
+  badge: string;
+  badgeClass?: string;
+  /** Capture on the left, words on the right. */
+  mirrored?: boolean;
+};
+
+const slides: Slide[] = [
+  {
+    key: "timesheets",
+    title: "Every hour, accounted for",
+    body:
+      "Time is tracked against a project and a task as it runs. Timesheets come out organised by day, week and project, with manual entries marked as manual — ready to review, approve or export.",
+    cta: { label: "Explore the dashboard", href: `${APP_URL}/app` },
+    shot: "timesheets",
+    alt: "The Timesheets tab: a week total, then each day broken into project and task rows with durations.",
+    badge: "By day, week or project",
+  },
+  {
+    key: "activity",
+    title: "Screenshots, not secrets",
+    body:
+      "Periodic captures at a frequency your org sets, optionally blurred. The person tracked sees their own captures in the same gallery their admin does — nothing is hidden from them.",
+    shot: "activity",
+    alt: "The Activity tab: worked time and average activity, above a grid of captured screenshots.",
+    badge: "Blur is an org setting",
+    mirrored: true,
+  },
+  {
+    key: "reports",
+    title: "Reports that hold up",
+    body:
+      "Totals, tracked-versus-manual by day, and a breakdown by project or task over any date range — built on records that can be checked rather than taken on trust.",
+    shot: "reports",
+    alt: "The Reports tab: total time and activity, a tracked-versus-manual bar chart by day, and time grouped by project.",
+    badge: "Any date range",
+    badgeClass: "-bottom-3 right-5",
+  },
+  {
+    key: "projects",
+    title: "Work organised into projects",
+    body:
+      "Every project gets a board. Tracked time attaches to a task, so the hours tie back to the thing they were spent on rather than sitting in an undifferentiated pile.",
+    shot: "projects",
+    alt: "The Projects tab: a board per project with To do, In progress and Done columns.",
+    badge: "To do → In progress → Done",
+    mirrored: true,
+  },
+];
+
+/**
+ * One card per view, on a scroll-snapping track.
+ *
+ * A native scroll container rather than a transformed one, so a phone swipes
+ * it with the platform's own physics, the arrows and dots are just programmatic
+ * scrolls, and it stays keyboard-scrollable and readable with JS off. Nothing
+ * auto-advances: there is no timed movement here to have to pause.
+ */
+function FeatureCarousel() {
+  const { reduce, press } = useMotionPresets();
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const [index, setIndex] = useState(0);
+
+  const goTo = useCallback(
+    (next: number) => {
+      const el = trackRef.current;
+      if (!el) return;
+      const clamped = Math.max(0, Math.min(slides.length - 1, next));
+      el.scrollTo({ left: clamped * el.clientWidth, behavior: reduce ? "auto" : "smooth" });
+      setIndex(clamped);
+    },
+    [reduce]
+  );
+
+  // Swiping moves the track without going through `goTo`, so the dots follow
+  // the scroll position rather than the other way round.
+  const onScroll = useCallback(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    setIndex(Math.round(el.scrollLeft / el.clientWidth));
+  }, []);
+
+  return (
+    <div className="mt-14">
+      <div
+        ref={trackRef}
+        onScroll={onScroll}
+        tabIndex={0}
+        role="group"
+        aria-roledescription="carousel"
+        aria-label="Product screens"
+        className="mk-carousel flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain"
+      >
+        {slides.map((s, i) => (
+          <div
+            key={s.key}
+            role="group"
+            aria-roledescription="slide"
+            aria-label={`${i + 1} of ${slides.length}: ${s.title}`}
+            className="w-full shrink-0 snap-center"
+          >
+            <div className="cursor-target grid h-full gap-8 rounded-3xl border border-border bg-canvas/70 p-7 sm:p-9 lg:grid-cols-2 lg:items-center">
+              <div className={s.mirrored ? "lg:order-2" : undefined}>
+                <h3 className="font-heading text-2xl font-bold tracking-[-0.03em] text-ink sm:text-[1.75rem]">
+                  {s.title}
+                </h3>
+                <p className="mt-3.5 max-w-md text-sm leading-relaxed text-muted sm:text-base">
+                  {s.body}
+                </p>
+                {s.cta && (
+                  <motion.a
+                    {...press}
+                    href={s.cta.href}
+                    className="cursor-target mt-7 block w-full rounded-full bg-brand px-5 py-4 text-center text-sm font-semibold text-brand-fg transition-colors hover:bg-brand-600 sm:inline-block sm:w-auto sm:py-3"
+                  >
+                    {s.cta.label}
+                  </motion.a>
+                )}
+              </div>
+              <div className={s.mirrored ? "lg:order-1" : undefined}>
+                <Shot shot={s.shot} alt={s.alt} badge={s.badge} badgeClass={s.badgeClass} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-7 flex items-center justify-center gap-5">
+        <motion.button
+          {...press}
+          type="button"
+          onClick={() => goTo(index - 1)}
+          disabled={index === 0}
+          aria-label="Previous screen"
+          className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-canvas/70 text-ink transition-colors hover:border-muted disabled:pointer-events-none disabled:opacity-35"
+        >
+          <IconChevron width={18} height={18} className="rotate-180" />
+        </motion.button>
+
+        <div className="flex items-center gap-2">
+          {slides.map((s, i) => (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => goTo(i)}
+              aria-label={s.title}
+              aria-current={i === index}
+              className={`h-1.5 rounded-full transition-all ${
+                i === index ? "w-7 bg-brand" : "w-1.5 bg-border-strong hover:bg-muted"
+              }`}
+            />
+          ))}
+        </div>
+
+        <motion.button
+          {...press}
+          type="button"
+          onClick={() => goTo(index + 1)}
+          disabled={index === slides.length - 1}
+          aria-label="Next screen"
+          className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-canvas/70 text-ink transition-colors hover:border-muted disabled:pointer-events-none disabled:opacity-35"
+        >
+          <IconChevron width={18} height={18} />
+        </motion.button>
+      </div>
+    </div>
+  );
+}
+
 /** The two surfaces that live in the web dashboard rather than the tray app. */
 const compact = [
   {
@@ -93,7 +276,7 @@ const compact = [
 ];
 
 export function Features() {
-  const { revealStagger, revealItem, item, reduce } = useMotionPresets();
+  const { revealStagger, revealItem, reveal, item, reduce } = useMotionPresets();
 
   return (
     <section id="features" className="bg-surface">
@@ -119,105 +302,8 @@ export function Features() {
           </motion.p>
         </motion.div>
 
-        <motion.div {...revealStagger()} className="mt-14 grid gap-5 lg:grid-cols-2">
-          {/* Wide card — text left, screen right. */}
-          <motion.div
-            {...item}
-            className="cursor-target grid gap-8 rounded-3xl border border-border bg-canvas/70 p-7 sm:p-9 lg:col-span-2 lg:grid-cols-2 lg:items-center"
-          >
-            <div>
-              <h3 className="font-heading text-2xl font-bold tracking-[-0.03em] text-ink sm:text-[1.75rem]">
-                Every hour, accounted for
-              </h3>
-              <p className="mt-3.5 max-w-md text-sm leading-relaxed text-muted sm:text-base">
-                Time is tracked against a project and a task as it runs.
-                Timesheets come out organised by day, week and project, with
-                manual entries marked as manual &mdash; ready to review, approve
-                or export.
-              </p>
-              <motion.a
-                href={`${APP_URL}/app`}
-                whileHover={reduce ? undefined : { y: -2 }}
-                whileTap={reduce ? undefined : { scale: 0.97 }}
-                className="cursor-target mt-7 block w-full rounded-full bg-brand px-5 py-4 text-center text-sm font-semibold text-brand-fg transition-colors hover:bg-brand-600 sm:inline-block sm:w-auto sm:py-3"
-              >
-                Explore the dashboard
-              </motion.a>
-            </div>
-            <Shot
-              shot="timesheets"
-              alt="The Timesheets tab: a week total, then each day broken into project and task rows with durations."
-              badge="By day, week or project"
-            />
-          </motion.div>
-
-          {/* Two half cards. */}
-          <motion.div
-            {...item}
-            className="cursor-target flex flex-col rounded-3xl border border-border bg-canvas/70 p-7 sm:p-9"
-          >
-            <h3 className="font-heading text-2xl font-bold tracking-[-0.03em] text-ink">
-              Screenshots, not secrets
-            </h3>
-            <p className="mt-3.5 flex-1 text-sm leading-relaxed text-muted">
-              Periodic captures at a frequency your org sets, optionally blurred.
-              The person tracked sees their own captures in the same gallery
-              their admin does &mdash; nothing is hidden from them.
-            </p>
-            <div className="mt-8">
-              <Shot
-                shot="activity"
-                alt="The Activity tab: worked time and average activity, above a grid of captured screenshots."
-                badge="Blur is an org setting"
-              />
-            </div>
-          </motion.div>
-
-          <motion.div
-            {...item}
-            className="cursor-target flex flex-col rounded-3xl border border-border bg-canvas/70 p-7 sm:p-9"
-          >
-            <h3 className="font-heading text-2xl font-bold tracking-[-0.03em] text-ink">
-              Reports that hold up
-            </h3>
-            <p className="mt-3.5 flex-1 text-sm leading-relaxed text-muted">
-              Totals, tracked-versus-manual by day, and a breakdown by project or
-              task over any date range &mdash; built on records that can be
-              checked rather than taken on trust.
-            </p>
-            <div className="mt-8">
-              <Shot
-                shot="reports"
-                alt="The Reports tab: total time and activity, a tracked-versus-manual bar chart by day, and time grouped by project."
-                badge="Any date range"
-                badgeClass="-bottom-3 right-5"
-              />
-            </div>
-          </motion.div>
-
-          {/* Wide card, mirrored — screen left, text right. */}
-          <motion.div
-            {...item}
-            className="cursor-target grid gap-8 rounded-3xl border border-border bg-canvas/70 p-7 sm:p-9 lg:col-span-2 lg:grid-cols-2 lg:items-center"
-          >
-            <div className="lg:order-2">
-              <h3 className="font-heading text-2xl font-bold tracking-[-0.03em] text-ink sm:text-[1.75rem]">
-                Work organised into projects
-              </h3>
-              <p className="mt-3.5 max-w-md text-sm leading-relaxed text-muted sm:text-base">
-                Every project gets a board. Tracked time attaches to a task, so
-                the hours tie back to the thing they were spent on rather than
-                sitting in an undifferentiated pile.
-              </p>
-            </div>
-            <div className="lg:order-1">
-              <Shot
-                shot="projects"
-                alt="The Projects tab: a board per project with To do, In progress and Done columns."
-                badge="To do → In progress → Done"
-              />
-            </div>
-          </motion.div>
+        <motion.div {...reveal}>
+          <FeatureCarousel />
         </motion.div>
 
         <motion.div {...revealStagger()} className="mt-5 grid gap-5 sm:grid-cols-2">

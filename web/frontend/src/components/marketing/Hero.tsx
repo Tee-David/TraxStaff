@@ -102,6 +102,48 @@ function TimerPill({
   );
 }
 
+/**
+ * The desktop tray window, cropped to the ring and its clock, in a small
+ * window frame — a phone gets the tracker itself above the headline, where a
+ * wide screen gets the floating platform cards out in the margins.
+ *
+ * It's the same capture the showcase further down uses, so it's the real app
+ * rather than a drawing of it, and the crop is why it stays small: the ring,
+ * the running clock and the tracking chip, then the window runs out.
+ */
+function TrackerMockup() {
+  return (
+    <div className="w-[13.5rem] overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-lift)]">
+      <div className="flex items-center gap-1.5 border-b border-border bg-canvas px-3 py-2">
+        <span className="flex gap-1" aria-hidden>
+          <span className="h-2 w-2 rounded-full bg-[#ff5f57]" />
+          <span className="h-2 w-2 rounded-full bg-[#febc2e]" />
+          <span className="h-2 w-2 rounded-full bg-[#28c840]" />
+        </span>
+        <span className="mx-auto text-[9px] font-medium text-faint">Tracker</span>
+      </div>
+      {/* Cut just past the day/week totals, so nothing lands half-drawn. */}
+      <div className="relative h-[13.5rem] overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/screens/desktop-tracker.webp"
+          alt="The TraxStaff desktop tray window: a progress ring around a running clock at 03:36:27, with today's and this week's totals below it."
+          width={700}
+          height={1190}
+          className="block w-full"
+        />
+        {/* The window keeps going past the crop rather than stopping dead.
+            White rather than `surface`: it fades into the capture's own
+            background, which is the app's light theme in both of ours. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent"
+        />
+      </div>
+    </div>
+  );
+}
+
 export function Hero() {
   const { revealStagger, revealItem, reduce, press } = useMotionPresets();
   const elapsed = useElapsed();
@@ -196,6 +238,13 @@ export function Hero() {
         ))}
 
         <motion.div {...revealStagger()} className="relative z-10">
+          {/* Phones only. Everything from `sm` up is the layout as it was:
+              tablets keep the live card below the buttons and wide screens
+              have the floating platform cards for this. */}
+          <motion.div {...revealItem} className="mb-8 flex justify-center sm:hidden">
+            <TrackerMockup />
+          </motion.div>
+
           <motion.span
             {...revealItem}
             className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15"
@@ -206,11 +255,17 @@ export function Hero() {
 
           <motion.h1
             {...revealItem}
-            className="mx-auto mt-8 max-w-[52rem] font-heading text-[clamp(2.25rem,5.2vw,4rem)] font-bold leading-[1.06] tracking-[-0.04em] text-ink"
+            className="mx-auto mt-8 max-w-[52rem] font-heading text-[clamp(1.8rem,5.2vw,4rem)] font-bold leading-[1.06] tracking-[-0.04em] text-ink"
           >
             {/* Broken here rather than at "team" so the two lines come out
                 near-equal; the sizing above keeps each on one line right down
-                to the point the break is dropped on small screens. */}
+                to the point the break is dropped on small screens.
+
+                The clamp's floor is what holds a phone to two lines rather
+                than three: "actually see" can't be split (`.mk-mark` is
+                nowrap), so the type has to be small enough for "team can
+                actually see" to sit on one line at 360px. Nothing at or above
+                `sm` is affected — 5.2vw passes the floor well before then. */}
             Time tracking your
             <br className="hidden sm:block" /> team can{" "}
             <Mark>actually see</Mark>
@@ -220,9 +275,19 @@ export function Hero() {
             {...revealItem}
             className="mx-auto mt-7 max-w-xl text-base leading-relaxed text-muted sm:text-lg"
           >
-            A visible, always-on indicator the whole time it runs. Every session
-            hash-chained and capped against the server&rsquo;s clock &mdash;
-            tamper-evident, never self-reported.
+            {/* Two lengths, one at a time — `hidden` keeps the other out of the
+                accessibility tree as well as off the screen. The phone gets the
+                claim without the mechanism; the mechanism is spelled out in
+                full three sections down, under Transparency. */}
+            <span className="sm:hidden">
+              A visible, always-on indicator the whole time it runs &mdash;
+              tamper-evident, never self-reported.
+            </span>
+            <span className="hidden sm:inline">
+              A visible, always-on indicator the whole time it runs. Every session
+              hash-chained and capped against the server&rsquo;s clock &mdash;
+              tamper-evident, never self-reported.
+            </span>
           </motion.p>
 
           <motion.div {...revealItem} className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">

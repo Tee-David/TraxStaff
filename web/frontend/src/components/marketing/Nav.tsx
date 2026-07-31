@@ -93,7 +93,11 @@ export function MarketingNav() {
           <span className="font-heading text-lg font-bold tracking-[-0.03em] text-ink">TraxStaff</span>
         </a>
 
-        <nav className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-9 md:flex">
+        {/* Tighter between `md` and `lg`: the centred links are positioned off
+            the middle of the bar, so at 768px they run into the theme switch
+            on the right. Back to the designed gap from `lg`, where there's
+            room for both. */}
+        <nav className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-5 md:flex lg:gap-9">
           {links.map((l) => (
             <a
               key={l.href}

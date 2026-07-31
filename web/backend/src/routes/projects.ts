@@ -17,6 +17,11 @@ const updateMembersSchema = z.object({
   userIds: z.array(z.string()),
 });
 
+const bulkSchema = z.object({
+  action: z.enum(["archive", "unarchive", "delete"]),
+  ids: z.array(z.string().uuid()).min(1).max(200),
+});
+
 export default async function projectRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
 
@@ -104,6 +109,71 @@ export default async function projectRoutes(fastify: FastifyInstance) {
         },
       });
       return reply.send(project);
+    }
+  );
+
+  /**
+   * Bulk archive / unarchive / delete, for the Projects admin page's
+   * multi-select.
+   *
+   * Delete is the reason this is a single endpoint rather than a loop of
+   * PATCHes on the client: a project that has tracked sessions against it is
+   * **not deletable**, because deleting it would take real timesheet history
+   * with it — hours somebody worked and may have been paid for. The schema
+   * already refuses this (the session→project relation is required, so Prisma
+   * restricts the delete), but failing with a foreign-key error halfway through
+   * a batch would leave the caller with no idea what happened.
+   *
+   * So this checks first and reports: projects with no sessions are deleted
+   * along with their tasks and assignments, and anything with history comes
+   * back in `blocked` with its session count, for the UI to explain and offer
+   * archiving instead. Archiving is the reversible equivalent and is what
+   * should almost always happen to a project that has been worked on.
+   */
+  fastify.post(
+    "/projects/bulk",
+    { preHandler: [fastify.requireRole(["owner", "admin"])] },
+    async (req, reply) => {
+      const body = bulkSchema.parse(req.body);
+
+      // Scope to this org before anything else — ids come from the client.
+      const owned = await prisma.project.findMany({
+        where: { id: { in: body.ids }, orgId: req.user.orgId },
+        select: { id: true, name: true, _count: { select: { sessions: true } } },
+      });
+      if (owned.length === 0) return reply.code(404).send({ error: "No matching projects" });
+
+      if (body.action !== "delete") {
+        const archivedAt = body.action === "archive" ? new Date() : null;
+        const { count } = await prisma.project.updateMany({
+          where: { id: { in: owned.map((p) => p.id) }, orgId: req.user.orgId },
+          data: { archivedAt },
+        });
+        return reply.send({ action: body.action, updated: count, deleted: [], blocked: [] });
+      }
+
+      const deletable = owned.filter((p) => p._count.sessions === 0);
+      const blocked = owned
+        .filter((p) => p._count.sessions > 0)
+        .map((p) => ({ id: p.id, name: p.name, sessionCount: p._count.sessions }));
+
+      if (deletable.length > 0) {
+        const ids = deletable.map((p) => p.id);
+        // Tasks and assignments have no independent meaning once the project is
+        // gone, so they go with it in one transaction.
+        await prisma.$transaction([
+          prisma.projectMember.deleteMany({ where: { projectId: { in: ids } } }),
+          prisma.task.deleteMany({ where: { projectId: { in: ids } } }),
+          prisma.project.deleteMany({ where: { id: { in: ids }, orgId: req.user.orgId } }),
+        ]);
+      }
+
+      return reply.send({
+        action: "delete",
+        updated: 0,
+        deleted: deletable.map((p) => ({ id: p.id, name: p.name })),
+        blocked,
+      });
     }
   );
 

@@ -132,20 +132,63 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
   });
 
   // Notifications for the current user's org (admins) or the user themself.
+  //
+  // `limit` and `before` exist for the full Notifications page, which pages back
+  // through the whole history; the bell in the header just takes the default.
+  // Cursor is the createdAt of the last row seen rather than an offset, so a
+  // notification arriving mid-scroll doesn't shift the page boundary and cause a
+  // row to be skipped.
   fastify.get("/notifications", async (req, reply) => {
+    const q = z
+      .object({
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+        before: z.string().datetime({ offset: true }).optional(),
+        unread: z.enum(["1", "true"]).optional(),
+      })
+      .parse(req.query);
+
     const privileged = req.user.role === "owner" || req.user.role === "admin";
+    const scope = privileged ? { orgId: req.user.orgId } : { userId: req.user.userId };
     const notifications = await prisma.notification.findMany({
-      where: privileged ? { orgId: req.user.orgId } : { userId: req.user.userId },
+      where: {
+        ...scope,
+        ...(q.before ? { createdAt: { lt: new Date(q.before) } } : {}),
+        ...(q.unread ? { readAt: null } : {}),
+      },
       orderBy: { createdAt: "desc" },
-      take: 100,
+      take: q.limit ?? 100,
     });
     return reply.send(notifications);
+  });
+
+  // Unread count, so the bell and the sidebar badge don't each have to pull a
+  // full page of rows just to count the dots.
+  fastify.get("/notifications/unread-count", async (req, reply) => {
+    const privileged = req.user.role === "owner" || req.user.role === "admin";
+    const scope = privileged ? { orgId: req.user.orgId } : { userId: req.user.userId };
+    const count = await prisma.notification.count({ where: { ...scope, readAt: null } });
+    return reply.send({ count });
+  });
+
+  fastify.post("/notifications/read-all", async (req, reply) => {
+    const privileged = req.user.role === "owner" || req.user.role === "admin";
+    const scope = privileged ? { orgId: req.user.orgId } : { userId: req.user.userId };
+    const { count } = await prisma.notification.updateMany({
+      where: { ...scope, readAt: null },
+      data: { readAt: new Date() },
+    });
+    return reply.send({ ok: true, count });
   });
 
   fastify.post("/notifications/:id/read", async (req, reply) => {
     const { id } = req.params as { id: string };
     const n = await prisma.notification.findUnique({ where: { id } });
-    if (!n || n.orgId !== req.user.orgId) return reply.code(404).send({ error: "Not found" });
+    // Same visibility rule as the list above: an admin acts on anything in the
+    // org, a member only on their own. Checking the org alone let any member
+    // mark a colleague's notification read.
+    const privileged = req.user.role === "owner" || req.user.role === "admin";
+    const visible = n && n.orgId === req.user.orgId && (privileged || n.userId === req.user.userId);
+    if (!visible) return reply.code(404).send({ error: "Not found" });
     await prisma.notification.update({ where: { id }, data: { readAt: new Date() } });
     return reply.send({ ok: true });
   });

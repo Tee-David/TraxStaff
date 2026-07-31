@@ -1,35 +1,29 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "@/lib/api";
+import { describeNotification, timeAgo, type AppNotification } from "@/lib/notifications";
 
-interface Notification {
-  id: string;
-  type: string;
-  payload: Record<string, unknown> | null;
-  readAt: string | null;
-  createdAt: string;
-}
-
-function describe(n: Notification): string {
-  const p = n.payload ?? {};
-  if (n.type === "unusual_activity") {
-    const who = (p.memberEmail as string) ?? "A member";
-    const kind = (p.type as string)?.replace(/_/g, " ") ?? "unusual activity";
-    return `${who}: ${kind}`;
-  }
-  return n.type.replace(/_/g, " ");
-}
+/**
+ * The header bell: the most recent notifications only. Anything older lives on
+ * /app/notifications, which this links to — the dropdown is 320px wide and used
+ * to be the only way to see any of this, so a long history was unreachable.
+ *
+ * Labelling comes from lib/notifications so the bell and the page can't drift
+ * apart on what a given flag is called.
+ */
+const PREVIEW = 8;
 
 export function NotificationsBell() {
-  const [items, setItems] = useState<Notification[]>([]);
+  const [items, setItems] = useState<AppNotification[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   async function load() {
     try {
-      setItems(await api<Notification[]>("/notifications"));
+      setItems(await api<AppNotification[]>(`/notifications?limit=${PREVIEW}`));
     } catch {
       /* ignore */
     }
@@ -94,13 +88,21 @@ export function NotificationsBell() {
                   >
                     {!n.readAt && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-accent" />}
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium capitalize">{describe(n)}</div>
-                      <div className="text-xs text-muted">{new Date(n.createdAt).toLocaleString()}</div>
+                      <div className="truncate text-sm font-medium">{describeNotification(n)}</div>
+                      <div className="text-xs text-muted">{timeAgo(n.createdAt)}</div>
                     </div>
                   </button>
                 ))
               )}
             </div>
+            {/* The way out of a 320px dropdown — the full history is a page. */}
+            <Link
+              href="/app/notifications"
+              onClick={() => setOpen(false)}
+              className="block border-t border-border px-4 py-2.5 text-center text-[12px] font-semibold text-brand hover:bg-canvas"
+            >
+              See all notifications
+            </Link>
           </motion.div>
         )}
       </AnimatePresence>

@@ -9,7 +9,7 @@ import { SUPPORT_EMAIL } from "@/lib/site";
 import { useTheme } from "@/lib/theme";
 import { toggleThemeWithTransition } from "@/lib/theme-transition";
 import {
-  IconChart, IconChevron, IconClock, IconDashboard, IconHelp, IconImage,
+  IconBell, IconChart, IconChevron, IconClock, IconDashboard, IconHelp, IconImage,
   IconKanban, IconLogout, IconMoon, IconSearch, IconSettings, IconSidebar, IconSun, IconTrend, IconUsers,
 } from "@/components/icons";
 
@@ -24,6 +24,9 @@ const MENU: Item[] = [
   { href: "/app/insights", label: "Insights", icon: IconTrend, roles: ["owner", "admin"], tourId: "insights" },
   { href: "/app/projects", label: "Projects", icon: IconKanban, roles: ["owner", "admin"], tourId: "projects" },
   { href: "/app/members", label: "Members", icon: IconUsers, roles: ["owner", "admin"], tourId: "members" },
+  // Every role gets this: a member has their own notifications even though the
+  // org-wide flags are admin-only (the API scopes the list per role).
+  { href: "/app/notifications", label: "Notifications", icon: IconBell, roles: ["owner", "admin", "member"], tourId: "notifications" },
 ];
 const SECONDARY: Item[] = [
   { href: "/app/settings", label: "Settings", icon: IconSettings, roles: ["owner", "admin", "member"], tourId: "settings" },
@@ -50,9 +53,14 @@ export function Sidebar({
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [unread, setUnread] = useState(0);
 
+  // Counted server-side rather than by pulling a page of rows and filtering it:
+  // the old version fetched 100 notifications to produce one integer, and capped
+  // the badge at whatever happened to be in that page.
   useEffect(() => {
-    api<{ readAt: string | null }[]>("/notifications").then((n) => setUnread(n.filter((x) => !x.readAt).length)).catch(() => {});
-  }, []);
+    api<{ count: number }>("/notifications/unread-count")
+      .then((r) => setUnread(r.count))
+      .catch(() => {});
+  }, [pathname]);
 
   const menu = MENU.filter((i) => i.roles.includes(user.role) && i.label.toLowerCase().includes(q.toLowerCase()));
   const secondary = SECONDARY.filter((i) => i.roles.includes(user.role) && i.label.toLowerCase().includes(q.toLowerCase()));
@@ -62,7 +70,9 @@ export function Sidebar({
   function NavRow({ item }: { item: Item }) {
     const Icon = item.icon;
     const on = active(item.href);
-    const badge = item.href === "/app/insights" ? unread : 0;
+    // The unread count belongs on Notifications. It used to sit on Insights,
+    // which read as "25 insights" rather than "25 unread notifications".
+    const badge = item.href === "/app/notifications" ? unread : 0;
     return (
       <Link
         href={item.href}

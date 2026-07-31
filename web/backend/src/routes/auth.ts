@@ -56,6 +56,17 @@ const changePasswordSchema = z.object({
 // Short — a reset link is a bearer credential for the account.
 const RESET_TTL_MS = 60 * 60 * 1000;
 
+/**
+ * How long an invite stays usable. 24 hours, down from a week: an invite link is
+ * a bearer credential that creates an active account in the org, and a week is a
+ * long time for one to sit in an inbox that might be forwarded or breached.
+ *
+ * Expiry is not a dead end — re-inviting the same address issues a fresh token
+ * (see the resend path in POST /auth/invite), and the pending row in /members
+ * carries `expiresAt` so the UI can say which invites have lapsed.
+ */
+const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
+
 export default async function authRoutes(fastify: FastifyInstance) {
   // Register a brand-new organization + its owner account.
   fastify.post("/auth/register", async (req, reply) => {
@@ -119,7 +130,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
       const org = await prisma.organization.findUniqueOrThrow({ where: { id: req.user.orgId } });
       const token = randomBytes(32).toString("hex");
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
 
       await prisma.$transaction(async (tx) => {
         // The invitee is a member of the team from the moment they are invited —
@@ -131,6 +142,14 @@ export default async function authRoutes(fastify: FastifyInstance) {
           where: { email: body.email },
           create: { orgId: org.id, email: body.email, role: body.role, status: "invited" },
           update: { role: body.role },
+        });
+        // Resending supersedes: any earlier unaccepted token for this address is
+        // expired on the spot rather than left live alongside the new one.
+        // Otherwise every resend widens the window instead of moving it, and an
+        // older link that leaked stays usable for its full TTL.
+        await tx.inviteToken.updateMany({
+          where: { orgId: org.id, email: body.email, acceptedAt: null, expiresAt: { gt: new Date() } },
+          data: { expiresAt: new Date() },
         });
         await tx.inviteToken.create({
           data: { orgId: org.id, email: body.email, role: body.role, token, expiresAt },

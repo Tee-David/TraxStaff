@@ -149,7 +149,7 @@ export default async function reportRoutes(fastify: FastifyInstance) {
     return prisma.trackingSession.findMany({
       where,
       include: {
-        project: { select: { id: true, name: true, clientTag: true } },
+        project: { select: { id: true, name: true, clientTag: true, archivedAt: true } },
         task: { select: { id: true, title: true } },
         user: { select: { id: true, email: true } },
         // Duration is required to weight the activity average — see weightedActivity().
@@ -204,12 +204,17 @@ export default async function reportRoutes(fastify: FastifyInstance) {
   // Time grouped by project (+ task), with average activity %.
   fastify.get("/reports/by-project", async (req, reply) => {
     const sessions = await loadSessions(req);
-    const byProject = new Map<string, { projectId: string; project: string; clientTag: string | null; totalSeconds: number; blocks: WeightedBlock[] }>();
+    const byProject = new Map<string, { projectId: string; project: string; clientTag: string | null; archived: boolean; totalSeconds: number; blocks: WeightedBlock[] }>();
     for (const s of sessions) {
       const p = byProject.get(s.projectId) ?? {
         projectId: s.projectId,
         project: s.project.name,
         clientTag: s.project.clientTag,
+        // Reported, not filtered. Time tracked against a project that was later
+        // archived is still real time and still belongs in a historical report,
+        // so this endpoint keeps returning it — callers that only want live
+        // projects (Insights' Project Health) filter on this flag instead.
+        archived: s.project.archivedAt !== null,
         totalSeconds: 0,
         blocks: [] as WeightedBlock[],
       };
@@ -222,6 +227,7 @@ export default async function reportRoutes(fastify: FastifyInstance) {
         projectId: p.projectId,
         project: p.project,
         clientTag: p.clientTag,
+        archived: p.archived,
         totalSeconds: Math.round(p.totalSeconds),
         avgActivityPct: weightedActivity(p.blocks),
       }))

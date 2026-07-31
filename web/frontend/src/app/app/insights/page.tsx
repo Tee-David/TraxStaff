@@ -33,6 +33,11 @@ const FLAG_COLORS: Record<string, string> = {
 
 const PROJ_COLORS = ["var(--color-cat-focus)", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b", "#0ea5e9", "#84cc16"];
 
+/** Flags shown before the More button, and how many each press adds. The list
+ *  used to hard-cap at 15 with no way past it, so anything older than the 15th
+ *  flag was simply unreachable from this page. */
+const FLAGS_PAGE = 8;
+
 function initials(email: string) {
   return email.substring(0, 2).toUpperCase();
 }
@@ -63,6 +68,8 @@ export default function InsightsPage() {
   const [timesheet, setTimesheet] = useState<TimesheetDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<DateRangeValue>({ type: "preset", preset: "week" });
+  /** How many flags the list is currently showing — see the More button below. */
+  const [flagsShown, setFlagsShown] = useState(FLAGS_PAGE);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -114,7 +121,14 @@ export default function InsightsPage() {
     ? Math.round(board.reduce((a, r) => a + r.avgActivityPct, 0) / board.length)
     : 0;
   const openFlags = flags.filter((f) => !f.acknowledgedAt).length;
-  const topProject = projects[0];
+
+  /* Project Health is a "how are the live projects doing" panel, so an archived
+     project has no business in it — it can't get healthier. The report still
+     returns those rows on purpose (time tracked against a since-archived project
+     is real time and belongs in a historical report), so the filter is here
+     rather than in the API. Time by Project above is a historical breakdown and
+     deliberately keeps them. */
+  const liveProjects = projects.filter((p) => !p.archived);
 
   // Pie chart data
   const pieData = projects.slice(0, 6).map((p, i) => ({
@@ -368,7 +382,7 @@ export default function InsightsPage() {
                 </div>
               ) : (
                 <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                  {flags.slice(0, 15).map((f) => (
+                  {flags.slice(0, flagsShown).map((f) => (
                     <div
                       key={f.id}
                       className={`flex items-start justify-between gap-3 rounded-xl p-3 transition ${
@@ -400,19 +414,30 @@ export default function InsightsPage() {
                   ))}
                 </div>
               )}
+              {/* The list is scroll-capped, so without this anything past the
+                  first page was unreachable — there was no way to see an older
+                  flag from this page at all. */}
+              {flags.length > flagsShown && (
+                <button
+                  onClick={() => setFlagsShown((n) => n + FLAGS_PAGE)}
+                  className="mt-3 w-full rounded-xl border border-border py-2 text-[12px] font-semibold text-brand transition hover:bg-canvas"
+                >
+                  More ({flags.length - flagsShown} older)
+                </button>
+              )}
             </Card>
           </div>
 
           {/* ── Row 4: Project health overview ── */}
-          {projects.length > 0 && (
+          {liveProjects.length > 0 && (
             <Card className="p-5" data-tour="insights-project-health">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="font-heading text-base font-semibold">Project Health</h2>
-                <span className="text-[11px] text-muted">Hours tracked per project this period</span>
+                <span className="text-[11px] text-muted">Active projects · hours tracked this period</span>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                {projects.map((p, i) => {
-                  const maxSecs = projects[0]?.totalSeconds || 1;
+                {liveProjects.map((p, i) => {
+                  const maxSecs = liveProjects[0]?.totalSeconds || 1;
                   const pct = Math.round((p.totalSeconds / maxSecs) * 100);
                   const activity = p.avgActivityPct ?? 0;
                   const color = PROJ_COLORS[i % PROJ_COLORS.length];

@@ -257,6 +257,100 @@ function ActionMenu({ project, onRefresh, onAssign }: { project: Project; onRefr
   );
 }
 
+/** What POST /projects/bulk gives back. `blocked` is the important half. */
+type BulkResult = {
+  action: "archive" | "unarchive" | "delete";
+  updated: number;
+  deleted: { id: string; name: string }[];
+  blocked: { id: string; name: string; sessionCount: number }[];
+};
+
+/**
+ * Second step of the delete confirmation.
+ *
+ * Deleting a project is irreversible and takes its tasks with it, so a single
+ * click is not enough: this names every project going, says plainly what happens
+ * to the ones that can't go, and will not enable the button until the word
+ * DELETE has been typed. Archiving is offered right beside it because it is
+ * almost always what was actually wanted.
+ */
+function ConfirmDeleteDialog({
+  projects,
+  onCancel,
+  onConfirm,
+  onArchiveInstead,
+}: {
+  projects: Project[];
+  onCancel: () => void;
+  onConfirm: () => Promise<void>;
+  onArchiveInstead: () => Promise<void>;
+}) {
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const armed = typed.trim().toUpperCase() === "DELETE";
+
+  async function run(fn: () => Promise<void>) {
+    setBusy(true);
+    try {
+      await fn();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={busy ? undefined : onCancel} />
+      <Card className="relative z-10 w-full max-w-md p-6">
+        <h2 className="font-heading text-[15px] font-semibold text-[var(--color-negative)]">
+          Delete {projects.length} project{projects.length === 1 ? "" : "s"}?
+        </h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-muted">
+          This cannot be undone. Their tasks and member assignments are deleted with
+          them. Any project that already has tracked time against it will be{" "}
+          <strong className="text-ink">kept</strong> — deleting it would destroy
+          timesheet history, so those have to be archived instead.
+        </p>
+
+        <ul className="mt-4 max-h-40 space-y-1 overflow-y-auto rounded-xl bg-canvas p-3">
+          {projects.map((p) => (
+            <li key={p.id} className="truncate text-[13px] text-ink">
+              {p.name}
+            </li>
+          ))}
+        </ul>
+
+        <label className="mt-4 block text-[12px] font-medium text-muted">
+          Type DELETE to confirm
+          <Input
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder="DELETE"
+            autoFocus
+            className="mt-1.5 w-full"
+          />
+        </label>
+
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="ghost" onClick={() => run(onArchiveInstead)} disabled={busy}>
+            Archive instead
+          </Button>
+          <Button
+            onClick={() => run(onConfirm)}
+            disabled={!armed || busy}
+            className="border-none bg-[var(--color-negative)] text-white hover:opacity-90"
+          >
+            {busy ? "Deleting…" : "Delete permanently"}
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -269,6 +363,13 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [clientTag, setClientTag] = useState("");
+
+  /* Bulk selection. Held as ids rather than indices so it survives a re-sort or
+     a search change without silently pointing at different rows. */
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkNote, setBulkNote] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -318,7 +419,66 @@ export default function ProjectsPage() {
     await load();
   }
 
-  let visible = projects.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
+  /* Switching tab or clearing the list drops the selection: keeping ids that are
+     no longer on screen means a bulk action could hit rows nobody can see. */
+  useEffect(() => {
+    setPicked(new Set());
+    setBulkNote(null);
+  }, [tab]);
+
+  function togglePick(id: string) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function runBulk(action: "archive" | "unarchive" | "delete") {
+    const ids = [...picked];
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    setBulkNote(null);
+    try {
+      const res = await api<BulkResult>("/projects/bulk", {
+        method: "POST",
+        body: JSON.stringify({ action, ids }),
+      });
+
+      if (action === "delete") {
+        const parts: string[] = [];
+        if (res.deleted.length > 0) {
+          parts.push(`Deleted ${res.deleted.length} project${res.deleted.length === 1 ? "" : "s"}.`);
+        }
+        // The blocked list is the whole point of reporting back — silently
+        // dropping these would look like the delete simply didn't work.
+        if (res.blocked.length > 0) {
+          parts.push(
+            `Kept ${res.blocked.length} with tracked time: ${res.blocked
+              .map((b) => b.name)
+              .join(", ")}. Archive those instead.`
+          );
+        }
+        setBulkNote(parts.join(" ") || "Nothing was deleted.");
+      } else {
+        setBulkNote(
+          `${action === "archive" ? "Archived" : "Restored"} ${res.updated} project${res.updated === 1 ? "" : "s"}.`
+        );
+      }
+
+      setPicked(new Set());
+      setConfirmingDelete(false);
+      await load();
+    } catch {
+      setBulkNote("That didn't go through. Try again?");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  const visibleAll = projects.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
+  let visible = visibleAll;
   if (sort === "newest") {
     visible = visible.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   } else if (sort === "oldest") {
@@ -326,6 +486,9 @@ export default function ProjectsPage() {
   } else if (sort === "name") {
     visible = visible.sort((a, b) => a.name.localeCompare(b.name));
   }
+
+  const allPicked = visible.length > 0 && visible.every((p) => picked.has(p.id));
+  const pickedProjects = visible.filter((p) => picked.has(p.id));
 
   return (
     <div>
@@ -382,6 +545,56 @@ export default function ProjectsPage() {
         </button>
       )}
 
+      {/* Result of the last bulk action. Sticks around until the next one so a
+          "kept N with tracked time" explanation can actually be read. */}
+      {bulkNote && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-border bg-canvas px-4 py-3">
+          <p className="text-[13px] text-ink">{bulkNote}</p>
+          <button
+            onClick={() => setBulkNote(null)}
+            className="shrink-0 text-[12px] font-semibold text-muted hover:text-ink"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Bulk action bar, only once something is picked. */}
+      <AnimatePresence>
+        {picked.size > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.15 }}
+            className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-brand/30 bg-brand/[0.06] px-4 py-3"
+          >
+            <span className="mr-auto text-[13px] font-semibold text-ink">
+              {picked.size} project{picked.size === 1 ? "" : "s"} selected
+            </span>
+            <Button variant="ghost" onClick={() => setPicked(new Set())} disabled={bulkBusy}>
+              Clear
+            </Button>
+            {tab === "active" ? (
+              <Button variant="ghost" onClick={() => runBulk("archive")} disabled={bulkBusy}>
+                Archive
+              </Button>
+            ) : (
+              <Button variant="ghost" onClick={() => runBulk("unarchive")} disabled={bulkBusy}>
+                Restore
+              </Button>
+            )}
+            <Button
+              onClick={() => setConfirmingDelete(true)}
+              disabled={bulkBusy}
+              className="border-none bg-[var(--color-negative)] text-white hover:opacity-90"
+            >
+              Delete…
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {loading ? (
         <div className="space-y-3">{[0, 1, 2, 3].map((i) => <div key={i} className="h-16 rounded-xl bg-canvas animate-pulse" />)}</div>
       ) : visible.length === 0 ? (
@@ -392,6 +605,29 @@ export default function ProjectsPage() {
         />
       ) : (
         <Card className="overflow-hidden border border-border shadow-[var(--shadow-soft)]" data-tour="projects-table">
+          {/* Select-all header. Indeterminate when only some rows are picked,
+              which is the only honest state for a partial selection — a plain
+              unchecked box there implies clicking it selects nothing. */}
+          <div className="flex items-center gap-3 border-b border-border bg-canvas/50 px-5 py-2.5">
+            <input
+              type="checkbox"
+              aria-label={allPicked ? "Clear selection" : "Select all projects"}
+              checked={allPicked}
+              ref={(el) => {
+                if (el) el.indeterminate = picked.size > 0 && !allPicked;
+              }}
+              onChange={() =>
+                setPicked(allPicked ? new Set() : new Set(visible.map((p) => p.id)))
+              }
+              className="h-4 w-4 rounded border-border accent-brand"
+            />
+            <span className="text-[12px] font-medium text-muted">
+              {picked.size > 0
+                ? `${picked.size} selected`
+                : `${visible.length} project${visible.length === 1 ? "" : "s"}`}
+            </span>
+          </div>
+
           {visible.map((p, i) => {
             const total = p.tasks?.length ?? 0;
             const done = p.tasks?.filter((t) => t.status === "done").length ?? 0;
@@ -418,8 +654,18 @@ export default function ProjectsPage() {
             return (
               <div
                 key={p.id}
-                className="flex flex-col gap-3 border-b border-border/60 px-5 py-4 last:border-0 hover:bg-canvas/40 transition sm:flex-row sm:items-center"
+                className={`flex flex-col gap-3 border-b border-border/60 px-5 py-4 last:border-0 transition sm:flex-row sm:items-center ${
+                  picked.has(p.id) ? "bg-brand/[0.06]" : "hover:bg-canvas/40"
+                }`}
               >
+                {/* Outside the Link, or picking a row would navigate away. */}
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${p.name}`}
+                  checked={picked.has(p.id)}
+                  onChange={() => togglePick(p.id)}
+                  className="h-4 w-4 shrink-0 rounded border-border accent-brand"
+                />
                 <Link href={`/app/projects/${p.id}`} className="group flex min-w-0 flex-1 items-center gap-3">
                   <div
                     className="h-9 w-9 shrink-0 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
@@ -482,6 +728,15 @@ export default function ProjectsPage() {
           members={members}
           onClose={() => setAssigningFor(null)}
           onSave={(userIds) => saveAssignment(assigningFor, userIds)}
+        />
+      )}
+
+      {confirmingDelete && pickedProjects.length > 0 && (
+        <ConfirmDeleteDialog
+          projects={pickedProjects}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => runBulk("delete")}
+          onArchiveInstead={() => runBulk("archive")}
         />
       )}
     </div>

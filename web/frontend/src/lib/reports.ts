@@ -10,6 +10,11 @@ export interface ByProjectRow {
   projectId: string;
   project: string;
   clientTag: string | null;
+  /** Whether the project itself is archived. The row is still returned — time
+   *  tracked against a since-archived project is still real time and belongs in
+   *  a historical report — so surfaces that only want live projects filter on
+   *  this rather than expecting the API to have dropped it. */
+  archived: boolean;
   totalSeconds: number;
   avgActivityPct: number | null;
 }

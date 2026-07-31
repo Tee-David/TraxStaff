@@ -21,32 +21,51 @@ import { Mark } from "./Mark";
  * slogan: each one is checkable in the product.
  */
 
-/** A screenshot in a soft frame, with a pill floating over its edge. */
+/** Natural size of each capture, so the frame reserves the right box. */
+const SHOTS = {
+  timesheets: { src: "/screens/feature-timesheets.webp", h: 1497, seconds: "34s" },
+  activity: { src: "/screens/feature-activity.webp", h: 960, seconds: "24s" },
+  reports: { src: "/screens/feature-reports.webp", h: 668, seconds: "18s" },
+  projects: { src: "/screens/feature-projects.webp", h: 768, seconds: "20s" },
+} as const;
+
+/**
+ * A whole screen inside a desktop window, scrolling itself.
+ *
+ * These captures are full pages, not crops — the Timesheets one is 1497px
+ * tall — so the window shows a slice and travels the rest. Durations differ
+ * per card so four of them on one screen don't move in lockstep.
+ */
 function Shot({
-  src,
+  shot,
   alt,
   badge,
   badgeClass = "-bottom-3 left-5",
-  priority,
 }: {
-  src: string;
+  shot: keyof typeof SHOTS;
   alt: string;
   badge: string;
   badgeClass?: string;
-  priority?: boolean;
 }) {
+  const { src, h, seconds } = SHOTS[shot];
+
   return (
     <div className="relative">
       <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-lift)]">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={alt}
-          width={760}
-          height={477}
-          loading={priority ? "eager" : "lazy"}
-          className="block w-full"
-        />
+        <div className="flex items-center gap-2 border-b border-border bg-canvas px-3.5 py-2.5">
+          <span className="flex gap-1.5" aria-hidden>
+            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+          </span>
+        </div>
+        <div
+          className="mk-scrollshot"
+          style={{ "--mk-shot-duration": seconds } as React.CSSProperties}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt={alt} width={760} height={h} loading="lazy" />
+        </div>
       </div>
       <span
         className={`absolute ${badgeClass} rounded-full bg-surface px-3.5 py-1.5 text-[11px] font-semibold tracking-tight text-ink shadow-[var(--shadow-lift)] ring-1 ring-border`}
@@ -126,10 +145,9 @@ export function Features() {
               </motion.a>
             </div>
             <Shot
-              src="/screens/feature-timesheets.webp"
+              shot="timesheets"
               alt="The Timesheets tab: a week total, then each day broken into project and task rows with durations."
               badge="By day, week or project"
-              priority
             />
           </motion.div>
 
@@ -148,7 +166,7 @@ export function Features() {
             </p>
             <div className="mt-8">
               <Shot
-                src="/screens/feature-activity.webp"
+                shot="activity"
                 alt="The Activity tab: worked time and average activity, above a grid of captured screenshots."
                 badge="Blur is an org setting"
               />
@@ -169,7 +187,7 @@ export function Features() {
             </p>
             <div className="mt-8">
               <Shot
-                src="/screens/feature-reports.webp"
+                shot="reports"
                 alt="The Reports tab: total time and activity, a tracked-versus-manual bar chart by day, and time grouped by project."
                 badge="Any date range"
                 badgeClass="-bottom-3 right-5"
@@ -194,7 +212,7 @@ export function Features() {
             </div>
             <div className="lg:order-1">
               <Shot
-                src="/screens/feature-projects.webp"
+                shot="projects"
                 alt="The Projects tab: a board per project with To do, In progress and Done columns."
                 badge="To do → In progress → Done"
               />

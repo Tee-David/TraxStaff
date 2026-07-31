@@ -334,6 +334,45 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+/* A full-length screen capture scrolling inside a fixed window, so a card can
+   show a whole page rather than a crop of one.
+
+   The frame's height is the only knob: the keyframe travels the image's own
+   height minus that height, which lands exactly on its last pixel whatever the
+   image or the breakpoint. `alternate` runs it back up rather than snapping to
+   the top, which would read as a glitch. CSS rather than Framer for the same
+   reason as the marquee — a permanently-running loop belongs on the compositor. */
+.mk-scrollshot {
+  --mk-shot-h: 14rem;
+  position: relative;
+  height: var(--mk-shot-h);
+  overflow: hidden;
+}
+@media (min-width: 640px) {
+  .mk-scrollshot { --mk-shot-h: 17rem; }
+}
+@media (min-width: 1024px) {
+  .mk-scrollshot { --mk-shot-h: 19rem; }
+}
+.mk-scrollshot img {
+  display: block;
+  width: 100%;
+  will-change: transform;
+  animation: mk-shot-scroll var(--mk-shot-duration, 26s) ease-in-out infinite alternate;
+}
+@keyframes mk-shot-scroll {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, calc(-100% + var(--mk-shot-h)), 0); }
+}
+/* Hover guarded the same way as the marquee: touch browsers latch a sticky
+   :hover on the last-tapped element and would freeze the scroll for good. */
+@media (hover: hover) and (pointer: fine) {
+  .mk-scrollshot:hover img { animation-play-state: paused; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mk-scrollshot img { animation: none; }
+}
+
 /* Marquee — a continuously scrolling row that pauses on hover or keyboard
    focus.
 

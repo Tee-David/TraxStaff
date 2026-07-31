@@ -241,10 +241,15 @@ export function Hero() {
               Height, not width — the hero has to fit on a 1024×600 laptop for
               the same reason it has to fit on a 375×667 phone, so this is a
               plain height query rather than the phone-only one it used to be.
-              A 375×812 phone and anything on a normal desktop keep it. */}
+              A 375×812 phone and anything on a normal desktop keep it.
+
+              Glass below `sm`, solid navy from there up: the phone stage is
+              dark in both themes now (see `.mk-hero` in globals.css), and a
+              navy `bg-field` pill on that wash reads as a smudge rather than
+              a chip. */}
           <motion.span
             {...revealItem}
-            className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15 [@media(max-height:700px)]:hidden"
+            className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15 sm:bg-field [@media(max-height:700px)]:hidden"
           >
             <IconClock width={13} height={13} className="text-accent" />
             Never covert, by design
@@ -252,7 +257,7 @@ export function Hero() {
 
           <motion.h1
             {...revealItem}
-            className="mx-auto mt-[clamp(1rem,2.6vh,2.25rem)] max-w-[52rem] font-heading text-[clamp(1.8rem,5.2vw,4rem)] font-bold leading-[1.06] tracking-[-0.04em] text-ink"
+            className="mx-auto mt-[clamp(1rem,2.6vh,2.25rem)] max-w-[52rem] font-heading text-[clamp(1.8rem,5.2vw,4rem)] font-bold leading-[1.06] tracking-[-0.04em] text-white sm:text-ink"
           >
             {/* Broken here rather than at "team" so the two lines come out
                 near-equal; the sizing above keeps each on one line right down
@@ -270,7 +275,7 @@ export function Hero() {
 
           <motion.p
             {...revealItem}
-            className="mx-auto mt-[clamp(0.75rem,2.2vh,1.75rem)] max-w-xl text-base leading-relaxed text-muted sm:text-lg"
+            className="mx-auto mt-[clamp(0.75rem,2.2vh,1.75rem)] max-w-xl text-base leading-relaxed text-white/70 sm:text-lg sm:text-muted"
           >
             {/* Two lengths, one at a time — `hidden` keeps the other out of the
                 accessibility tree as well as off the screen. The phone gets the

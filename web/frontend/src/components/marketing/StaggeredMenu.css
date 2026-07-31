@@ -1,0 +1,330 @@
+/* StaggeredMenu — the phone menu. See StaggeredMenu.tsx for what it is and how
+   it moves; everything here is layout and colour.
+
+   Adapted from the published ReactBits stylesheet, with three changes:
+     - the panel is our deep navy field with white type, rather than white with
+       black type, so the nav's own white wordmark and toggle stay legible where
+       they sit over it;
+     - the item size is a clamp instead of a flat 3.5rem, which overflowed a
+       360px screen on the longer labels ("Transparency");
+     - there is no header block, because the bar this lives in is the site's.
+
+   The whole thing is dark in both themes on purpose: it's the same navy as the
+   footer and the Integrity panel, and it matches the dark hero stage the phone
+   layout already runs. */
+
+.staggered-menu-wrapper {
+  position: fixed;
+  inset: 0;
+  /* Under the sticky header (z-40), so the bar and the toggle inside it stay on
+     top of the panel and remain pressable while it's open. */
+  z-index: 30;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Only present while the menu is open — a tap anywhere off the panel closes it. */
+.sm-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: none;
+  padding: 0;
+  background: rgba(5, 5, 25, 0.45);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.sm-prelayers {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--sm-panel-w, clamp(17rem, 84vw, 26rem));
+  pointer-events: none;
+  z-index: 5;
+}
+
+[data-position="left"] .sm-prelayers {
+  right: auto;
+  left: 0;
+}
+
+/* Parked with opacity rather than a transform: GSAP takes whatever transform is
+   already on these as its starting matrix and adds to it, so a `translateX(100%)`
+   here would leave the panel a screen-width to the right of where it animates
+   to. The component's layout effect puts them off-screen and turns the opacity
+   back up in the same frame, before anything paints. */
+.sm-prelayer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 100%;
+  opacity: 0;
+}
+
+.staggered-menu-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--sm-panel-w, clamp(17rem, 84vw, 26rem));
+  height: 100%;
+  background: var(--color-field-deep);
+  display: flex;
+  flex-direction: column;
+  /* Clears the floating nav pill, which sits over the top of this. */
+  padding: 6.5rem 1.5rem 2rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 10;
+  pointer-events: auto;
+  /* See the note on `.sm-prelayer` — parked with opacity, not a transform. */
+  opacity: 0;
+}
+
+[data-position="left"] .staggered-menu-panel {
+  right: auto;
+  left: 0;
+}
+
+.sm-panel-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.sm-panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+/* Each row clips its own label, which is what lets the label start below the
+   line and rise into it. */
+.sm-panel-itemWrap {
+  position: relative;
+  overflow: hidden;
+  line-height: 1;
+}
+
+.sm-panel-item {
+  position: relative;
+  display: inline-block;
+  color: #ffffff;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  /* Sized off the longest label there is: "Transparency" plus the gutter its
+     number sits in has to clear the panel's inner width, which is 84vw less the
+     padding. It does at 7.6vw from 320px up; anything wider and the wrap clips
+     the number, since each row hides its own overflow to animate the label. */
+  font-size: clamp(1.6rem, 7.6vw, 2.6rem);
+  line-height: 1.12;
+  letter-spacing: -0.04em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  padding-right: 1.4em;
+  transition: color 0.25s;
+}
+
+.sm-panel-item:hover,
+.sm-panel-item:focus-visible {
+  color: var(--sm-accent, var(--color-accent));
+}
+
+.sm-panel-itemLabel {
+  display: inline-block;
+  will-change: transform;
+  transform-origin: 50% 100%;
+}
+
+.sm-panel-list[data-numbering] {
+  counter-reset: smItem;
+}
+
+.sm-panel-list[data-numbering] .sm-panel-item::after {
+  counter-increment: smItem;
+  content: counter(smItem, decimal-leading-zero);
+  position: absolute;
+  top: 0.15em;
+  right: 0.2em;
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--sm-accent, var(--color-accent));
+  pointer-events: none;
+  user-select: none;
+  opacity: var(--sm-num-opacity, 0);
+}
+
+/* The two CTAs, in the same order they appear in the desktop bar. */
+.sm-actions {
+  margin-top: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.sm-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  padding: 0.8rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #ffffff;
+  text-decoration: none;
+  transition:
+    border-color 0.25s,
+    background 0.25s;
+}
+
+.sm-action:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sm-action--accent {
+  border-color: transparent;
+  background: var(--color-accent);
+  font-weight: 700;
+}
+
+.sm-action--accent:hover {
+  border-color: transparent;
+  filter: brightness(1.05);
+}
+
+.sm-socials {
+  margin-top: auto;
+  padding-top: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sm-socials-title {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--sm-accent, var(--color-accent));
+}
+
+.sm-socials-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.sm-socials-link {
+  display: inline-block;
+  padding: 2px 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  transition:
+    color 0.3s ease,
+    opacity 0.3s ease;
+}
+
+.sm-socials-link:hover,
+.sm-socials-link:focus-visible {
+  color: #ffffff;
+}
+
+/* The rest of the list dims while one of them is under the pointer, which is
+   the upstream behaviour and reads well on a list this short. */
+.sm-socials-list:hover .sm-socials-link:not(:hover),
+.sm-socials-list:focus-within .sm-socials-link:not(:focus-visible) {
+  opacity: 0.4;
+}
+
+/* The toggle. Layout only — the bar it sits in supplies the shape, the fill and
+   the colour through `toggleClassName`, so it can be white over the hero and ink
+   once the pill lifts.
+
+   Nothing here may set `background`, `border` or `display`: this file is
+   unlayered and Tailwind's utilities live in `@layer utilities`, so anything
+   declared here would beat the classes the nav passes in, whatever their
+   specificity. Only properties the nav doesn't set belong in this rule. */
+.sm-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  overflow: visible;
+}
+
+.sm-toggle-textWrap {
+  position: relative;
+  display: inline-block;
+  height: 1em;
+  overflow: hidden;
+  white-space: nowrap;
+  /* Wide enough for "Close", so the bar doesn't reflow as the word cycles. */
+  width: 2.75em;
+  text-align: left;
+}
+
+.sm-toggle-textInner {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.sm-toggle-line {
+  display: block;
+  height: 1em;
+  line-height: 1;
+}
+
+.sm-icon {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+}
+
+.sm-icon-line {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 100%;
+  height: 2px;
+  background: currentColor;
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+  will-change: transform;
+}
+
+/* Narrow phones: the label is the first thing to go, before the panel or the
+   numbering — the plus-to-cross already says what the control does. */
+@media (max-width: 359px) {
+  .sm-toggle-textWrap {
+    display: none;
+  }
+}

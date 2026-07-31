@@ -263,6 +263,36 @@ h1, h2, h3, h4, h5, h6 {
   --mk-hero-glow: color-mix(in srgb, var(--color-brand) 38%, transparent);
   background: #080d20;
 }
+/* Phones run the dark stage in *both* themes.
+
+   On a laptop the pale stage has room to breathe: the tiles sit far out at the
+   edges, well away from the type. A phone is 375px of the same composition, so
+   the drifting screenshots end up directly behind the headline and the rail,
+   and light tiles on a light stage gave the whole thing a grey, washed look
+   with nothing to separate the content from the artwork. Dropping the same dark
+   wash the dark theme uses over it fixes both at once — the tiles fall back to
+   a texture, and the white tracker panel reads as lit rather than as a slightly
+   whiter rectangle on white.
+
+   Everything on the stage flips with it: the type, the platform rail and the
+   nav over it all carry `sm:` variants back to the light treatment from 640px
+   up (Hero.tsx, PlatformStrip.tsx, Nav.tsx). Change the breakpoint here and
+   those have to move with it. */
+@media (max-width: 639px) {
+  .mk-hero {
+    --mk-hero-line: rgba(255, 255, 255, 0.07);
+    --mk-hero-glow: color-mix(in srgb, var(--color-brand) 38%, transparent);
+    background: #080d20;
+  }
+  /* Same holding-back the dark theme needs: these captures are mostly light UI,
+     so on a dark stage they punch well above their opacity. */
+  .mk-hero-motion {
+    --mk-tile-image: 0.1;
+    --mk-tile-fill: rgba(255, 255, 255, 0.03);
+    --mk-tile-line: rgba(255, 255, 255, 0.06);
+  }
+}
+
 /* Ruled lines, then a vignette that pulls the edges down so the centre reads
    as lit. Two layers rather than one so the grid fades independently. */
 .mk-hero::before {

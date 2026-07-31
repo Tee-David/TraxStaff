@@ -1,114 +1,298 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
+import { Mark } from "./Mark";
+import { TrackerDemo } from "./TrackerDemo";
 import { APP_URL } from "@/lib/site";
+import { IconClock, IconAndroid, IconWindows, IconLinux } from "@/components/icons";
 
 /**
- * A schematic illustration of the always-visible tracking indicator + a
- * running timer, built from the app's own category colors — not a screenshot
- * of the dashboard (none is embedded here), just a small visual anchor for
- * the "you can always see it's on" claim made in the copy beside it.
+ * Seconds since this component mounted. Real elapsed time, not a scripted
+ * animation — the point of the hero is that the number you're looking at is
+ * the honest one.
+ *
+ * Starts at 0 on both server and client so the first paint matches, then
+ * ticks once mounted. It keeps ticking under `prefers-reduced-motion`: a
+ * running clock is the content here, not decoration. Only the pulsing dot
+ * beside it (`.mk-live-dot`, see globals.css) stops.
  */
-function TrackingIllustration() {
-  const categories = [
-    { label: "Focus", color: "var(--color-cat-focus)", width: "58%" },
-    { label: "Meeting", color: "var(--color-cat-meeting)", width: "22%" },
-    { label: "Other", color: "var(--color-cat-other)", width: "12%" },
-    { label: "Break", color: "var(--color-cat-break)", width: "8%" },
-  ];
+function useElapsed() {
+  const [seconds, setSeconds] = useState(0);
 
+  useEffect(() => {
+    const start = Date.now();
+    const id = setInterval(() => setSeconds(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return seconds;
+}
+
+function formatElapsed(total: number) {
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return [h, m, s].map((n) => String(n).padStart(2, "0")).join(":");
+}
+
+/**
+ * The tracking indicator as it appears on each platform that ships today.
+ *
+ * Each card counts from its own offset while advancing off the single
+ * page-level tick, so they read as separate machines all running live rather
+ * than as copies of one number — but their seconds stay in step. Offsets are
+ * part of the illustration; the centred card below the buttons is the one
+ * showing real time, and it says so.
+ */
+function TimerCard({
+  icon,
+  surface,
+  elapsed,
+  offset,
+  className,
+}: {
+  icon: React.ReactNode;
+  surface: string;
+  elapsed: number;
+  offset: number;
+  className?: string;
+}) {
   return (
-    <div className="relative w-full max-w-sm rounded-2xl border border-border bg-surface p-6 shadow-[var(--shadow-lift)]">
-      <div className="flex items-center justify-between">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-positive)]/12 px-2.5 py-1 text-xs font-semibold text-[var(--color-positive)]">
-          <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-positive)]" />
-          Tracking &mdash; visible
-        </span>
-        <span className="text-xs text-faint">Session</span>
+    <div
+      className={`w-52 rounded-2xl border border-border bg-surface p-4 shadow-[var(--shadow-lift)] ${className ?? ""}`}
+    >
+      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
+        <span className="text-muted">{icon}</span>
+        {surface}
       </div>
-
-      <div className="mt-5 font-heading text-4xl font-bold tabular-nums tracking-tight text-ink">
-        02:41:18
+      <div className="mt-2.5 flex items-center gap-2">
+        <span className="mk-live-dot" />
+        <span className="text-xs font-semibold text-ink">Tracking</span>
       </div>
-      <p className="mt-1 text-xs text-muted">Credited against the server clock, not the local one.</p>
-
-      <div className="mt-5 flex h-2.5 w-full overflow-hidden rounded-full bg-canvas">
-        {categories.map((c) => (
-          <span key={c.label} style={{ width: c.width, background: c.color }} />
-        ))}
-      </div>
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
-        {categories.map((c) => (
-          <span key={c.label} className="flex items-center gap-1.5 text-[11px] text-muted">
-            <span className="h-2 w-2 rounded-full" style={{ background: c.color }} />
-            {c.label}
-          </span>
-        ))}
+      <div className="mt-1 font-heading text-xl font-bold leading-none tracking-[-0.02em] text-ink tabular-nums">
+        {formatElapsed(offset + elapsed)}
       </div>
     </div>
   );
 }
 
+/** The same indicator at its smallest — how it sits in a menu bar. */
+function TimerPill({
+  label,
+  elapsed,
+  offset,
+  className,
+}: {
+  label: string;
+  elapsed: number;
+  offset: number;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2.5 rounded-full border border-border bg-surface py-2.5 pl-3.5 pr-4 shadow-[var(--shadow-lift)] ${className ?? ""}`}
+    >
+      <span className="mk-live-dot" />
+      <span className="text-[11px] font-semibold text-muted">{label}</span>
+      <span className="font-heading text-sm font-bold leading-none tracking-[-0.02em] text-ink tabular-nums">
+        {formatElapsed(offset + elapsed)}
+      </span>
+    </div>
+  );
+}
+
 export function Hero() {
-  const { stagger, item } = useMotionPresets();
+  const { revealStagger, revealItem, reduce, press } = useMotionPresets();
+  const elapsed = useElapsed();
+
+  /* Floating objects live in the margins beside the headline column, the way
+     the reference scatters its illustrations. That needs roughly 1280px before
+     they stop colliding with the type, so below `xl` they're dropped and the
+     single centred card below the buttons carries the live timer instead —
+     every width still shows one running clock. */
+  const floaters = [
+    {
+      key: "windows",
+      node: (
+        <TimerCard
+          icon={<IconWindows width={13} height={13} />}
+          surface="Windows tray"
+          elapsed={elapsed}
+          offset={2 * 3600 + 41 * 60 + 18}
+          className="-rotate-3"
+        />
+      ),
+      className: "left-2 top-[16%]",
+      float: -16,
+    },
+    {
+      key: "android",
+      node: (
+        <TimerCard
+          icon={<IconAndroid width={13} height={13} />}
+          surface="Android"
+          elapsed={elapsed}
+          offset={47 * 60 + 6}
+          className="rotate-3"
+        />
+      ),
+      className: "right-2 top-[24%]",
+      float: 15,
+    },
+    {
+      key: "focus",
+      node: <TimerPill label="Focus" elapsed={elapsed} offset={72 * 60 + 9} className="-rotate-2" />,
+      className: "left-[6%] top-[64%]",
+      float: 13,
+    },
+    {
+      key: "linux",
+      node: (
+        <TimerCard
+          icon={<IconLinux width={13} height={13} />}
+          surface="Linux tray"
+          elapsed={elapsed}
+          offset={5 * 3600 + 3 * 60 + 51}
+          className="rotate-2"
+        />
+      ),
+      className: "right-[4%] top-[62%]",
+      float: -14,
+    },
+  ];
 
   return (
-    <section id="top" className="relative overflow-hidden">
-      <div
-        className="pointer-events-none absolute inset-0 -z-10"
-        style={{
-          background:
-            "radial-gradient(70% 60% at 50% -10%, color-mix(in srgb, var(--color-brand) 14%, transparent) 0%, transparent 60%)",
-        }}
-      />
-      <div className="mx-auto grid max-w-6xl gap-12 px-5 pb-16 pt-14 sm:px-8 sm:pt-20 lg:grid-cols-2 lg:items-center lg:pb-24 lg:pt-24">
-        <motion.div {...stagger()}>
-          <motion.span
-            {...item}
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-canvas px-3 py-1 text-xs font-medium text-muted"
+    <section id="top" className="mk-hero relative overflow-hidden">
+      <div className="relative mx-auto max-w-7xl px-5 pb-16 pt-4 text-center sm:px-8 sm:pb-24 sm:pt-24 lg:pb-32">
+        {floaters.map((f) => (
+          <motion.div
+            key={f.key}
+            aria-hidden
+            className={`pointer-events-none absolute hidden xl:block ${f.className}`}
+            initial={{ opacity: 0, y: 16, scale: 0.96 }}
+            animate={
+              reduce
+                ? { opacity: 1, y: 0, scale: 1 }
+                : { opacity: 1, y: [0, f.float, 0], scale: 1 }
+            }
+            transition={
+              reduce
+                ? { duration: 0 }
+                : {
+                    opacity: { duration: 0.5, delay: 0.35 },
+                    scale: { duration: 0.5, delay: 0.35 },
+                    y: {
+                      duration: 5.5 + Math.abs(f.float) * 0.12,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                      delay: 0.35,
+                    },
+                  }
+            }
           >
-            Windows &middot; Linux &middot; Android
+            {f.node}
+          </motion.div>
+        ))}
+
+        <motion.div {...revealStagger()} className="relative z-10">
+          {/* Phones only, and a working panel rather than a picture of one —
+              tapping it starts the clock. Everything from `sm` up is the
+              layout as it was: tablets keep the live card below the buttons,
+              and wide screens have the floating platform cards for this. */}
+          <motion.div {...revealItem} className="mb-6 flex justify-center sm:hidden">
+            <TrackerDemo />
+          </motion.div>
+
+          {/* The eyebrow is the one thing here that can go: on a short phone
+              it's 60px between the tracker and the headline, and seeing the
+              whole hero at a glance matters more than the line does. Height,
+              not width — a 375×812 phone keeps it, a 375×667 doesn't. */}
+          <motion.span
+            {...revealItem}
+            className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15 [@media(max-height:750px)_and_(max-width:639px)]:hidden"
+          >
+            <IconClock width={13} height={13} className="text-accent" />
+            Never covert, by design
           </motion.span>
 
           <motion.h1
-            {...item}
-            className="mt-5 max-w-xl font-heading text-[2.5rem] font-bold leading-[1.08] tracking-tight text-ink sm:text-5xl"
+            {...revealItem}
+            className="mx-auto mt-6 max-w-[52rem] font-heading sm:mt-8 text-[clamp(1.8rem,5.2vw,4rem)] font-bold leading-[1.06] tracking-[-0.04em] text-ink"
           >
-            Time tracking your team can actually see.
+            {/* Broken here rather than at "team" so the two lines come out
+                near-equal; the sizing above keeps each on one line right down
+                to the point the break is dropped on small screens.
+
+                The clamp's floor is what holds a phone to two lines rather
+                than three: "actually see" can't be split (`.mk-mark` is
+                nowrap), so the type has to be small enough for "team can
+                actually see" to sit on one line at 360px. Nothing at or above
+                `sm` is affected — 5.2vw passes the floor well before then. */}
+            Time tracking your
+            <br className="hidden sm:block" /> team can{" "}
+            <Mark>actually see</Mark>
           </motion.h1>
 
-          <motion.p {...item} className="mt-5 max-w-lg text-base text-muted sm:text-lg">
-            TraxStaff tracks work time on desktop and mobile with a visible, always-on
-            indicator &mdash; never hidden, never running quietly in the
-            background. Every session is hashed and capped against the
-            server&rsquo;s clock, so the record is tamper-evident, not just
-            self-reported.
+          <motion.p
+            {...revealItem}
+            className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-muted sm:mt-7 sm:text-lg"
+          >
+            {/* Two lengths, one at a time — `hidden` keeps the other out of the
+                accessibility tree as well as off the screen. The phone gets the
+                claim without the mechanism; the mechanism is spelled out in
+                full three sections down, under Transparency. */}
+            <span className="sm:hidden">
+              A visible, always-on indicator the whole time it runs &mdash;
+              tamper-evident, never self-reported.
+            </span>
+            <span className="hidden sm:inline">
+              A visible, always-on indicator the whole time it runs. Every session
+              hash-chained and capped against the server&rsquo;s clock &mdash;
+              tamper-evident, never self-reported.
+            </span>
           </motion.p>
 
-          <motion.div {...item} className="mt-8 flex flex-wrap items-center gap-3">
-            <a
+          <motion.div {...revealItem} className="mt-6 flex flex-col items-stretch justify-center gap-3 sm:mt-10 sm:flex-row sm:items-center">
+            <motion.a
+              {...press}
               href={`${APP_URL}/app`}
-              className="rounded-lg bg-brand px-6 py-3 text-sm font-semibold text-brand-fg transition hover:bg-brand-600"
+              className="mk-cta cursor-target rounded-full bg-accent px-8 py-4 text-sm font-bold transition-colors hover:brightness-105 sm:py-3.5"
             >
-              Get Started
-            </a>
-            <a
+              Start free
+            </motion.a>
+            <motion.a
+              {...press}
               href="#download"
-              className="rounded-lg border border-border px-6 py-3 text-sm font-semibold text-ink transition hover:bg-canvas"
+              className="cursor-target rounded-full border border-border-strong bg-surface px-8 py-4 text-sm font-semibold text-ink transition-colors hover:border-muted sm:py-3.5"
             >
               Download the app
-            </a>
+            </motion.a>
           </motion.div>
-        </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-          className="flex justify-center lg:justify-end"
-        >
-          <TrackingIllustration />
+          {/* Stand-in for the floating cards below xl, and the only timer on
+              the page showing genuinely real elapsed time. */}
+          <motion.div {...revealItem} className="mt-14 hidden justify-center sm:flex xl:hidden">
+            <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 text-left shadow-[var(--shadow-lift)]">
+              <div className="flex items-center gap-2">
+                <span className="mk-live-dot" />
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-positive">
+                  Tracking &middot; visible
+                </span>
+              </div>
+              {/* Sized to sit inside the card rather than run at its edges. This
+                  card only ever shows below `xl`, so the size is a phone and
+                  tablet concern — the desktop hero's own clocks are untouched. */}
+              <div className="mk-clock mt-3 font-heading text-[1.875rem] font-bold leading-none tracking-[-0.03em] tabular-nums sm:text-[2.125rem]">
+                {formatElapsed(elapsed)}
+              </div>
+              <p className="mt-3 text-sm leading-relaxed text-muted">
+                How long this page has been open. You could see it counting the
+                whole time &mdash; that&rsquo;s the entire product.
+              </p>
+            </div>
+          </motion.div>
         </motion.div>
       </div>
     </section>

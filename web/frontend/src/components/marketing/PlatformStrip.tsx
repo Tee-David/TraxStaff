@@ -17,33 +17,36 @@ const platforms = [
 ];
 
 export function PlatformStrip() {
-  const { stagger, item } = useMotionPresets();
+  const { revealStagger, item } = useMotionPresets();
 
   return (
-    <section className="border-y border-border bg-canvas/60 py-10">
-      <div className="mx-auto max-w-6xl px-5 sm:px-8">
-        <p className="text-center text-xs font-semibold uppercase tracking-wide text-faint">
-          Available on
-        </p>
+    <section className="border-y border-border bg-canvas/70">
+      <div className="mx-auto max-w-6xl px-5 py-9 sm:px-8">
         <motion.div
-          {...stagger()}
-          className="mt-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-5"
+          {...revealStagger()}
+          className="flex flex-col items-center gap-6 sm:flex-row sm:justify-between sm:gap-10"
         >
-          {platforms.map(({ icon: Icon, label, available }) => (
-            <motion.div
-              key={label}
-              {...item}
-              className={`flex items-center gap-2 ${available ? "text-ink" : "text-faint"}`}
-            >
-              <Icon width={22} height={22} />
-              <span className="text-sm font-medium">{label}</span>
-              {!available && (
-                <span className="rounded-full bg-canvas px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-faint">
-                  Coming soon
-                </span>
-              )}
-            </motion.div>
-          ))}
+          <motion.p {...item} className="max-w-xs text-center text-sm leading-snug text-muted sm:text-left">
+            One tracker, every machine your team works on
+          </motion.p>
+
+          <div className="flex flex-wrap items-center justify-center gap-x-9 gap-y-4 sm:gap-x-11">
+            {platforms.map(({ icon: Icon, label, available }) => (
+              <motion.div
+                key={label}
+                {...item}
+                className={`flex items-center gap-2 ${available ? "text-ink" : "text-faint"}`}
+              >
+                <Icon width={20} height={20} />
+                <span className="text-sm font-semibold tracking-tight">{label}</span>
+                {!available && (
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-faint">
+                    Soon
+                  </span>
+                )}
+              </motion.div>
+            ))}
+          </div>
         </motion.div>
       </div>
     </section>

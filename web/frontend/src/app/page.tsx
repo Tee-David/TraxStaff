@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
+import TargetCursor from "@/components/marketing/TargetCursor";
 import { MarketingNav } from "@/components/marketing/Nav";
 import { Hero } from "@/components/marketing/Hero";
 import { PlatformStrip } from "@/components/marketing/PlatformStrip";
 import { Features } from "@/components/marketing/Features";
-import { Philosophy } from "@/components/marketing/Philosophy";
+import { Showcase } from "@/components/marketing/Showcase";
+import { Integrity } from "@/components/marketing/Integrity";
+import { Testimonials } from "@/components/marketing/Testimonials";
+import { Statements } from "@/components/marketing/Statements";
+import { Transparency } from "@/components/marketing/Transparency";
 import { DownloadCta } from "@/components/marketing/DownloadCta";
 import { Footer } from "@/components/marketing/Footer";
 
@@ -22,12 +27,24 @@ export default function Home() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <main className="min-h-screen bg-canvas">
+    <main className="mk-page min-h-screen bg-canvas">
+      {/* Renders nothing on touch devices or under prefers-reduced-motion —
+          it hides the system pointer, so it must not be the only cursor a
+          visitor has. */}
+      <TargetCursor spinDuration={2} hideDefaultCursor parallaxOn hoverDuration={0.2} cursorColor="#ff6600" />
       <MarketingNav />
       <Hero />
       <PlatformStrip />
       <Features />
-      <Philosophy />
+      <Showcase />
+      {/* Social proof straight after the feature case, then the two honesty
+          sections, then the positions as the closing argument before the CTA.
+          The ordering also keeps the page's two marquees apart — back to back
+          they read as one widget shown twice. */}
+      <Testimonials />
+      <Integrity />
+      <Transparency />
+      <Statements />
       <DownloadCta />
       <Footer currentYear={currentYear} />
     </main>

@@ -8,6 +8,18 @@
   --color-accent: #ff6600;
   --color-accent-fg: #ffffff;
 
+  /* Showcase panel behind the app screenshots. A soft wash of the accent —
+     the one place orange is used as a surface rather than a mark, which keeps
+     the section distinct from the two navy panels further down the page. */
+  --color-showcase: #ffefe2;
+
+  /* Marketing dark fields. Deliberately *not* `--color-brand`: that token
+     flips to a lit periwinkle in dark mode so accents stay legible on a dark
+     canvas, which is right for the app but would turn the landing page's
+     large navy panels bright. These stay navy in both themes. */
+  --color-field: #000065;
+  --color-field-deep: #05052e;
+
   /* Neutrals — airy, cool-tinted */
   --color-canvas: #f5f6fa;
   --color-surface: #ffffff;
@@ -57,6 +69,13 @@
   --color-cat-break: #3d4763;
   --color-positive: #35c281;
   --color-negative: #f4685f;
+  /* Navy panels sit on a near-black canvas here, so they drop a touch to
+     keep the edge between panel and page readable. */
+  --color-field: #0b0b40;
+  --color-field-deep: #06062a;
+  /* The accent wash would glare at full strength on a dark canvas; this keeps
+     the same warmth at a weight that sits behind the screenshots. */
+  --color-showcase: #1d1408;
 }
 
 * {
@@ -187,6 +206,353 @@ h1, h2, h3, h4, h5, h6 {
 @media (prefers-reduced-motion: reduce) {
   .trax-loading { animation: none; }
   .trax-loading-mark { animation: none; opacity: 1; }
+}
+
+/* ---------- Marketing site (traxstaff.com) ----------
+   Everything here is namespaced `mk-` and used only by
+   `src/components/marketing/*`. Kept out of the Tailwind utility flow on
+   purpose: these are the few effects (blueprint grid, marker underline,
+   live-dot pulse) that need real CSS rather than composed utilities, and the
+   prefix keeps them from ever colliding with a dashboard class. */
+
+/* Hero field. The reference sets a huge centred headline on a near-black
+   stage with faint ruled lines and objects floating out in the margins.
+   Both themes get that composition, but neither is the other inverted: the
+   dark stage goes almost black so the type and the floating cards carry the
+   contrast, while the light stage stays cool and pale and leans on a firmer
+   grid and a stronger vignette to keep the same sense of depth. */
+.mk-hero {
+  --mk-hero-line: color-mix(in srgb, var(--color-brand) 15%, transparent);
+  --mk-hero-glow: color-mix(in srgb, var(--color-brand) 14%, transparent);
+  position: relative;
+  isolation: isolate;
+  background: #eff1f8;
+}
+:root[data-theme="dark"] .mk-hero {
+  --mk-hero-line: rgba(255, 255, 255, 0.07);
+  --mk-hero-glow: color-mix(in srgb, var(--color-brand) 30%, transparent);
+  background: #05060e;
+}
+/* Ruled lines, then a vignette that pulls the edges down so the centre reads
+   as lit. Two layers rather than one so the grid fades independently. */
+.mk-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image:
+    linear-gradient(to right, var(--mk-hero-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--mk-hero-line) 1px, transparent 1px);
+  background-size: 88px 88px;
+  background-position: center top;
+  -webkit-mask-image: radial-gradient(75% 62% at 50% 38%, #000 0%, transparent 78%);
+  mask-image: radial-gradient(75% 62% at 50% 38%, #000 0%, transparent 78%);
+}
+.mk-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(58% 48% at 50% 6%, var(--mk-hero-glow) 0%, transparent 68%);
+}
+
+/* Blueprint grid — the graph-paper field the hero and the dark panels sit on.
+   Drawn on a ::before so the element's own background stays free, and masked
+   so the lines dissolve toward the edges instead of stopping at a hard seam. */
+.mk-grid {
+  position: relative;
+  isolation: isolate;
+}
+.mk-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--color-brand) 8%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-brand) 8%, transparent) 1px, transparent 1px);
+  background-size: 76px 76px;
+  background-position: center top;
+  -webkit-mask-image: radial-gradient(80% 65% at 50% 32%, #000 0%, transparent 78%);
+  mask-image: radial-gradient(80% 65% at 50% 32%, #000 0%, transparent 78%);
+}
+/* Same field, inverted, for the navy panels. */
+.mk-grid-invert::before {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  -webkit-mask-image: radial-gradient(85% 75% at 50% 20%, #000 0%, transparent 82%);
+  mask-image: radial-gradient(85% 75% at 50% 20%, #000 0%, transparent 82%);
+}
+
+/* Marker underline for the one emphasized word in a headline.
+   A drawn brush stroke rather than a rounded rule: uneven thickness, a slight
+   rise to the right and a tapered tail, so it reads as marked by hand instead
+   of as a border. Inlined as a data URI so every existing .mk-mark picks it up
+   and the whole page stays consistent — the fill is hard-coded because a data
+   URI can't inherit currentColor, which is fine since the accent is the same
+   hex in both themes. Sits under the baseline so descenders stay clean. */
+.mk-mark {
+  position: relative;
+  white-space: nowrap;
+}
+/* The stroke is a real element rather than a ::after so it can be animated —
+   see the `draw` preset in lib/motion.ts, which wipes it on left to right.
+   A pseudo-element can't be driven by Framer. */
+.mk-mark-stroke {
+  position: absolute;
+  pointer-events: none;
+  left: -0.05em;
+  right: -0.05em;
+  bottom: -0.11em;
+  height: 0.28em;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 24' preserveAspectRatio='none'%3E%3Cpath fill='%23ff6600' d='M5,16.4 C70,10.6 152,7.6 214,7.2 C277,6.8 341,8.6 394,6.4 L392,14.6 C338,16.8 274,15 213,15.4 C153,15.8 70,19 6.6,23.6 Z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+
+  /* Drawn on left to right once the phrase reaches the viewport — Mark.tsx
+     flips data-drawn. Clipping rather than scaling keeps the brush shape
+     intact as it appears; scaling the box would stretch the artwork into
+     place. The delay lets the words land before the stroke follows them.
+
+     Deliberately a CSS transition rather than a Framer animation: this
+     element lives inside a motion heading that is itself a variant child of
+     a staggered section, and Framer propagates variant state down the motion
+     tree, which overrides a nested element's own initial/whileInView and
+     leaves the stroke clipped to nothing for good. CSS sidesteps that
+     entirely, and interpolates inset() perfectly well. */
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) 0.4s;
+}
+.mk-mark-stroke[data-drawn="true"] {
+  clip-path: inset(0 0 0 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mk-mark-stroke {
+    clip-path: none;
+    transition: none;
+  }
+}
+
+/* A full-length screen capture scrolling inside a fixed window, so a card can
+   show a whole page rather than a crop of one.
+
+   The frame's height is the only knob: the keyframe travels the image's own
+   height minus that height, which lands exactly on its last pixel whatever the
+   image or the breakpoint. `alternate` runs it back up rather than snapping to
+   the top, which would read as a glitch. CSS rather than Framer for the same
+   reason as the marquee — a permanently-running loop belongs on the compositor. */
+.mk-scrollshot {
+  --mk-shot-h: 14rem;
+  position: relative;
+  height: var(--mk-shot-h);
+  overflow: hidden;
+}
+@media (min-width: 640px) {
+  .mk-scrollshot { --mk-shot-h: 17rem; }
+}
+@media (min-width: 1024px) {
+  .mk-scrollshot { --mk-shot-h: 19rem; }
+}
+.mk-scrollshot img {
+  display: block;
+  width: 100%;
+  will-change: transform;
+  animation: mk-shot-scroll var(--mk-shot-duration, 26s) ease-in-out infinite alternate;
+}
+@keyframes mk-shot-scroll {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, calc(-100% + var(--mk-shot-h)), 0); }
+}
+/* Hover guarded the same way as the marquee: touch browsers latch a sticky
+   :hover on the last-tapped element and would freeze the scroll for good. */
+@media (hover: hover) and (pointer: fine) {
+  .mk-scrollshot:hover img { animation-play-state: paused; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mk-scrollshot img { animation: none; }
+}
+
+/* Marquee — a continuously scrolling row that pauses on hover or keyboard
+   focus.
+
+   The loop is a CSS transform animation rather than a Framer Motion one on
+   purpose: it runs on the compositor, so a permanently-running marquee costs
+   no main-thread work and never competes with scrolling, and pausing is a
+   single property flip instead of a re-render. Framer still drives the
+   section's entrance and each card's hover lift.
+
+   The track holds the real row plus an aria-hidden clone, so the reset at the
+   end of the loop is invisible. Translating by exactly -50% would land half a
+   gap out (the track is row + gap + row, so half of it is row + gap/2), hence
+   the extra half-gap in the keyframe. */
+.mk-marquee {
+  /* The fade has to scale with the viewport: a 5rem edge on a 390px screen
+     swallows a third of the visible card. */
+  --mk-fade: 1.5rem;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--mk-fade), #000 calc(100% - var(--mk-fade)), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 var(--mk-fade), #000 calc(100% - var(--mk-fade)), transparent);
+}
+@media (min-width: 640px) {
+  .mk-marquee { --mk-fade: 5rem; }
+}
+.mk-marquee-track {
+  --mk-gap: 1.25rem;
+  display: flex;
+  gap: var(--mk-gap);
+  width: max-content;
+  animation: mk-marquee var(--mk-marquee-duration, 64s) linear infinite;
+}
+.mk-marquee-row {
+  display: flex;
+  gap: var(--mk-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Second row runs the other way. Counter-scrolling reads as motion rather
+   than as one belt, and it means the eye never tracks a single card across
+   the whole width. */
+.mk-marquee-track--reverse {
+  animation-direction: reverse;
+}
+/* Hover and focus cover pointer and keyboard. Touch has neither, so the
+   toggled class is what gives a phone any way to stop the thing.
+
+   :focus-visible rather than :focus-within, deliberately. Tapping the region
+   focuses it, so :focus-within would latch the marquee paused and a second tap
+   could never restart it — the pause would stick until you tapped elsewhere.
+   :focus-visible matches keyboard focus but not pointer or touch focus, which
+   is exactly the split needed. The :has() clause keeps this working if a card
+   ever gains a focusable child (a real testimonial with a link, say). */
+.mk-marquee:focus-visible .mk-marquee-track,
+.mk-marquee:has(:focus-visible) .mk-marquee-track,
+.mk-marquee-paused .mk-marquee-track {
+  animation-play-state: paused;
+}
+/* Hover only where hovering is a real thing. Touch browsers emulate a sticky
+   :hover on whatever you last tapped and hold it until you tap elsewhere, so
+   an unguarded :hover rule latches the marquee paused and the second tap
+   appears to do nothing. */
+@media (hover: hover) and (pointer: fine) {
+  .mk-marquee:hover .mk-marquee-track {
+    animation-play-state: paused;
+  }
+}
+@keyframes mk-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(calc(-50% - (var(--mk-gap) / 2)), 0, 0); }
+}
+/* No auto-scroll when motion is reduced: the clone is dropped and the row
+   becomes an ordinary horizontally scrollable list, so the content is still
+   fully reachable. */
+@media (prefers-reduced-motion: reduce) {
+  .mk-marquee {
+    overflow-x: auto;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .mk-marquee-track { animation: none; }
+  .mk-marquee-clone { display: none; }
+}
+
+/* Smooth anchor scrolling. `scroll-behavior` has to sit on the scrolling
+   element, so it's scoped with :has() to documents that actually contain the
+   marketing page — the dashboard keeps its existing instant jumps rather than
+   inheriting a behaviour change nobody asked for. The reduced-motion block
+   further up already resets this to `auto`.
+
+   The scroll-margin keeps a jumped-to section clear of the 4.5rem sticky nav,
+   which would otherwise cover the heading you just navigated to. */
+:root:has(.mk-page) {
+  scroll-behavior: smooth;
+}
+.mk-page [id] {
+  scroll-margin-top: 5.5rem;
+}
+
+/* Keyboard focus. The marketing page is built from plain <a> elements rather
+   than the shared `Button`, which carries its own ring — so the ring is
+   defined once here instead. Scoped to `.mk-page` so it can't override the
+   dashboard's own focus utilities, and flipped to white by `.mk-on-field` on
+   the navy panels, where a navy outline would be invisible. */
+.mk-page a:focus-visible,
+.mk-page button:focus-visible {
+  outline: 2px solid var(--mk-focus, var(--color-brand));
+  outline-offset: 3px;
+}
+.mk-on-field {
+  --mk-focus: #ffffff;
+}
+
+/* Feature carousel. A plain scroll-snap track — the arrows and dots scroll it
+   programmatically, a swipe scrolls it natively — with its scrollbar hidden so
+   the cards sit flush in the section the way the grid they replaced did. The
+   scrollbar is decoration here: the controls beneath it say what it does, and
+   the track stays keyboard-scrollable. */
+.mk-carousel {
+  scrollbar-width: none;
+}
+.mk-carousel::-webkit-scrollbar {
+  display: none;
+}
+
+/* The label on an accent (orange) CTA — white in both themes, by request.
+   Worth knowing before this spreads: white on #ff6600 is about 2.9:1, under
+   the 4.5:1 WCAG AA asks for body text and under the 3:1 it asks for large
+   text, so it stays on these short bold button labels and nowhere else. */
+.mk-cta {
+  color: #ffffff;
+}
+
+/* The running clock, wherever one is shown. Ink in the light theme; plain
+   white on the dark stage, where the slightly blue --color-ink sits back into
+   the near-black panel instead of reading as the lit thing on it. */
+.mk-clock {
+  color: var(--color-ink);
+}
+:root[data-theme="dark"] .mk-clock {
+  color: #ffffff;
+}
+/* Same rule for the clock inside the tracker ring, which is brand-navy on the
+   panel's white rather than ink on the page. */
+.mk-clock-brand {
+  color: var(--color-brand);
+}
+:root[data-theme="dark"] .mk-clock-brand {
+  color: #ffffff;
+}
+
+/* The live indicator. One pulsing dot, used only where tracking is genuinely
+   running — the hero ribbon and the platform chips that mirror it.
+   Green rather than the orange accent: it reads as "live" the way a recording
+   light does, and it matches the colour the app's own tracking pill already
+   uses. Orange stays reserved for brand emphasis (the marker underline). */
+.mk-live-dot {
+  position: relative;
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--color-positive);
+  flex: none;
+}
+.mk-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--color-positive);
+  animation: mk-pulse 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes mk-pulse {
+  0%   { transform: scale(1);   opacity: 0.7; }
+  70%  { transform: scale(2.6); opacity: 0; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mk-live-dot::after { animation: none; }
 }
 
 /* Theme Toggle View Transition */

@@ -52,8 +52,76 @@ export function useMotionPresets() {
         } satisfies Variants,
       }),
 
-      /** Spread on each child of a `stagger` wrapper. */
+      /** Spread on each child of a `stagger` or `revealStagger` wrapper. */
       item: { variants: listItem },
+
+      /**
+       * Scroll-triggered entrance for a single block — a section heading, a
+       * panel. Unlike `page`/`stagger`, which run on mount, this waits until
+       * the block actually reaches the viewport, so a long marketing page
+       * reveals as you scroll instead of having every section below the fold
+       * finish animating before anyone sees it.
+       *
+       * `once: true` means it never replays on scroll-back, which reads as
+       * twitchy. `amount` is low so tall blocks trigger as they arrive rather
+       * than only once a quarter of them is showing. Movement is a little
+       * larger than `page` because it has room to travel here.
+       */
+      reveal: {
+        initial: { opacity: 0, y: reduce ? 0 : shift * 1.75 },
+        whileInView: { opacity: 1, y: 0 },
+        viewport: { once: true, amount: 0.15 },
+        transition: { duration: reduce ? 0 : 0.45, ease: EASE },
+      },
+
+      /**
+       * Fade-up for an individual element inside a revealed section — an
+       * eyebrow, a heading, a paragraph, a card. Travels further and runs
+       * longer than `item`, which is tuned for dense dashboard lists where
+       * movement that size would be noise. Pair with `revealStagger`.
+       */
+      revealItem: {
+        variants: {
+          hidden: { opacity: 0, y: reduce ? 0 : 24 },
+          show: {
+            opacity: 1,
+            y: 0,
+            transition: { duration: reduce ? 0 : 0.5, ease: EASE },
+          },
+        } satisfies Variants,
+      },
+
+      /**
+       * Scroll-triggered version of `stagger`, for grids and card rows. Pair
+       * with `item` on the children exactly as with `stagger`.
+       */
+      revealStagger: (delayChildren = 0) => ({
+        initial: "hidden" as const,
+        whileInView: "show" as const,
+        viewport: { once: true, amount: 0.15 },
+        variants: {
+          hidden: {},
+          show: {
+            transition: {
+              staggerChildren: reduce ? 0 : 0.07,
+              delayChildren: reduce ? 0 : delayChildren,
+            },
+          },
+        } satisfies Variants,
+      }),
+
+      /**
+       * Press feedback for a button or link. Hover lifts, press settles —
+       * the pair reads as a physical control rather than a colour swap, and
+       * it is the only feedback a touch user gets, since they never hover.
+       */
+      press: reduce
+        ? {}
+        : {
+            whileHover: { y: -2 },
+            whileTap: { scale: 0.97, y: 0 },
+            transition: { duration: 0.15, ease: EASE },
+          },
 
       /** Modal/lightbox backdrop. */
       backdrop: {

@@ -75,7 +75,9 @@ export function Showcase() {
         {...revealStagger()}
         className="mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-showcase px-6 pt-14 sm:px-10 sm:pt-16 lg:px-14"
       >
-        <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
+        {/* Centred and stacked on small screens, split left/right once there's
+            room for the buttons to sit beside the heading. */}
+        <div className="flex flex-col items-center gap-8 text-center lg:flex-row lg:items-start lg:justify-between lg:text-left">
           <motion.h2
             {...revealItem}
             className="max-w-xl font-heading text-[clamp(1.875rem,3.6vw,2.75rem)] font-bold leading-[1.08] tracking-[-0.035em] text-ink"
@@ -83,18 +85,24 @@ export function Showcase() {
             Set it up in minutes. <Mark>Visible</Mark> from the first second.
           </motion.h2>
 
-          <motion.div {...revealItem} className="flex flex-wrap gap-3 lg:shrink-0 lg:pt-2">
+          {/* Full-width buttons below `sm`, matching the hero's. A pair of
+              content-width pills stacked on a phone reads as an afterthought
+              and gives two different tap widths. */}
+          <motion.div
+            {...revealItem}
+            className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:justify-center lg:shrink-0 lg:pt-2"
+          >
             <motion.a
               {...press}
               href="#download"
-              className="cursor-target rounded-full bg-field px-6 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-brand-600"
+              className="cursor-target w-full rounded-full bg-field px-6 py-4 text-center text-sm font-semibold text-white transition-colors hover:bg-brand-600 sm:w-auto sm:py-3.5"
             >
               Download the app
             </motion.a>
             <motion.a
               {...press}
               href={`${APP_URL}/app`}
-              className="cursor-target rounded-full border border-ink/15 bg-surface px-6 py-3.5 text-sm font-semibold text-ink transition-colors hover:border-ink/30"
+              className="cursor-target w-full rounded-full border border-ink/15 bg-surface px-6 py-4 text-center text-sm font-semibold text-ink transition-colors hover:border-ink/30 sm:w-auto sm:py-3.5"
             >
               Open the dashboard
             </motion.a>

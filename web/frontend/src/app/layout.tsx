@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, Outfit } from "next/font/google";
+import { ASSETS_URL } from "@/lib/site";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -27,6 +28,14 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${spaceGrotesk.variable} ${outfit.variable}`} suppressHydrationWarning>
       <head>
+        {/* The hero's background tiles are served from our R2 bucket, and they
+            are above the fold — so the DNS lookup, TCP handshake and TLS
+            negotiation for that host all sit on the critical path unless they
+            start early. `preconnect` does all three before the CSS that
+            references them has even been parsed. */}
+        <link rel="preconnect" href={ASSETS_URL} crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href={ASSETS_URL} />
+
         {/* Apply saved theme before paint to avoid a flash; mark the doc as
             already-loaded so the first-load preloader plays once per session. */}
         <script

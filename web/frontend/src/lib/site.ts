@@ -11,3 +11,16 @@
  */
 export const APP_URL = "https://app.traxstaff.com";
 export const SUPPORT_EMAIL = "info@traxstaff.com";
+
+/**
+ * Public base for our own static marketing assets on Cloudflare R2 (bucket
+ * `trax`, prefix `marketing/`). Uploaded with a year of immutable caching, so a
+ * changed asset means a new filename, never a new cache header.
+ *
+ * NOTE: this is the bucket's `r2.dev` development domain. Cloudflare rate-limits
+ * that domain and explicitly does not support it for production traffic — it
+ * also doesn't get the full CDN treatment a custom domain does. Point a custom
+ * hostname (`assets.traxstaff.com`) at the bucket in the Cloudflare dashboard
+ * and change this one constant; nothing else references the host.
+ */
+export const ASSETS_URL = "https://pub-9027425bcecb4f0a810f07b3aa12febf.r2.dev";

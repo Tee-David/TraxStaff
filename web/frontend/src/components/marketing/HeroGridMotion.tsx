@@ -1,5 +1,7 @@
 "use client";
 
+import { ASSETS_URL } from "@/lib/site";
+
 /**
  * The hero's background texture: rows of image tiles, rotated off-axis, each row
  * drifting on its own in the opposite direction to the one above it.
@@ -18,16 +20,31 @@
  *
  * IMAGERY
  * -------
- * These are the app's own screenshots. There is no stock photography in this
- * repo, and hotlinking a photo CDN from the production marketing page would put
- * a third party in the render path of the first thing anyone sees — so the tiles
- * use the eight real captures in `public/screens` instead. At the opacity this
- * runs at they read as texture rather than as content, which is the point: you
- * should register movement and warmth behind the headline, not screenshots.
+ * Stock photography, but ours: downloaded, re-encoded and served from our own
+ * Cloudflare R2 bucket rather than hotlinked from a photo CDN, so nothing
+ * third-party sits in the render path of the first thing anyone sees. Full
+ * provenance for each file is in `web/frontend/HERO-ASSETS.md`.
  *
- * To swap in licensed stock photography, drop the files in `public/` and change
- * `TILE_IMAGES` below. Nothing else needs to move — tile size, count and the
- * per-row timing are all independent of what's inside them.
+ * Two rules picked the set, and both should hold for any replacement:
+ *
+ *  1. CC0 / public domain only. Those are the licences that permit commercial
+ *     use *and* redistribution (which self-hosting is) with no attribution
+ *     obligation — an attribution requirement on a decorative background is not
+ *     a trade worth making.
+ *  2. No identifiable faces. A CC0 licence clears copyright, not personality
+ *     rights: using a recognisable person to advertise a product is a separate
+ *     permission that a photo licence does not grant, and the CC0 pools contain
+ *     press and personal photography where no model release exists. Every tile
+ *     here is desks, screens, hands or backs of heads — which is also the better
+ *     texture, since a face is the one thing an eye will always try to resolve.
+ *
+ * They're sized for the job rather than for a photo: 640×400 WebP, ~14 KB each,
+ * ~170 KB for the set. At 10–16% opacity, rotated, behind a mask, on tiles at
+ * most ~512 CSS px wide, nothing larger is resolvable.
+ *
+ * To swap the set: replace the objects in `TILE_IMAGES`, upload to the same
+ * prefix, and update HERO-ASSETS.md. Tile size, count and per-row timing are all
+ * independent of what's inside them.
  */
 
 /** Rows down the grid. Each one scrolls opposite to its neighbours. */
@@ -43,16 +60,10 @@ const ROWS = 6;
  */
 const TILES_PER_ROW = 7;
 
-const TILE_IMAGES = [
-  "/screens/desktop-dashboard.webp",
-  "/screens/feature-timesheets.webp",
-  "/screens/mobile-timer.webp",
-  "/screens/feature-reports.webp",
-  "/screens/tablet-dashboard.webp",
-  "/screens/feature-projects.webp",
-  "/screens/desktop-tracker.webp",
-  "/screens/feature-activity.webp",
-];
+const TILE_IMAGES = Array.from(
+  { length: 12 },
+  (_, i) => `${ASSETS_URL}/marketing/hero/tile-${String(i + 1).padStart(2, "0")}.webp`
+);
 
 /**
  * Seconds for one full pass, per row. Deliberately uneven and mutually
@@ -64,12 +75,14 @@ const ROW_DURATIONS = ["82s", "104s", "71s", "119s", "93s", "134s"];
 /**
  * Which image each tile gets. A fixed function of the index rather than
  * `Math.random()`, so the server and the client render identical markup and the
- * layout doesn't reshuffle on hydration. The stride is coprime with the image
- * count, so no row repeats an image until it has used all eight, and adjacent
- * rows start on different ones.
+ * layout doesn't reshuffle on hydration.
+ *
+ * Both strides are coprime with 12: the column stride means a row of seven
+ * tiles never repeats an image, and the row stride means each row starts
+ * somewhere different, so no two rows scroll the same sequence past each other.
  */
 function imageFor(row: number, col: number) {
-  return TILE_IMAGES[(row * 3 + col * 5) % TILE_IMAGES.length];
+  return TILE_IMAGES[(row * 7 + col * 5) % TILE_IMAGES.length];
 }
 
 function Tile({ row, col }: { row: number; col: number }) {

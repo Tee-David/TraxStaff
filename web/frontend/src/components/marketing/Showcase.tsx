@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
 import { APP_URL } from "@/lib/site";
 import { Mark } from "./Mark";
+import { PhoneFrame, TabletFrame } from "./DeviceFrames";
 
 /**
  * The product, shown rather than described.
@@ -45,23 +46,6 @@ function WindowFrame({
         </span>
       </div>
       {children}
-    </div>
-  );
-}
-
-/** Phone body — rounded shell, bezel and speaker slot around the capture. */
-function PhoneFrame({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div
-      className={`rounded-[2.25rem] border border-black/10 bg-[#12162b] p-2 shadow-[0_28px_70px_-24px_rgba(18,22,43,0.55)] ${className}`}
-    >
-      <div className="relative overflow-hidden rounded-[1.75rem] bg-surface">
-        <span
-          aria-hidden
-          className="absolute left-1/2 top-2 z-10 h-1.5 w-16 -translate-x-1/2 rounded-full bg-black/25"
-        />
-        {children}
-      </div>
     </div>
   );
 }
@@ -129,13 +113,13 @@ export function Showcase() {
                 />
               </WindowFrame>
 
-              {/* The tray window it collapses to. Kept over the right-hand
-                  side: the expanded window already carries the same circular
-                  timer down its left rail, and sitting beside it read as two
-                  competing clocks rather than one app in two states. */}
+              {/* The tray window it collapses to. Only shown in the band where
+                  the tablet isn't: at `lg` and up the line-up is already
+                  desktop, tablet and phone, and a fourth frame overlapping the
+                  dashboard turns a composition into clutter. */}
               <WindowFrame
                 label="Tracker"
-                className="absolute -bottom-3 right-5 hidden w-[9rem] rotate-2 xl:block"
+                className="absolute -bottom-3 right-5 hidden w-[9rem] rotate-2 sm:block lg:hidden"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -149,7 +133,22 @@ export function Showcase() {
               </WindowFrame>
             </div>
 
-            <PhoneFrame className="w-[13.5rem] shrink-0 sm:w-[10.5rem] lg:w-[13rem]">
+            {/* The dashboard is a responsive web app, so a tablet runs it in a
+                browser today. It is deliberately not the mobile app: iOS isn't
+                shipped, and an iPad running it would imply otherwise. */}
+            <TabletFrame className="hidden w-[14rem] shrink-0 lg:block xl:w-[16rem]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/screens/tablet-dashboard.webp"
+                alt="The TraxStaff dashboard in a tablet browser: today's totals, a timeline of the day and a split by project."
+                width={720}
+                height={1031}
+                loading="lazy"
+                className="block w-full"
+              />
+            </TabletFrame>
+
+            <PhoneFrame className="w-[13rem] shrink-0 sm:w-[10rem] lg:w-[9.5rem] xl:w-[11rem]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/screens/mobile-timer.webp"

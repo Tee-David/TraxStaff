@@ -22,8 +22,12 @@ import {
 
 // Push the sync engine our credentials so the offline queue drains even when
 // no session is running. Empty token clears them (on sign-out).
-function pushSyncAuth() {
-  invoke("set_sync_auth", { token: getToken() ?? "", backend: API_BASE }).catch(() => {});
+//
+// This is also what binds the on-disk queue and the local screenshot gallery to
+// the signed-in account, so callers that are about to read either one should
+// await it — both are empty until the engine knows who is signed in.
+function pushSyncAuth(): Promise<void> {
+  return invoke<void>("set_sync_auth", { token: getToken() ?? "", backend: API_BASE }).catch(() => {});
 }
 
 interface SyncState {
@@ -182,8 +186,11 @@ function ConsentGate({ onLogout }: { onLogout: () => void }) {
   const [state, setState] = useState<"checking" | "needed" | "ok">("checking");
 
   useEffect(() => {
-    pushSyncAuth();
-    api<Me>("/auth/me")
+    // Scope first, then the consent check — offline, /auth/me rejects straight
+    // away, and the tracker behind this gate reads the per-account screenshot
+    // gallery as soon as it mounts.
+    pushSyncAuth()
+      .then(() => api<Me>("/auth/me"))
       .then((me) => setState(me.consentVersion != null && me.consentVersion >= CONSENT_VERSION ? "ok" : "needed"))
       // Offline: if we've accepted before on this device, don't block; else ask.
       .catch(() => setState(localStorage.getItem("trax_consent_v") === String(CONSENT_VERSION) ? "ok" : "needed"));

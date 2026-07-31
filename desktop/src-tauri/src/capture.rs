@@ -759,14 +759,18 @@ pub fn begin_capture(
     idle_minutes: i64,
     base_elapsed_secs: Option<i64>,
 ) -> Result<(), String> {
-    use tauri::Manager;
     if !sync::backend_allowed(&backend) {
         return Err("backend not allowed".into());
     }
     if token.trim().is_empty() {
         return Err("missing token".into());
     }
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("queue");
+    // Bind the queue to the account this token belongs to, so a block is only
+    // ever flushed with credentials that can actually claim it. Set from the
+    // capturing token itself (not just set_sync_auth's) so the dir being
+    // written to always matches the dir the flush will target.
+    crate::scope::set_from_token(&token);
+    let dir = sync::queue_dir_for(&app).ok_or_else(|| "no queue dir for this account".to_string())?;
     begin(token, backend, session_id, screenshots_per_block, blur, idle_minutes, dir, base_elapsed_secs.unwrap_or(0));
     Ok(())
 }
@@ -794,7 +798,11 @@ pub fn local_shots(app: tauri::AppHandle) -> Vec<serde_json::Value> {
     use base64::Engine;
     use tauri::Manager;
     let Ok(base) = app.path().app_data_dir() else { return Vec::new() };
-    let dir = shots_dir(&base.join("queue"));
+    // Only ever the signed-in account's own shots. These used to come from a
+    // single shared dir with no ownership check, so a new user's gallery showed
+    // the previous user's screenshots.
+    let Some(key) = crate::scope::current() else { return Vec::new() };
+    let dir = crate::scope::shots_dir(&base, &key);
     let Ok(entries) = fs::read_dir(&dir) else { return Vec::new() };
     // Collect metadata first (cheap), sort newest-first, then read + encode a cap.
     let mut metas: Vec<(i64, u32, PathBuf)> = entries
@@ -816,7 +824,7 @@ pub fn local_shots(app: tauri::AppHandle) -> Vec<serde_json::Value> {
     // shots haven't been accepted by the server yet; the manifest is deleted
     // only after a fully successful flush. Shots held in the current unfinalized
     // block live in RAM and aren't queued yet, so they count as pending too.
-    let queue = base.join("queue");
+    let queue = crate::scope::queue_dir(&base, &key);
     let pending = pending_shot_index(&queue);
     let in_flight = crate::sync::uploading_block();
 

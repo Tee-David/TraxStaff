@@ -1,6 +1,7 @@
 mod capture;
 mod clock;
 mod notify;
+mod scope;
 mod sync;
 mod os_idle;
 #[cfg(windows)]

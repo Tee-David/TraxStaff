@@ -82,8 +82,11 @@ pub fn wake() {
     }
 }
 
+/// The signed-in account's queue dir, or None while signed out — a queue is
+/// only ever flushed with the credentials that can claim it (see scope.rs).
 pub fn queue_dir_for(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_data_dir().ok().map(|d| d.join("queue"))
+    let base = app.path().app_data_dir().ok()?;
+    Some(crate::scope::queue_dir(&base, &crate::scope::current()?))
 }
 
 /// Queue dir resolved from the stored app handle — for callers (capture.rs)
@@ -157,15 +160,26 @@ fn client(timeout_secs: u64) -> Option<reqwest::blocking::Client> {
         .ok()
 }
 
-/// POST one activity block. Returns Ok(true) on 2xx, Ok(false) on a
-/// permanent server rejection (safe to drop), Err on anything worth retrying.
+/// Outcome of POSTing one block. `NotFound` is kept distinct from `Rejected`
+/// because the right response depends on whose queue the block came from — see
+/// `OnNotFound`.
+#[derive(Clone, Copy, PartialEq)]
+enum PostOutcome {
+    Accepted,
+    /// Permanently rejected — will never succeed, safe to drop.
+    Rejected,
+    /// Server answered 404 "Session not found".
+    NotFound,
+}
+
+/// POST one activity block. Err on anything worth retrying.
 fn post_block(
     c: &reqwest::blocking::Client,
     backend: &str,
     token: &str,
     session_id: &str,
     block: &serde_json::Value,
-) -> Result<bool, String> {
+) -> Result<PostOutcome, String> {
     let body = serde_json::json!({ "sessionId": session_id, "blocks": [block] });
     let resp = c
         .post(format!("{backend}/sync/activity"))
@@ -175,17 +189,12 @@ fn post_block(
         .map_err(|e| format!("network: {e}"))?;
     let status = resp.status();
     if status.is_success() {
-        Ok(true)
+        Ok(PostOutcome::Accepted)
     } else if status.as_u16() == 400 {
         // Malformed/rejected payload will never succeed — don't wedge the queue.
-        Ok(false)
+        Ok(PostOutcome::Rejected)
     } else if status.as_u16() == 404 {
-        // "Session not found": the session was never registered server-side (its
-        // /sessions/start never succeeded before the app closed). The queued
-        // manifest carries no projectId, so it can't be created retroactively —
-        // retrying just wedges the queue behind a block that can never land, and
-        // pins a permanent "Sync error". Drop it and let the rest flush.
-        Ok(false)
+        Ok(PostOutcome::NotFound)
     } else {
         // 401/403 (stale token) and 5xx: keep the data, retry later.
         Err(format!("server: {status}"))
@@ -200,7 +209,7 @@ pub fn sync_block<T: serde::Serialize>(
 ) -> bool {
     let Some(c) = client(20) else { return false };
     let Ok(v) = serde_json::to_value(block) else { return false };
-    matches!(post_block(&c, backend, token, session_id, &v), Ok(true))
+    matches!(post_block(&c, backend, token, session_id, &v), Ok(PostOutcome::Accepted))
 }
 
 pub fn sync_app_usage(
@@ -309,7 +318,47 @@ fn block_seq_of(path: &Path) -> i64 {
         .unwrap_or(i64::MAX)
 }
 
+/// What a 404 means for the queue being flushed.
+#[derive(Clone, Copy, PartialEq)]
+enum OnNotFound {
+    /// An account's own queue holds only its own sessions, so 404 can only mean
+    /// the session was never registered server-side (its /sessions/start never
+    /// succeeded before the app closed). The manifest carries no projectId, so
+    /// it can't be created retroactively — retrying just wedges the queue behind
+    /// a block that can never land and pins a permanent "Sync error".
+    Drop,
+    /// In the pre-partition shared queue a 404 is ambiguous: either the session
+    /// was never registered, or the block belongs to a DIFFERENT account and
+    /// this token has no business touching it. Deleting on that guess is how
+    /// one user's unsynced screenshots used to vanish when the next user signed
+    /// in, so keep the files and move on — the real owner drains them at their
+    /// next sign-in.
+    Keep,
+}
+
+/// Whether a block the server refused should be deleted from disk along with
+/// its screenshots. The one case that keeps a refused block is a 404 in the
+/// shared pre-partition queue, where the block may simply belong to a different
+/// account than the token it was flushed with.
+fn should_remove(outcome: PostOutcome, on_not_found: OnNotFound) -> bool {
+    match outcome {
+        PostOutcome::Accepted => false,
+        PostOutcome::Rejected => true,
+        PostOutcome::NotFound => on_not_found == OnNotFound::Drop,
+    }
+}
+
 pub fn flush_queue_dir(dir: &Path, backend: &str, token: &str, timeout_secs: u64) -> Result<(), String> {
+    flush_dir(dir, backend, token, timeout_secs, OnNotFound::Drop)
+}
+
+fn flush_dir(
+    dir: &Path,
+    backend: &str,
+    token: &str,
+    timeout_secs: u64,
+    on_not_found: OnNotFound,
+) -> Result<(), String> {
     let Ok(entries) = fs::read_dir(dir) else { return Ok(()) };
     let mut blocks: Vec<PathBuf> = entries
         .flatten()
@@ -348,11 +397,15 @@ pub fn flush_queue_dir(dir: &Path, backend: &str, token: &str, timeout_secs: u64
                 return Err(e);
             }
         };
-        if !posted {
-            // Permanently rejected — drop the block and its shots.
-            remove_block_files(dir, &path, &v);
-            set_uploading(None);
-            continue;
+        match posted {
+            PostOutcome::Accepted => {}
+            refused => {
+                if should_remove(refused, on_not_found) {
+                    remove_block_files(dir, &path, &v);
+                }
+                set_uploading(None);
+                continue;
+            }
         }
 
         // Block row exists server-side — now its screenshots can be confirmed.
@@ -469,13 +522,49 @@ fn cleanup_orphan_shots(dir: &Path) {
 
 // ---- background loop ----
 
+/// Marks work that runs once per signed-in account per process. Returns true
+/// the first time it sees `key` in `slot`, false afterwards.
+fn claim_once(slot: &Mutex<Option<String>>, key: &str) -> bool {
+    let Ok(mut g) = slot.lock() else { return false };
+    if g.as_deref() == Some(key) {
+        return false;
+    }
+    *g = Some(key.to_string());
+    true
+}
+
+/// Accounts whose queue has had its orphaned shot files swept this process.
+static SWEPT: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+/// Accounts that have finished a full pass over the pre-partition shared queue.
+static LEGACY_DRAINED: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+
 /// One pass of the background sync loop: flush the queue if there's work,
 /// auth is present, and backoff allows.
 fn sync_pass(app: &AppHandle) {
+    // Everything below is per-account, so a signed-out app does nothing at all
+    // — its predecessor's queue stays untouched on disk until they sign in.
+    let Some(scope_key) = crate::scope::current() else { return };
     let Some(dir) = queue_dir_for(app) else { return };
-    if count_blocks(&dir) == 0 {
+    if claim_once(&SWEPT, &scope_key) {
+        cleanup_orphan_shots(&dir);
+    }
+
+    let legacy = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|base| crate::scope::legacy_queue_dir(&base))
+        .filter(|d| d.is_dir() && count_blocks(d) > 0);
+    // The legacy queue is frozen and only shrinks, so one full pass per account
+    // is enough. Without that, blocks belonging to OTHER accounts (kept, never
+    // dropped) would be re-POSTed on every pass forever.
+    let legacy = legacy.filter(|_| {
+        LEGACY_DRAINED.lock().map(|g| g.as_deref() != Some(scope_key.as_str())).unwrap_or(false)
+    });
+    if count_blocks(&dir) == 0 && legacy.is_none() {
         return;
     }
+
     let (token, backend, failures) = {
         let Ok(s) = SYNC.lock() else { return };
         if s.token.is_empty() || s.backend.is_empty() {
@@ -488,7 +577,19 @@ fn sync_pass(app: &AppHandle) {
     };
     // Generous first-attempt timeout: the Render free tier cold-starts (~15min idle).
     let timeout = if failures == 0 { 60 } else { 20 };
-    match flush_queue_dir(&dir, &backend, &token, timeout) {
+    let mut result = flush_queue_dir(&dir, &backend, &token, timeout);
+    // Claim whatever this account left behind in the shared queue that predates
+    // per-account partitioning. Only marked done on a clean pass, so an offline
+    // attempt retries rather than stranding the blocks.
+    if result.is_ok() {
+        if let Some(legacy_dir) = legacy {
+            result = flush_dir(&legacy_dir, &backend, &token, timeout, OnNotFound::Keep);
+            if result.is_ok() {
+                claim_once(&LEGACY_DRAINED, &scope_key);
+            }
+        }
+    }
+    match result {
         Ok(()) => note_attempt_result(true, None),
         Err(e) => note_attempt_result(false, Some(e)),
     }
@@ -500,9 +601,8 @@ pub fn spawn_sync_loop(app: AppHandle) {
         *guard = Some(app.clone());
     }
     std::thread::spawn(move || {
-        if let Some(dir) = queue_dir_for(&app) {
-            cleanup_orphan_shots(&dir);
-        }
+        // The orphan sweep needs a signed-in account to know which queue to
+        // sweep, so it happens on the first sync pass rather than here.
         loop {
             std::thread::sleep(Duration::from_secs(5));
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sync_pass(&app)));
@@ -519,6 +619,9 @@ pub fn set_sync_auth(token: String, backend: String) -> Result<(), String> {
     if !token.is_empty() && !backend_allowed(&backend) {
         return Err("backend not allowed".into());
     }
+    // Bind the on-disk queue and gallery to whoever this token belongs to
+    // before anything can read or flush them.
+    crate::scope::set_from_token(&token);
     if let Ok(mut s) = SYNC.lock() {
         s.token = token;
         s.backend = backend;
@@ -563,4 +666,46 @@ pub async fn flush_now_async(app: AppHandle, token: String, backend: String) -> 
     })
     .await
     .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_404_in_the_shared_queue_never_deletes() {
+        // The block may belong to a different account than the token flushing
+        // it — deleting on that guess is how a previous user's unsynced
+        // screenshots and offline-tracked time used to disappear.
+        assert!(!should_remove(PostOutcome::NotFound, OnNotFound::Keep));
+    }
+
+    #[test]
+    fn a_404_in_an_accounts_own_queue_drops_the_unregistered_session() {
+        // Own queue holds only own sessions, so 404 means the session was never
+        // registered and the block can never land — dropping it unwedges the queue.
+        assert!(should_remove(PostOutcome::NotFound, OnNotFound::Drop));
+    }
+
+    #[test]
+    fn a_malformed_block_is_dropped_from_either_queue() {
+        assert!(should_remove(PostOutcome::Rejected, OnNotFound::Keep));
+        assert!(should_remove(PostOutcome::Rejected, OnNotFound::Drop));
+    }
+
+    #[test]
+    fn an_accepted_block_is_not_removed_by_the_refusal_path() {
+        assert!(!should_remove(PostOutcome::Accepted, OnNotFound::Drop));
+        assert!(!should_remove(PostOutcome::Accepted, OnNotFound::Keep));
+    }
+
+    #[test]
+    fn once_per_account_reruns_when_the_account_changes() {
+        let slot = Mutex::new(None);
+        assert!(claim_once(&slot, "a"));
+        assert!(!claim_once(&slot, "a"));
+        // A different account signing in on the same install gets its own run.
+        assert!(claim_once(&slot, "b"));
+        assert!(claim_once(&slot, "a"));
+    }
 }

@@ -139,7 +139,7 @@ export function Features() {
                 href={`${APP_URL}/app`}
                 whileHover={reduce ? undefined : { y: -2 }}
                 whileTap={reduce ? undefined : { scale: 0.97 }}
-                className="cursor-target mt-7 inline-flex rounded-full bg-brand px-5 py-3 text-sm font-semibold text-brand-fg transition-colors hover:bg-brand-600"
+                className="cursor-target mt-7 block w-full rounded-full bg-brand px-5 py-4 text-center text-sm font-semibold text-brand-fg transition-colors hover:bg-brand-600 sm:inline-block sm:w-auto sm:py-3"
               >
                 Explore the dashboard
               </motion.a>

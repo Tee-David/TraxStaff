@@ -97,6 +97,18 @@ export const IconAndroid = (p: SVGProps<SVGSVGElement>) => (
 export const IconExternalLink = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><path d="M14 4h6v6" /><path d="M20 4l-9.5 9.5" /><path d="M8 6H6a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-2" /></svg>
 );
+export const IconArrowRight = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M4 12h15" /><path d="M13 6l6 6-6 6" /></svg>
+);
+export const IconLogin = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" /><path d="M14 7l5 5-5 5" /><path d="M19 12H9" /></svg>
+);
+export const IconMail = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3.6 6.6l8.4 5.9 8.4-5.9" /></svg>
+);
+export const IconRefresh = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M20 12a8 8 0 1 1-8-8" /><path d="M9.4 2.6 12 4 9.4 5.4" /></svg>
+);
 export const IconApple = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M15.5 12.1c0-2.1 1.6-3.1 1.7-3.2-.9-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7-.6 0-1.6-.7-2.6-.7-1.3 0-2.6.8-3.2 2-1.4 2.4-.4 6 1 8 .7 1 1.5 2.1 2.5 2.1 1 0 1.4-.7 2.6-.7s1.6.7 2.7.6c1.1 0 1.8-1 2.5-2 .5-.7.9-1.5 1.1-2.3-1.5-.6-1.9-1.9-1.9-2.9Z" />

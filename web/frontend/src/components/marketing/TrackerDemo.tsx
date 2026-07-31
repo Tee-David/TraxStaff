@@ -113,7 +113,7 @@ export function TrackerDemo() {
           fits before the headline is what gives. A tall phone gets the ring,
           the totals and a project row; a short one crops into the totals. The
           fade sits on this box, so it's always at the cut. */}
-      <div className="relative max-h-[34vh] overflow-hidden px-4 pb-2 pt-3">
+      <div className="relative max-h-[clamp(8rem,30vh,15rem)] overflow-hidden px-4 pb-2 pt-3">
         {/* One control, sized to the whole ring: on a phone the tap target is
             the panel's centre, not a 44px circle inside it. */}
         <button

@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { APP_URL } from "@/lib/site";
 import { useTheme } from "@/lib/theme";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
+import { IconLogin, IconArrowRight } from "@/components/icons";
 
 /**
  * Only sections that actually exist on the page — there is no pricing,
@@ -57,14 +58,44 @@ export function MarketingNav() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
-  // Flush and invisible over the hero; once you've left it, the bar pulls in
-  // off the edges and becomes a floating glass pill. `> 24` rather than `> 8`
-  // so the change happens after a deliberate scroll, not on a stray pixel.
+  /* Flush and completely invisible over the hero; once you've left it, the bar
+     pulls in off the edges and becomes a floating glass pill.
+
+     The threshold is the hero's own height rather than a fixed 24px, because
+     the hero fills the viewport and its background runs up behind this bar (it
+     carries a negative top margin of `--mk-nav-h`, see globals.css). While any
+     part of the hero is still behind the header there is nothing to separate
+     from, so a fill there would read as a band drawn across the artwork. The
+     switch happens at `heroHeight - navHeight`, which is the exact scroll
+     position where the hero's bottom edge clears the bottom of the bar — so the
+     fill arrives as the hero leaves, not before or after it.
+
+     Measured from the DOM rather than assumed: the hero is `100svh`, and `svh`
+     can't be computed in JS. Re-measured on resize and orientation change. */
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
+    const NAV_H = 72; // `--mk-nav-h` / the bar's h-[4.5rem] in its resting state
+    let threshold = 24;
+
+    const measure = () => {
+      const hero = document.querySelector<HTMLElement>(".mk-hero");
+      // Fall back to the old near-immediate lift on any page that reuses this
+      // nav without a hero, rather than never lifting at all.
+      threshold = hero ? Math.max(0, hero.offsetHeight - NAV_H) : 24;
+    };
+    const onScroll = () => setScrolled(window.scrollY > threshold);
+    const onResize = () => {
+      measure();
+      onScroll();
+    };
+
+    measure();
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   /* Three states, and the transition between them is the whole effect:
@@ -126,15 +157,17 @@ export function MarketingNav() {
           <div className="hidden items-center gap-2 md:flex">
             <a
               href={`${APP_URL}/login`}
-              className="cursor-target rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-ink transition hover:border-border-strong"
+              className="cursor-target inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-ink transition hover:border-border-strong"
             >
+              <IconLogin width={15} height={15} />
               Log in
             </a>
             <a
               href={`${APP_URL}/app`}
-              className="mk-cta cursor-target rounded-full bg-accent px-4 py-2 text-sm font-bold transition hover:brightness-105"
+              className="mk-cta cursor-target inline-flex items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-sm font-bold transition hover:brightness-105"
             >
               Start free
+              <IconArrowRight width={15} height={15} />
             </a>
           </div>
 
@@ -176,15 +209,17 @@ export function MarketingNav() {
             <div className="mt-3 flex flex-col gap-2 border-t border-border/70 pt-3">
               <a
                 href={`${APP_URL}/login`}
-                className="rounded-full border border-border px-4 py-2.5 text-center text-sm font-medium text-ink transition hover:bg-canvas"
+                className="flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-center text-sm font-medium text-ink transition hover:bg-canvas"
               >
+                <IconLogin width={16} height={16} />
                 Log in
               </a>
               <a
                 href={`${APP_URL}/app`}
-                className="mk-cta rounded-full bg-accent px-4 py-2.5 text-center text-sm font-bold transition hover:brightness-105"
+                className="mk-cta flex items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-center text-sm font-bold transition hover:brightness-105"
               >
                 Start free
+                <IconArrowRight width={16} height={16} />
               </a>
             </div>
           </motion.div>

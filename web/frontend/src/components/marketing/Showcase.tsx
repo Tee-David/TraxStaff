@@ -55,9 +55,13 @@ export function Showcase() {
 
   return (
     <section id="showcase" className="bg-surface px-5 pb-24 sm:px-8 lg:pb-28">
+      {/* The same panel treatment as Transparency, the feature cards and the
+          marquee cards. This used to be a warm accent wash (`--color-showcase`),
+          which read as an unexplained brown box in dark mode and a peach one in
+          light — the only panel on the page that wasn't part of the set. */}
       <motion.div
         {...revealStagger()}
-        className="mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-showcase px-6 pt-14 sm:px-10 sm:pt-16 lg:px-14"
+        className="mx-auto max-w-6xl overflow-hidden rounded-[2rem] border border-border bg-canvas/70 px-6 pt-14 sm:px-10 sm:pt-16 lg:px-14"
       >
         {/* Centred and stacked on small screens, split left/right once there's
             room for the buttons to sit beside the heading. */}

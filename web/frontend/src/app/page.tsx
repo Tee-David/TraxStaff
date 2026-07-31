@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import TargetCursor from "@/components/marketing/TargetCursor";
 import { MarketingNav } from "@/components/marketing/Nav";
 import { Hero } from "@/components/marketing/Hero";
-import { PlatformStrip } from "@/components/marketing/PlatformStrip";
 import { Features } from "@/components/marketing/Features";
 import { Showcase } from "@/components/marketing/Showcase";
 import { Integrity } from "@/components/marketing/Integrity";
@@ -33,8 +32,9 @@ export default function Home() {
           visitor has. */}
       <TargetCursor spinDuration={2} hideDefaultCursor parallaxOn hoverDuration={0.2} cursorColor="#ff6600" />
       <MarketingNav />
+      {/* The platform strip is inside `Hero` now — it's the bottom row of the
+          one screen the hero fills, not a band underneath it. */}
       <Hero />
-      <PlatformStrip />
       <Features />
       <Showcase />
       {/* Social proof straight after the feature case, then the two honesty

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
 import { IconUsers, IconTrend, IconChevron } from "@/components/icons";
@@ -140,26 +140,46 @@ const slides: Slide[] = [
   },
 ];
 
+/** How long each slide holds before the track advances on its own. */
+const AUTOPLAY_MS = 3000;
+
 /**
  * One card per view, on a scroll-snapping track.
  *
  * A native scroll container rather than a transformed one, so a phone swipes
  * it with the platform's own physics, the arrows and dots are just programmatic
- * scrolls, and it stays keyboard-scrollable and readable with JS off. Nothing
- * auto-advances: there is no timed movement here to have to pause.
+ * scrolls, and it stays keyboard-scrollable and readable with JS off.
+ *
+ * It advances itself every three seconds, and because it does, it wraps: the
+ * arrows wrap with it rather than disabling at the ends, so there is one
+ * consistent story about what "next" means.
+ *
+ * Three things stop the timer, covering all three input kinds — WCAG 2.2.2
+ * needs a real mechanism, and hover alone only serves a mouse:
+ *   - hovering, for a pointer (and only a real mouse: `pointerType` is checked
+ *     because touch browsers fire a sticky enter on tap that never leaves,
+ *     which would latch it paused for good);
+ *   - focus landing anywhere inside, for a keyboard;
+ *   - using an arrow or a dot, which stops it for the rest of the visit — once
+ *     you've taken over, having it pull away under you is the annoying part.
+ *     That's also the mechanism a touch user has.
+ * Under `prefers-reduced-motion` it never starts.
  */
 function FeatureCarousel() {
   const { reduce, press } = useMotionPresets();
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [index, setIndex] = useState(0);
+  const [hovered, setHovered] = useState(false);
+  const [tookOver, setTookOver] = useState(false);
 
   const goTo = useCallback(
     (next: number) => {
       const el = trackRef.current;
       if (!el) return;
-      const clamped = Math.max(0, Math.min(slides.length - 1, next));
-      el.scrollTo({ left: clamped * el.clientWidth, behavior: reduce ? "auto" : "smooth" });
-      setIndex(clamped);
+      // Wraps rather than clamps, so a click on either arrow always moves.
+      const wrapped = ((next % slides.length) + slides.length) % slides.length;
+      el.scrollTo({ left: wrapped * el.clientWidth, behavior: reduce ? "auto" : "smooth" });
+      setIndex(wrapped);
     },
     [reduce]
   );
@@ -172,8 +192,35 @@ function FeatureCarousel() {
     setIndex(Math.round(el.scrollLeft / el.clientWidth));
   }, []);
 
+  /* Reads the live scroll position instead of `index`, so a swipe part-way
+     through the interval advances from where the track actually is — and so the
+     interval isn't torn down and restarted on every slide change. */
+  useEffect(() => {
+    if (reduce || hovered || tookOver) return;
+    const id = window.setInterval(() => {
+      const el = trackRef.current;
+      if (!el || el.clientWidth === 0) return;
+      const next = (Math.round(el.scrollLeft / el.clientWidth) + 1) % slides.length;
+      el.scrollTo({ left: next * el.clientWidth, behavior: "smooth" });
+      setIndex(next);
+    }, AUTOPLAY_MS);
+    return () => window.clearInterval(id);
+  }, [reduce, hovered, tookOver]);
+
   return (
-    <div className="mt-14">
+    <div
+      className="mt-14"
+      onPointerEnter={(e) => {
+        if (e.pointerType === "mouse") setHovered(true);
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === "mouse") setHovered(false);
+      }}
+      // React's onFocus/onBlur are focusin/focusout, so these fire for the
+      // track, the arrows and the dots alike.
+      onFocus={() => setHovered(true)}
+      onBlur={() => setHovered(false)}
+    >
       <div
         ref={trackRef}
         onScroll={onScroll}
@@ -218,13 +265,18 @@ function FeatureCarousel() {
       </div>
 
       <div className="mt-7 flex items-center justify-center gap-5">
+        {/* Every control here stops the auto-advance for good — see the note on
+            the component. None of them disable at the ends any more, because the
+            track wraps. */}
         <motion.button
           {...press}
           type="button"
-          onClick={() => goTo(index - 1)}
-          disabled={index === 0}
+          onClick={() => {
+            setTookOver(true);
+            goTo(index - 1);
+          }}
           aria-label="Previous screen"
-          className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-canvas/70 text-ink transition-colors hover:border-muted disabled:pointer-events-none disabled:opacity-35"
+          className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-canvas/70 text-ink transition-colors hover:border-muted"
         >
           <IconChevron width={18} height={18} className="rotate-180" />
         </motion.button>
@@ -234,7 +286,10 @@ function FeatureCarousel() {
             <button
               key={s.key}
               type="button"
-              onClick={() => goTo(i)}
+              onClick={() => {
+                setTookOver(true);
+                goTo(i);
+              }}
               aria-label={s.title}
               aria-current={i === index}
               className={`h-1.5 rounded-full transition-all ${
@@ -247,10 +302,12 @@ function FeatureCarousel() {
         <motion.button
           {...press}
           type="button"
-          onClick={() => goTo(index + 1)}
-          disabled={index === slides.length - 1}
+          onClick={() => {
+            setTookOver(true);
+            goTo(index + 1);
+          }}
           aria-label="Next screen"
-          className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-canvas/70 text-ink transition-colors hover:border-muted disabled:pointer-events-none disabled:opacity-35"
+          className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-canvas/70 text-ink transition-colors hover:border-muted"
         >
           <IconChevron width={18} height={18} />
         </motion.button>

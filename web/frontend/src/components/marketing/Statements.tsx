@@ -6,14 +6,15 @@ import { useMotionPresets } from "@/lib/motion";
 import { Mark } from "./Mark";
 
 /**
- * The positions the product is built on, as a single-row marquee.
+ * The positions the product is built on, as a pair of counter-scrolling
+ * marquees — the same two-row treatment the testimonials carousel uses.
  *
  * This used to stand in for the testimonial slot, back when there was nothing
  * honest to put there. Now that a testimonials carousel sits earlier in the
  * page it does its own job instead: closing the argument just before the
- * download CTA. Kept visually distinct from the testimonials on purpose — one
- * row rather than two, principle labels rather than quote marks and faces —
- * so two marquees on one page don't read as the same widget twice.
+ * download CTA. What keeps the two from reading as the same widget twice is no
+ * longer the row count but the cards themselves — principle labels and a rule,
+ * against quote marks and faces.
  *
  * Every line here is checkable against the app or the code. That mattered
  * enough to cost this section a card: it used to end on "nothing invented on
@@ -68,6 +69,17 @@ const statements: Statement[] = [
   },
 ];
 
+/* Both rows carry all six positions rather than three each.
+ *
+ * Splitting them would make each row about 1100px of cards, and the loop needs
+ * a row at least as wide as the viewport or a gap opens up at the end of every
+ * cycle on a wide monitor — the track is only ever the row plus one clone. Six
+ * cards is ~2200px, which covers anything short of an ultrawide. The second row
+ * is rotated so the two never show the same card at the same x, and it runs the
+ * other way at a different speed, so they don't read as one belt.
+ */
+const rowTwo = [...statements.slice(3), ...statements.slice(0, 3)];
+
 function StatementCard({ item, reduce }: { item: Statement; reduce: boolean }) {
   return (
     <motion.li
@@ -81,6 +93,39 @@ function StatementCard({ item, reduce }: { item: Statement; reduce: boolean }) {
       <p className="mt-4 flex-1 text-[0.9375rem] leading-relaxed text-ink">{item.body}</p>
       <span className="mt-5 border-t border-border pt-4 text-xs text-muted">{item.note}</span>
     </motion.li>
+  );
+}
+
+function Row({
+  items,
+  duration,
+  reverse,
+  decorative,
+  reduce,
+}: {
+  items: Statement[];
+  duration: string;
+  reverse?: boolean;
+  /** Hide the whole row from assistive tech — for the row that repeats content
+   *  already announced by the one above it. */
+  decorative?: boolean;
+  reduce: boolean;
+}) {
+  const cards = items.map((s) => <StatementCard key={s.label} item={s} reduce={reduce} />);
+
+  return (
+    <div
+      className={`mk-marquee-track ${reverse ? "mk-marquee-track--reverse" : ""}`}
+      style={{ "--mk-marquee-duration": duration } as CSSProperties}
+      aria-hidden={decorative || undefined}
+    >
+      <ul className="mk-marquee-row">{cards}</ul>
+      {/* Clone only exists to make the wrap seamless — hidden from assistive
+          tech so the list isn't announced twice. */}
+      <ul className="mk-marquee-row mk-marquee-clone" aria-hidden>
+        {cards}
+      </ul>
+    </div>
   );
 }
 
@@ -116,7 +161,6 @@ export function Statements() {
           same tab stop is what makes the scrollable row keyboard-operable. */}
       <div
         className={`mk-marquee mt-14 ${paused ? "mk-marquee-paused" : ""}`}
-        style={{ "--mk-marquee-duration": "68s" } as CSSProperties}
         tabIndex={0}
         role="group"
         aria-label="What TraxStaff stands behind. Scrolls automatically; pauses on hover, and on tap or Enter."
@@ -128,21 +172,14 @@ export function Statements() {
           }
         }}
       >
-        {/* Runs the opposite way to the testimonials' leading row, so the two
-            marquees never appear to be driving in lockstep. */}
-        <div className="mk-marquee-track mk-marquee-track--reverse">
-          <ul className="mk-marquee-row">
-            {statements.map((s) => (
-              <StatementCard key={s.label} item={s} reduce={reduce} />
-            ))}
-          </ul>
-          {/* Clone only exists to make the wrap seamless — hidden from
-              assistive tech so the list isn't announced twice. */}
-          <ul className="mk-marquee-row mk-marquee-clone" aria-hidden>
-            {statements.map((s) => (
-              <StatementCard key={s.label} item={s} reduce={reduce} />
-            ))}
-          </ul>
+        {/* The leading row runs the opposite way to the testimonials' leading
+            row, so the page's two marquees never appear to be driving in
+            lockstep. */}
+        <Row items={statements} duration="72s" reverse reduce={reduce} />
+        {/* Same six positions rotated, so this row is decoration as far as a
+            screen reader is concerned — the list is announced once, above. */}
+        <div className="mt-5">
+          <Row items={rowTwo} duration="88s" decorative reduce={reduce} />
         </div>
       </div>
 

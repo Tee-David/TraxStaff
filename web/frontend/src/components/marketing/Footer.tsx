@@ -5,6 +5,7 @@ import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
 import { SUPPORT_EMAIL } from "@/lib/site";
 import { RELEASES_FALLBACK_URL } from "@/lib/releases";
+import { IconMail } from "@/components/icons";
 
 /**
  * Only links to things that actually exist: there is no privacy policy, terms
@@ -106,8 +107,9 @@ function NewsletterForm() {
         <button
           type="submit"
           disabled={state.status === "sending"}
-          className="mk-cta cursor-target shrink-0 rounded-full bg-accent px-5 py-2.5 text-sm font-bold transition hover:brightness-105 disabled:opacity-60"
+          className="mk-cta cursor-target flex shrink-0 items-center justify-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-bold transition hover:brightness-105 disabled:opacity-60"
         >
+          <IconMail width={16} height={16} />
           {state.status === "sending" ? "Sending…" : "Subscribe"}
         </button>
       </div>

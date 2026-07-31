@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# credentials file (duplicate of the nomarc one) — never commit
+important.md
+IMPORTANT.md
+
 # working docs / reference screenshots — never commit
 plans/
 

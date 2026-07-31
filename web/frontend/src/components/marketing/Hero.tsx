@@ -5,8 +5,17 @@ import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
 import { Mark } from "./Mark";
 import { TrackerDemo } from "./TrackerDemo";
+import { PlatformRail } from "./PlatformStrip";
+import { HeroGridMotion } from "./HeroGridMotion";
 import { APP_URL } from "@/lib/site";
-import { IconClock, IconAndroid, IconWindows, IconLinux } from "@/components/icons";
+import {
+  IconClock,
+  IconAndroid,
+  IconWindows,
+  IconLinux,
+  IconArrowRight,
+  IconDownload,
+} from "@/components/icons";
 
 /**
  * Seconds since this component mounted. Real elapsed time, not a scripted
@@ -163,9 +172,27 @@ export function Hero() {
     },
   ];
 
+  /* The hero is one full screen (`min-height: 100svh`, set on `.mk-hero`) and
+     is pulled up by the height of the sticky header so its background runs
+     behind the bar — that's what lets the header sit on the hero with no fill
+     of its own and no seam. The padding below puts the content back under it.
+
+     Everything from here down is sized so the whole composition lands inside
+     that screen at any height: the column centres itself in whatever is left
+     after the platform rail, and each vertical gap is a `clamp()` on `vh` so
+     the rhythm compresses on a short viewport instead of pushing the rail off
+     the bottom. */
   return (
-    <section id="top" className="mk-hero relative overflow-hidden">
-      <div className="relative mx-auto max-w-7xl px-5 pb-16 pt-4 text-center sm:px-8 sm:pb-24 sm:pt-24 lg:pb-32">
+    <section
+      id="top"
+      className="mk-hero relative mt-[calc(var(--mk-nav-h)*-1)] overflow-hidden"
+    >
+      {/* Background only — masked out of the middle of the stage so it never
+          sits behind the headline, and behind the ruled lines and the vignette
+          in the paint order. */}
+      <HeroGridMotion />
+
+      <div className="relative mx-auto flex w-full max-w-7xl flex-1 flex-col justify-center px-5 pb-[clamp(0.75rem,2.5vh,2rem)] pt-[calc(var(--mk-nav-h)+clamp(0.5rem,2vh,1.75rem))] text-center sm:px-8">
         {floaters.map((f) => (
           <motion.div
             key={f.key}
@@ -201,17 +228,23 @@ export function Hero() {
               tapping it starts the clock. Everything from `sm` up is the
               layout as it was: tablets keep the live card below the buttons,
               and wide screens have the floating platform cards for this. */}
-          <motion.div {...revealItem} className="mb-6 flex justify-center sm:hidden">
+          <motion.div
+            {...revealItem}
+            className="mb-[clamp(0.625rem,2.2vh,1.5rem)] flex justify-center sm:hidden"
+          >
             <TrackerDemo />
           </motion.div>
 
-          {/* The eyebrow is the one thing here that can go: on a short phone
-              it's 60px between the tracker and the headline, and seeing the
-              whole hero at a glance matters more than the line does. Height,
-              not width — a 375×812 phone keeps it, a 375×667 doesn't. */}
+          {/* The eyebrow is the first thing that can go: it's ~60px of the
+              screen for a line the headline underneath already implies, and
+              seeing the whole hero at a glance matters more than it does.
+              Height, not width — the hero has to fit on a 1024×600 laptop for
+              the same reason it has to fit on a 375×667 phone, so this is a
+              plain height query rather than the phone-only one it used to be.
+              A 375×812 phone and anything on a normal desktop keep it. */}
           <motion.span
             {...revealItem}
-            className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15 [@media(max-height:750px)_and_(max-width:639px)]:hidden"
+            className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15 [@media(max-height:700px)]:hidden"
           >
             <IconClock width={13} height={13} className="text-accent" />
             Never covert, by design
@@ -219,7 +252,7 @@ export function Hero() {
 
           <motion.h1
             {...revealItem}
-            className="mx-auto mt-6 max-w-[52rem] font-heading sm:mt-8 text-[clamp(1.8rem,5.2vw,4rem)] font-bold leading-[1.06] tracking-[-0.04em] text-ink"
+            className="mx-auto mt-[clamp(1rem,2.6vh,2.25rem)] max-w-[52rem] font-heading text-[clamp(1.8rem,5.2vw,4rem)] font-bold leading-[1.06] tracking-[-0.04em] text-ink"
           >
             {/* Broken here rather than at "team" so the two lines come out
                 near-equal; the sizing above keeps each on one line right down
@@ -237,7 +270,7 @@ export function Hero() {
 
           <motion.p
             {...revealItem}
-            className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-muted sm:mt-7 sm:text-lg"
+            className="mx-auto mt-[clamp(0.75rem,2.2vh,1.75rem)] max-w-xl text-base leading-relaxed text-muted sm:text-lg"
           >
             {/* Two lengths, one at a time — `hidden` keeps the other out of the
                 accessibility tree as well as off the screen. The phone gets the
@@ -254,27 +287,44 @@ export function Hero() {
             </span>
           </motion.p>
 
-          <motion.div {...revealItem} className="mt-6 flex flex-col items-stretch justify-center gap-3 sm:mt-10 sm:flex-row sm:items-center">
+          {/* Two columns on a phone rather than two stacked full-width pills.
+              Stacking cost ~60px of a screen the hero now has to fit inside,
+              and a grid keeps the one thing the stack was protecting: both
+              buttons are still exactly the same width, so neither reads as the
+              lesser of the two. The short label on the second one is the same
+              trick the paragraph above uses. */}
+          <motion.div
+            {...revealItem}
+            className="mt-[clamp(1.25rem,3.2vh,2.5rem)] grid grid-cols-2 gap-3 sm:flex sm:flex-row sm:items-center sm:justify-center"
+          >
             <motion.a
               {...press}
               href={`${APP_URL}/app`}
-              className="mk-cta cursor-target rounded-full bg-accent px-8 py-4 text-sm font-bold transition-colors hover:brightness-105 sm:py-3.5"
+              className="mk-cta cursor-target flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3.5 text-sm font-bold transition-colors hover:brightness-105 sm:px-8"
             >
               Start free
+              <IconArrowRight width={16} height={16} />
             </motion.a>
             <motion.a
               {...press}
               href="#download"
-              className="cursor-target rounded-full border border-border-strong bg-surface px-8 py-4 text-sm font-semibold text-ink transition-colors hover:border-muted sm:py-3.5"
+              className="cursor-target flex items-center justify-center gap-2 rounded-full border border-border-strong bg-surface px-5 py-3.5 text-sm font-semibold text-ink transition-colors hover:border-muted sm:px-8"
             >
-              Download the app
+              <IconDownload width={16} height={16} />
+              <span className="sm:hidden">Download</span>
+              <span className="hidden sm:inline">Download the app</span>
             </motion.a>
           </motion.div>
 
           {/* Stand-in for the floating cards below xl, and the only timer on
-              the page showing genuinely real elapsed time. */}
-          <motion.div {...revealItem} className="mt-14 hidden justify-center sm:flex xl:hidden">
-            <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 text-left shadow-[var(--shadow-lift)]">
+              the page showing genuinely real elapsed time. The `mk-hero-live-*`
+              classes are what compress it on a short viewport and drop it on a
+              very short one — see globals.css. */}
+          <motion.div
+            {...revealItem}
+            className="mk-hero-live-wrap mt-[clamp(1rem,3vh,3.5rem)] hidden justify-center sm:flex xl:hidden"
+          >
+            <div className="mk-hero-live w-full max-w-sm rounded-2xl border border-border bg-surface p-5 text-left shadow-[var(--shadow-lift)]">
               <div className="flex items-center gap-2">
                 <span className="mk-live-dot" />
                 <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-positive">
@@ -284,10 +334,10 @@ export function Hero() {
               {/* Sized to sit inside the card rather than run at its edges. This
                   card only ever shows below `xl`, so the size is a phone and
                   tablet concern — the desktop hero's own clocks are untouched. */}
-              <div className="mk-clock mt-3 font-heading text-[1.875rem] font-bold leading-none tracking-[-0.03em] tabular-nums sm:text-[2.125rem]">
+              <div className="mk-hero-live-clock mk-clock mt-3 font-heading text-[1.875rem] font-bold leading-none tracking-[-0.03em] tabular-nums sm:text-[2.125rem]">
                 {formatElapsed(elapsed)}
               </div>
-              <p className="mt-3 text-sm leading-relaxed text-muted">
+              <p className="mk-hero-live-note mt-3 text-sm leading-relaxed text-muted">
                 How long this page has been open. You could see it counting the
                 whole time &mdash; that&rsquo;s the entire product.
               </p>
@@ -295,6 +345,9 @@ export function Hero() {
           </motion.div>
         </motion.div>
       </div>
+
+      {/* Part of the hero, on the bottom edge of the screen it fills. */}
+      <PlatformRail />
     </section>
   );
 }

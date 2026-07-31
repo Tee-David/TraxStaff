@@ -8,11 +8,6 @@
   --color-accent: #ff6600;
   --color-accent-fg: #ffffff;
 
-  /* Showcase panel behind the app screenshots. A soft wash of the accent —
-     the one place orange is used as a surface rather than a mark, which keeps
-     the section distinct from the two navy panels further down the page. */
-  --color-showcase: #ffefe2;
-
   /* Marketing dark fields. Deliberately *not* `--color-brand`: that token
      flips to a lit periwinkle in dark mode so accents stay legible on a dark
      canvas, which is right for the app but would turn the landing page's
@@ -52,30 +47,32 @@
 
 /* Dark theme — override the semantic tokens; every `bg-surface`, `text-ink`,
    `border-border`, etc. flips automatically. Toggled via data-theme on <html>. */
+/* The dark canvas is deliberately navy rather than near-black: the brand is
+   navy, and a neutral #0a0e1a read as a generic dark theme that happened to
+   have a navy logo on it. Everything here carries a blue hue at low lightness
+   so the page reads as the same product in either mode. */
 :root[data-theme="dark"] {
-  --color-canvas: #0a0e1a;
-  --color-surface: #121829;
-  --color-elevated: #1a2138;
-  --color-border: #242c42;
-  --color-border-strong: #354063;
+  --color-canvas: #0b1027;
+  --color-surface: #131a3a;
+  --color-elevated: #1b2450;
+  --color-border: #242d55;
+  --color-border-strong: #38447a;
   --color-ink: #eef1f8;
-  --color-muted: #9aa4bd;
-  --color-faint: #6a7391;
+  --color-muted: #a2acc9;
+  --color-faint: #737e9f;
   --color-brand: #5468ff;      /* lit navy for legible accents/active states */
   --color-brand-600: #6d7dff;
   /* Chart marks must follow the theme too. #000065 on the dark canvas is about
      1.3:1 — effectively invisible — so the categorical ramp lightens here. */
   --color-cat-focus: #5468ff;
-  --color-cat-break: #3d4763;
+  --color-cat-break: #3e4875;
   --color-positive: #35c281;
   --color-negative: #f4685f;
-  /* Navy panels sit on a near-black canvas here, so they drop a touch to
-     keep the edge between panel and page readable. */
-  --color-field: #0b0b40;
+  /* The solid navy panels have to stay clearly darker and more saturated than
+     the canvas now that the canvas is navy too — otherwise the download panel
+     and the footer dissolve into the page behind them. */
+  --color-field: #0a0a45;
   --color-field-deep: #06062a;
-  /* The accent wash would glare at full strength on a dark canvas; this keeps
-     the same warmth at a weight that sits behind the screenshots. */
-  --color-showcase: #1d1408;
 }
 
 * {
@@ -221,17 +218,38 @@ h1, h2, h3, h4, h5, h6 {
    dark stage goes almost black so the type and the floating cards carry the
    contrast, while the light stage stays cool and pale and leans on a firmer
    grid and a stronger vignette to keep the same sense of depth. */
+/* One full screen, at every screen. The hero is pulled up under the sticky
+   header by exactly `--mk-nav-h` (see Hero.tsx), so its background runs behind
+   the bar and the two read as a single surface with no seam — which is also
+   what lets the header stay transparent until you've scrolled past this
+   section. That makes the hero exactly `100svh` tall: the small-viewport unit
+   rather than `dvh` or `vh`, because it's the height with mobile browser chrome
+   *expanded*, so nothing in here can be hidden behind an address bar that
+   slides back in.
+
+   Flex column, so the platform rail can sit on the bottom edge of that screen
+   while the headline block takes whatever is left and centres itself in it. */
 .mk-hero {
+  --mk-nav-h: 4.5rem;
   --mk-hero-line: color-mix(in srgb, var(--color-brand) 15%, transparent);
   --mk-hero-glow: color-mix(in srgb, var(--color-brand) 14%, transparent);
   position: relative;
   isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100svh;
   background: #eff1f8;
 }
 :root[data-theme="dark"] .mk-hero {
   --mk-hero-line: rgba(255, 255, 255, 0.07);
-  --mk-hero-glow: color-mix(in srgb, var(--color-brand) 30%, transparent);
-  background: #05060e;
+  /* Navy rather than the old near-black #05060e: the canvas below is navy now,
+     and a black stage above it made the seam at the hero's bottom edge the most
+     visible line on the page. Sits a few steps under the canvas so the hero
+     still reads as the lit stage, with a stronger glow carrying the depth the
+     darker background used to. */
+  --mk-hero-glow: color-mix(in srgb, var(--color-brand) 38%, transparent);
+  background: #080d20;
 }
 /* Ruled lines, then a vignette that pulls the edges down so the centre reads
    as lit. Two layers rather than one so the grid fades independently. */
@@ -254,6 +272,119 @@ h1, h2, h3, h4, h5, h6 {
   inset: 0;
   z-index: -1;
   background: radial-gradient(58% 48% at 50% 6%, var(--mk-hero-glow) 0%, transparent 68%);
+}
+
+/* Hero background motion — the rotated, pointer-following grid of panels in
+   HeroGridMotion.tsx. See that file for what it is and how it moves; everything
+   here is about keeping it a background.
+
+   Two masks divide the hero's stage between two textures: the ruled lines above
+   are strongest in the middle and fade out, and this is the exact inverse —
+   nothing at all behind the headline, ramping up to full only out at the edges.
+   The type never has a moving tile behind it, at any size, which is the whole
+   reason this is usable as a hero background rather than just an effect.
+
+   `z-index: -3` puts it under both the ruled lines and the glow (-2 and -1), so
+   the vignette washes over it and knocks it further back. `pointer-events: none`
+   because the hero's CTAs and the custom cursor are on top of it. */
+.mk-hero-motion {
+  --mk-tile-fill: color-mix(in srgb, var(--color-brand) 5%, transparent);
+  --mk-tile-line: color-mix(in srgb, var(--color-brand) 10%, transparent);
+  --mk-tile-brand: color-mix(in srgb, var(--color-brand) 11%, transparent);
+  --mk-tile-accent: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(66% 56% at 50% 42%, transparent 0%, #000 94%);
+  mask-image: radial-gradient(66% 56% at 50% 42%, transparent 0%, #000 94%);
+}
+/* The dark stage takes plain white at very low alpha for the neutral tiles: a
+   brand-tinted panel on a navy background reads as a colour cast rather than as
+   a panel, and the two accented tints are what carry the hue here. */
+:root[data-theme="dark"] .mk-hero-motion {
+  --mk-tile-fill: rgba(255, 255, 255, 0.035);
+  --mk-tile-line: rgba(255, 255, 255, 0.065);
+  --mk-tile-brand: color-mix(in srgb, var(--color-brand) 17%, transparent);
+  --mk-tile-accent: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+/* Oversized so that once it's rotated it still covers the corners, plus room for
+   the rows to slide without a leading edge coming into view. Both axes take the
+   larger of the two viewport dimensions because the requirement flips with
+   orientation: a tall phone needs the width padded out, a wide monitor needs the
+   height. */
+.mk-hero-motion-grid {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(130vw, 120vh);
+  height: max(130vh, 120vw);
+  display: grid;
+  grid-template-rows: repeat(6, 1fr);
+  gap: clamp(0.5rem, 1vw, 1rem);
+  transform: translate(-50%, -50%) rotate(-15deg);
+  transform-origin: center center;
+}
+.mk-hero-motion-row {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: clamp(0.5rem, 1vw, 1rem);
+  will-change: transform;
+}
+.mk-hero-motion-tile {
+  border: 1px solid var(--mk-tile-line);
+  border-radius: clamp(0.5rem, 0.9vw, 0.875rem);
+  background: var(--mk-tile-fill);
+}
+.mk-hero-motion-tile--brand {
+  background: var(--mk-tile-brand);
+}
+.mk-hero-motion-tile--accent {
+  background: var(--mk-tile-accent);
+}
+/* Still texture, no movement — the rows keep whatever transform they were born
+   with, which is none. The component skips the ticker entirely under this query;
+   this only softens the tiles, since a static pattern this size is more
+   noticeable than a drifting one. */
+@media (prefers-reduced-motion: reduce) {
+  .mk-hero-motion {
+    opacity: 0.6;
+  }
+}
+
+/* The hero's live-timer card. It only appears between `sm` and `xl`: phones get
+   the interactive tracker panel above the headline, wide screens get the
+   floating platform cards, and this carries the running clock in the band
+   between the two.
+
+   Since the whole hero now has to land inside one screen, this is the piece
+   that gives when there isn't room. On a short viewport it sheds the sentence
+   under the clock and tightens up; under 640px of height it goes entirely,
+   which leaves the headline, the copy, the buttons and the platform rail — the
+   parts that have to be visible. Nothing is lost outright: the same
+   "you could see it counting" point is made again two sections down.
+
+   Written as real media queries rather than Tailwind `[@media...]` variants
+   because these are height breakpoints applying to several properties at once,
+   and the variant syntax for that is unreadable. Unlayered, so they win over
+   the utilities in `@layer utilities` whatever the source order. */
+@media (max-height: 880px) {
+  .mk-hero-live {
+    padding: 0.875rem 1.25rem;
+  }
+  .mk-hero-live-clock {
+    margin-top: 0.25rem;
+    font-size: 1.625rem;
+  }
+  .mk-hero-live-note {
+    display: none;
+  }
+}
+@media (max-height: 640px) {
+  .mk-hero-live-wrap {
+    display: none;
+  }
 }
 
 /* Blueprint grid — the graph-paper field the hero and the dark panels sit on.

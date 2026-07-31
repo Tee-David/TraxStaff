@@ -99,8 +99,13 @@ export function Showcase() {
           {/* Below `sm` the desktop capture shrinks to the point of being
               unreadable, so the phone carries the section on its own there and
               the window frames come back once there's width for them. */}
-          <div className="flex items-end justify-center gap-5 lg:gap-8">
-            <div className="relative hidden min-w-0 flex-1 sm:block">
+          {/* Each device sits slightly over the one before it — desktop, then
+              tablet, then phone — with the stacking order following the same
+              order, so the overlaps read as a group of screens rather than
+              three unrelated frames in a row. Negative margins do the overlap;
+              `items-end` keeps them on one baseline. */}
+          <div className="flex items-end justify-center gap-5 sm:gap-0">
+            <div className="relative z-10 hidden min-w-0 flex-1 sm:block">
               <WindowFrame label="TraxStaff — Dashboard">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -136,19 +141,19 @@ export function Showcase() {
             {/* The dashboard is a responsive web app, so a tablet runs it in a
                 browser today. It is deliberately not the mobile app: iOS isn't
                 shipped, and an iPad running it would imply otherwise. */}
-            <TabletFrame className="hidden w-[14rem] shrink-0 lg:block xl:w-[16rem]">
+            <TabletFrame className="z-20 hidden w-[19rem] shrink-0 lg:-ml-[4.5rem] lg:block xl:-ml-[5.5rem] xl:w-[23rem]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/screens/tablet-dashboard.webp"
-                alt="The TraxStaff dashboard in a tablet browser: today's totals, a timeline of the day and a split by project."
-                width={720}
-                height={1031}
+                alt="The TraxStaff dashboard in a tablet browser: the sidebar, today's totals, a timeline of the day and the project board."
+                width={960}
+                height={671}
                 loading="lazy"
                 className="block w-full"
               />
             </TabletFrame>
 
-            <PhoneFrame className="w-[13rem] shrink-0 sm:w-[10rem] lg:w-[9.5rem] xl:w-[11rem]">
+            <PhoneFrame className="z-30 w-[13rem] shrink-0 sm:-ml-14 sm:w-[9rem] lg:-ml-16 lg:w-[8.5rem] xl:w-[10rem]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/screens/mobile-timer.webp"

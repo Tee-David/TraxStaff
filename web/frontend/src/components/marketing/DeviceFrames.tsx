@@ -89,11 +89,11 @@ function PhoneStatusBar() {
 /** iPad status bar — no island, no cellular on a wifi model, and much shorter. */
 function TabletStatusBar() {
   return (
-    <svg viewBox="0 0 834 44" className="block w-full" aria-hidden>
-      <rect width="834" height="44" fill="#ffffff" />
+    <svg viewBox="0 0 1194 40" className="block w-full" aria-hidden>
+      <rect width="1194" height="40" fill="#ffffff" />
       <text
-        x="46"
-        y="30"
+        x="52"
+        y="27"
         textAnchor="middle"
         fontSize="15"
         fontWeight="600"
@@ -102,8 +102,8 @@ function TabletStatusBar() {
       >
         9:41
       </text>
-      <g transform="translate(0 -4)">
-        <StatusIcons x={745} cellular={false} />
+      <g transform="translate(0 -7)">
+        <StatusIcons x={1100} cellular={false} />
       </g>
     </svg>
   );
@@ -132,20 +132,28 @@ export function PhoneFrame({ children, className = "" }: { children: ReactNode; 
 }
 
 /**
- * iPad. Bezels are even on all four sides and proportionally thicker than a
- * phone's, the corner radius is much gentler, and there is a front camera on
- * the top edge instead of a cutout in the screen.
+ * iPad, landscape. Bezels are even on all four sides and proportionally
+ * thicker than a phone's, the corner radius is much gentler, and there is a
+ * front camera on the bezel rather than a cutout in the screen — on the long
+ * edge, which is where it sits on current iPads and where it belongs when the
+ * device is held this way round.
+ *
+ * Radii are in rem rather than the phone's percentage pair. A `x%/y%` radius
+ * resolves against width and height separately, which stays circular only at
+ * the aspect ratio it was tuned for; on a landscape frame the same values come
+ * out as visible ellipses.
  */
 export function TabletFrame({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <div className={`relative ${className}`}>
-      <span aria-hidden className="absolute -right-[2px] top-[8%] h-[5%] w-[2px] rounded-r bg-[#2b2d36]" />
-      <div className="relative overflow-hidden rounded-[6.5%/4.6%] bg-[#1b1c22] p-[3.4%] shadow-[0_28px_70px_-24px_rgba(18,22,43,0.5)]">
+      <span aria-hidden className="absolute -top-[2px] right-[16%] h-[2px] w-[7%] rounded-t bg-[#2b2d36]" />
+      <span aria-hidden className="absolute -right-[2px] top-[12%] h-[9%] w-[2px] rounded-r bg-[#2b2d36]" />
+      <div className="relative overflow-hidden rounded-[1.35rem] bg-[#1b1c22] p-[2.2%] shadow-[0_28px_70px_-24px_rgba(18,22,43,0.5)]">
         <span
           aria-hidden
-          className="absolute left-1/2 top-[1.5%] h-[0.7%] w-[1.4%] -translate-x-1/2 rounded-full bg-[#33353f]"
+          className="absolute left-1/2 top-[1.1%] h-[1.1%] w-[0.7%] -translate-x-1/2 rounded-full bg-[#33353f]"
         />
-        <div className="overflow-hidden rounded-[3.6%/2.6%] bg-surface">
+        <div className="overflow-hidden rounded-[0.8rem] bg-surface">
           <TabletStatusBar />
           {children}
         </div>

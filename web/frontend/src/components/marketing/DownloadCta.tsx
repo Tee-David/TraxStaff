@@ -34,8 +34,11 @@ function DownloadButton({
   href: string;
   primary?: boolean;
 }) {
+  const { press } = useMotionPresets();
+
   return (
-    <a
+    <motion.a
+      {...press}
       href={href}
       rel="noopener noreferrer"
       className={`flex items-center gap-3 rounded-2xl border px-5 py-4 transition ${
@@ -56,7 +59,7 @@ function DownloadButton({
         <span className={`block text-xs ${primary ? "text-field/60" : "text-white/55"}`}>{hint}</span>
       </span>
       <IconDownload width={16} height={16} />
-    </a>
+    </motion.a>
   );
 }
 
@@ -80,7 +83,7 @@ function ComingSoonButton({ icon, label }: { icon: React.ReactNode; label: strin
 }
 
 export function DownloadCta() {
-  const { page } = useMotionPresets();
+  const { reveal } = useMotionPresets();
   const { state, load } = useLatestRelease();
   const platform = detectDesktopPlatform();
   const primary: "windows" | "linux" = platform === "linux" ? "linux" : "windows";
@@ -88,7 +91,7 @@ export function DownloadCta() {
   return (
     <section id="download" className="bg-surface px-5 pb-24 sm:px-8 lg:pb-28">
       <motion.div
-        {...page}
+        {...reveal}
         className="mk-on-field mk-grid mk-grid-invert relative mx-auto max-w-5xl overflow-hidden rounded-[2rem] bg-field px-6 py-16 text-white sm:px-12 lg:py-20"
       >
         <div className="mx-auto max-w-xl text-center">
@@ -190,7 +193,7 @@ export function DownloadCta() {
                       <a
                         href={data.linuxDeb}
                         rel="noopener noreferrer"
-                        className="mt-2.5 inline-block pl-1 text-xs font-medium text-white/70 transition hover:text-white hover:underline"
+                        className="mt-1 inline-block px-1 py-2.5 text-xs font-medium text-white/70 transition hover:text-white hover:underline"
                       >
                         or get the .deb package instead
                       </a>
@@ -222,7 +225,7 @@ export function DownloadCta() {
                       href={data.htmlUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-1.5 text-xs font-medium text-white/65 transition hover:text-white hover:underline"
+                      className="flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-white/65 transition hover:text-white hover:underline"
                     >
                       Release notes <IconExternalLink width={13} height={13} />
                     </a>

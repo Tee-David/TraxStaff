@@ -159,12 +159,12 @@ const compact = [
 ];
 
 export function Features() {
-  const { stagger, item } = useMotionPresets();
+  const { reveal, revealStagger, item, reduce } = useMotionPresets();
 
   return (
     <section id="features" className="bg-surface">
       <div className="mx-auto max-w-6xl px-5 py-24 sm:px-8 lg:py-28">
-        <div className="mx-auto max-w-2xl text-center">
+        <motion.div {...reveal} className="mx-auto max-w-2xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
             Features
           </span>
@@ -176,9 +176,9 @@ export function Features() {
             TraxStaff collects what it takes to account for time honestly &mdash;
             never what you type, never full URLs, always visibly.
           </p>
-        </div>
+        </motion.div>
 
-        <motion.div {...stagger(0.05)} className="mt-14 grid gap-5 lg:grid-cols-2">
+        <motion.div {...revealStagger()} className="mt-14 grid gap-5 lg:grid-cols-2">
           {/* Wide card — text left, mockup right. */}
           <motion.div
             {...item}
@@ -195,7 +195,7 @@ export function Features() {
               </p>
               <a
                 href={`${APP_URL}/app`}
-                className="mt-7 inline-flex rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-brand-fg transition hover:bg-brand-600"
+                className="mt-7 inline-flex rounded-full bg-brand px-5 py-3 text-sm font-semibold text-brand-fg transition hover:bg-brand-600"
               >
                 Explore the dashboard
               </a>
@@ -243,11 +243,13 @@ export function Features() {
           </motion.div>
         </motion.div>
 
-        <motion.div {...stagger(0.05)} className="mt-5 grid gap-5 sm:grid-cols-3">
+        <motion.div {...revealStagger()} className="mt-5 grid gap-5 sm:grid-cols-3">
           {compact.map(({ icon: Icon, title, body }) => (
             <motion.div
               key={title}
               {...item}
+              whileHover={reduce ? undefined : { y: -4 }}
+              transition={{ duration: 0.2, ease: [0.22, 0.61, 0.36, 1] }}
               className="rounded-3xl border border-border bg-canvas/70 p-7"
             >
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand/10 text-brand">

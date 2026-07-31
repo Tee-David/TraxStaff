@@ -179,14 +179,14 @@ function Row({
 }
 
 export function Testimonials() {
-  const { page, reduce } = useMotionPresets();
+  const { reveal, reduce } = useMotionPresets();
   // Hover covers pointers and :focus-visible covers keyboards, but a phone has
   // neither — without this a touch user can't stop the rows to read them.
   const [paused, setPaused] = useState(false);
 
   return (
     <section className="bg-surface pb-24 lg:pb-28">
-      <motion.div {...page} className="mx-auto max-w-2xl px-5 text-center sm:px-8">
+      <motion.div {...reveal} className="mx-auto max-w-2xl px-5 text-center sm:px-8">
         <span className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15">
           <span className="text-accent">
             <IconStar />

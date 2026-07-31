@@ -17,13 +17,13 @@ const platforms = [
 ];
 
 export function PlatformStrip() {
-  const { stagger, item } = useMotionPresets();
+  const { revealStagger, item } = useMotionPresets();
 
   return (
     <section className="border-y border-border bg-canvas/70">
       <div className="mx-auto max-w-6xl px-5 py-9 sm:px-8">
         <motion.div
-          {...stagger()}
+          {...revealStagger()}
           className="flex flex-col items-center gap-6 sm:flex-row sm:justify-between sm:gap-10"
         >
           <motion.p {...item} className="max-w-xs text-center text-sm leading-snug text-muted sm:text-left">

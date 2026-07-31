@@ -102,7 +102,7 @@ function TimerPill({
 }
 
 export function Hero() {
-  const { stagger, item, reduce } = useMotionPresets();
+  const { stagger, item, reduce, press } = useMotionPresets();
   const elapsed = useElapsed();
 
   /* Floating objects live in the margins beside the headline column, the way
@@ -122,7 +122,7 @@ export function Hero() {
           className="-rotate-3"
         />
       ),
-      className: "left-0 top-[16%]",
+      className: "left-2 top-[16%]",
       float: -8,
     },
     {
@@ -136,7 +136,7 @@ export function Hero() {
           className="rotate-3"
         />
       ),
-      className: "right-0 top-[24%]",
+      className: "right-2 top-[24%]",
       float: 8,
     },
     {
@@ -225,18 +225,20 @@ export function Hero() {
           </motion.p>
 
           <motion.div {...item} className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
-            <a
+            <motion.a
+              {...press}
               href={`${APP_URL}/app`}
-              className="rounded-full bg-accent px-8 py-4 text-sm font-bold text-field transition hover:brightness-105 sm:py-3.5"
+              className="rounded-full bg-accent px-8 py-4 text-sm font-bold text-field transition-colors hover:brightness-105 sm:py-3.5"
             >
               Start free
-            </a>
-            <a
+            </motion.a>
+            <motion.a
+              {...press}
               href="#download"
-              className="rounded-full border border-border-strong bg-surface px-8 py-4 text-sm font-semibold text-ink transition hover:border-muted sm:py-3.5"
+              className="rounded-full border border-border-strong bg-surface px-8 py-4 text-sm font-semibold text-ink transition-colors hover:border-muted sm:py-3.5"
             >
               Download the app
-            </a>
+            </motion.a>
           </motion.div>
 
           {/* Stand-in for the floating cards below xl, and the only timer on

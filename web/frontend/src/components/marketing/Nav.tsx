@@ -63,7 +63,7 @@ export function MarketingNav() {
             <a
               key={l.href}
               href={l.href}
-              className="text-sm font-medium text-muted transition-colors hover:text-ink"
+              className="py-2.5 text-sm font-medium text-muted transition-colors hover:text-ink"
             >
               {l.label}
             </a>
@@ -88,7 +88,7 @@ export function MarketingNav() {
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface text-ink transition hover:border-border-strong md:hidden"
+          className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface text-ink transition hover:border-border-strong md:hidden"
           aria-label={open ? "Close menu" : "Open menu"}
           aria-expanded={open}
         >

@@ -84,14 +84,14 @@ function StatementCard({ item, reduce }: { item: Statement; reduce: boolean }) {
 }
 
 export function Statements() {
-  const { page, reduce } = useMotionPresets();
+  const { reveal, reduce } = useMotionPresets();
   // Hover covers pointers and :focus-visible covers keyboards, but a phone has
   // neither — without this a touch user can't stop the row to read it.
   const [paused, setPaused] = useState(false);
 
   return (
     <section className="bg-surface pb-24 lg:pb-28">
-      <motion.div {...page} className="mx-auto max-w-2xl px-5 text-center sm:px-8">
+      <motion.div {...reveal} className="mx-auto max-w-2xl px-5 text-center sm:px-8">
         <span className="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
           Where we stand
         </span>

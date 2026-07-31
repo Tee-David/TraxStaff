@@ -43,12 +43,12 @@ const layers = [
 ];
 
 export function Integrity() {
-  const { stagger, item } = useMotionPresets();
+  const { reveal, revealStagger, item } = useMotionPresets();
 
   return (
     <section className="bg-surface px-5 pb-24 sm:px-8 lg:pb-28">
       <div className="mk-on-field mk-grid mk-grid-invert relative mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-field px-6 py-20 text-white sm:px-10 lg:py-24">
-        <div className="mx-auto max-w-2xl text-center">
+        <motion.div {...reveal} className="mx-auto max-w-2xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">
             Integrity
           </span>
@@ -62,20 +62,20 @@ export function Integrity() {
             Here is exactly where each one lives &mdash; and where the last one
             stops.
           </p>
-        </div>
+        </motion.div>
 
-        <motion.div {...stagger(0.05)} className="mt-14 grid gap-4 sm:grid-cols-2">
+        <motion.div {...revealStagger()} className="mt-14 grid gap-4 sm:grid-cols-2">
           {layers.map((l) => (
             <motion.div
               key={l.where}
               {...item}
-              className="rounded-2xl border border-white/12 bg-white/[0.04] p-7"
+              className="min-w-0 rounded-2xl border border-white/12 bg-white/[0.04] p-7"
             >
               <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">
                 {l.where}
               </span>
               <h3 className="mt-3 font-heading text-lg font-bold tracking-[-0.02em]">{l.title}</h3>
-              <p className="mt-2.5 text-sm leading-relaxed text-white/65">{l.body}</p>
+              <p className="mt-2.5 break-words text-sm leading-relaxed text-white/65">{l.body}</p>
             </motion.div>
           ))}
         </motion.div>

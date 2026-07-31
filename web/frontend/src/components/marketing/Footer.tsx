@@ -57,7 +57,7 @@ export function Footer({ currentYear }: { currentYear: number }) {
           <Column title="Product">
             {product.map((l) => (
               <li key={l.href}>
-                <a href={l.href} className="text-sm text-white/60 transition hover:text-white">
+                <a href={l.href} className="inline-block py-1 text-sm text-white/60 transition hover:text-white">
                   {l.label}
                 </a>
               </li>
@@ -67,7 +67,7 @@ export function Footer({ currentYear }: { currentYear: number }) {
           <Column title="Platforms">
             {platforms.map((p) => (
               <li key={p.label}>
-                <a href={p.href} className="text-sm text-white/60 transition hover:text-white">
+                <a href={p.href} className="inline-block py-1 text-sm text-white/60 transition hover:text-white">
                   {p.label}
                 </a>
               </li>
@@ -79,7 +79,7 @@ export function Footer({ currentYear }: { currentYear: number }) {
             <li>
               <a
                 href={`mailto:${SUPPORT_EMAIL}`}
-                className="text-sm text-white/60 transition hover:text-white"
+                className="inline-block py-1 text-sm text-white/60 transition hover:text-white"
               >
                 {SUPPORT_EMAIL}
               </a>
@@ -89,7 +89,7 @@ export function Footer({ currentYear }: { currentYear: number }) {
                 href={RELEASES_FALLBACK_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-white/60 transition hover:text-white"
+                className="inline-block py-1 text-sm text-white/60 transition hover:text-white"
               >
                 Releases
               </a>

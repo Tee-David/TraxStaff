@@ -83,12 +83,12 @@ function MarkOff() {
 }
 
 export function Transparency() {
-  const { stagger, item } = useMotionPresets();
+  const { reveal, revealStagger, item } = useMotionPresets();
 
   return (
     <section id="transparency" className="bg-surface px-5 pb-24 sm:px-8 lg:pb-28">
       <div className="mx-auto max-w-6xl">
-        <div className="mx-auto max-w-2xl text-center">
+        <motion.div {...reveal} className="mx-auto max-w-2xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">
             Transparency
           </span>
@@ -101,10 +101,10 @@ export function Transparency() {
             The same disclosure every staff member reads and accepts before
             tracking can start. Not a summary of it &mdash; the list itself.
           </p>
-        </div>
+        </motion.div>
 
         <motion.div
-          {...stagger(0.05)}
+          {...revealStagger()}
           className="mt-14 grid overflow-hidden rounded-[2rem] border border-border bg-canvas/70 lg:grid-cols-2"
         >
           <div className="border-b border-border p-8 sm:p-10 lg:border-b-0 lg:border-r">

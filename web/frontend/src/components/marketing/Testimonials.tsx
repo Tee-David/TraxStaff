@@ -3,6 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
+import { Mark } from "./Mark";
 
 /* ===========================================================================
    PLACEHOLDER CONTENT — NOT REAL CUSTOMERS.
@@ -196,7 +197,7 @@ export function Testimonials() {
         <h2 className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em] text-ink">
           Words from teams who
           <br className="hidden sm:block" /> stopped{" "}
-          <span className="mk-mark">fighting</span> the timer.
+          <Mark>fighting</Mark> the timer.
         </h2>
       </motion.div>
 

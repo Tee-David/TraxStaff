@@ -40,7 +40,7 @@ export default function RootLayout({
             leave everything below the fold invisible to a non-JS visitor or
             crawler. Scoped to .mk-page so the dashboard is untouched. */}
         <noscript>
-          <style>{`.mk-page [style*="opacity:0"]{opacity:1!important;transform:none!important}`}</style>
+          <style>{`.mk-page [style*="opacity:0"]{opacity:1!important;transform:none!important}.mk-page .mk-mark-stroke{clip-path:none!important}`}</style>
         </noscript>
       </head>
       <body>

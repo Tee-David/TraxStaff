@@ -288,9 +288,12 @@ h1, h2, h3, h4, h5, h6 {
   position: relative;
   white-space: nowrap;
 }
-.mk-mark::after {
-  content: "";
+/* The stroke is a real element rather than a ::after so it can be animated —
+   see the `draw` preset in lib/motion.ts, which wipes it on left to right.
+   A pseudo-element can't be driven by Framer. */
+.mk-mark-stroke {
   position: absolute;
+  pointer-events: none;
   left: -0.05em;
   right: -0.05em;
   bottom: -0.11em;
@@ -298,6 +301,29 @@ h1, h2, h3, h4, h5, h6 {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 24' preserveAspectRatio='none'%3E%3Cpath fill='%23ff6600' d='M5,16.4 C70,10.6 152,7.6 214,7.2 C277,6.8 341,8.6 394,6.4 L392,14.6 C338,16.8 274,15 213,15.4 C153,15.8 70,19 6.6,23.6 Z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-size: 100% 100%;
+
+  /* Drawn on left to right once the phrase reaches the viewport — Mark.tsx
+     flips data-drawn. Clipping rather than scaling keeps the brush shape
+     intact as it appears; scaling the box would stretch the artwork into
+     place. The delay lets the words land before the stroke follows them.
+
+     Deliberately a CSS transition rather than a Framer animation: this
+     element lives inside a motion heading that is itself a variant child of
+     a staggered section, and Framer propagates variant state down the motion
+     tree, which overrides a nested element's own initial/whileInView and
+     leaves the stroke clipped to nothing for good. CSS sidesteps that
+     entirely, and interpolates inset() perfectly well. */
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) 0.4s;
+}
+.mk-mark-stroke[data-drawn="true"] {
+  clip-path: inset(0 0 0 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mk-mark-stroke {
+    clip-path: none;
+    transition: none;
+  }
 }
 
 /* Marquee — a continuously scrolling row that pauses on hover or keyboard

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
+import { Mark } from "./Mark";
 import { APP_URL } from "@/lib/site";
 import { IconClock, IconAndroid, IconWindows, IconLinux } from "@/components/icons";
 
@@ -212,7 +213,7 @@ export function Hero() {
                 to the point the break is dropped on small screens. */}
             Time tracking your
             <br className="hidden sm:block" /> team can{" "}
-            <span className="mk-mark">actually see</span>
+            <Mark>actually see</Mark>
           </motion.h1>
 
           <motion.p

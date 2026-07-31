@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
+import { Mark } from "./Mark";
 
 /**
  * Takes the slot the reference layout gives to an integrations marquee.
@@ -55,7 +56,7 @@ export function Integrity() {
           <h2 className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em]">
             Tamper-evident by design,
             <br className="hidden sm:block" /> not tamper-proof by{" "}
-            <span className="mk-mark">claim</span>
+            <Mark>claim</Mark>
           </h2>
           <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-white/70">
             Four layers stand between a tracked hour and a number you can trust.

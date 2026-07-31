@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
+import { Mark } from "./Mark";
 
 /**
  * Takes the slot the reference layout gives to a stats row ("50K+ users",
@@ -95,7 +96,7 @@ export function Transparency() {
           <h2 className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em] text-ink">
             What&rsquo;s recorded,
             <br className="hidden sm:block" /> and what{" "}
-            <span className="mk-mark">never</span> is
+            <Mark>never</Mark> is
           </h2>
           <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-muted">
             The same disclosure every staff member reads and accepts before

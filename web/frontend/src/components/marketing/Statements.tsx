@@ -3,6 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
+import { Mark } from "./Mark";
 
 /**
  * The positions the product is built on, as a single-row marquee.
@@ -97,7 +98,7 @@ export function Statements() {
         </span>
         <h2 className="mt-6 font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em] text-ink">
           Positions we&rsquo;ll put
-          <br className="hidden sm:block" /> <span className="mk-mark">in writing</span>
+          <br className="hidden sm:block" /> <Mark>in writing</Mark>
         </h2>
         <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-muted">
           Not marketing lines. Each one is checkable against the product or the

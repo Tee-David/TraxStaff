@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
+import { Mark } from "./Mark";
 import {
   IconDownload,
   IconWindows,
@@ -96,7 +97,7 @@ export function DownloadCta() {
       >
         <div className="mx-auto max-w-xl text-center">
           <h2 className="font-heading text-[clamp(2rem,3.8vw,3rem)] font-bold leading-[1.06] tracking-[-0.035em]">
-            Put it on your <span className="mk-mark">machine</span>
+            Put it on your <Mark>machine</Mark>
           </h2>
           <p className="mt-5 text-base leading-relaxed text-white/70">
             Real builds from the latest GitHub release &mdash; the same one the

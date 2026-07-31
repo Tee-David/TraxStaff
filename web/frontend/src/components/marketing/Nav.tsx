@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { APP_URL } from "@/lib/site";
 import { useTheme } from "@/lib/theme";
-import { toggleThemeWithTransition } from "@/lib/theme-transition";
-import { IconMoon, IconSun } from "@/components/icons";
+import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 
 /**
  * Only sections that actually exist on the page — there is no pricing,
@@ -34,34 +33,23 @@ function IconClose() {
 }
 
 /**
- * Light/dark switch, the same one the dashboard carries — same `trax_theme`
- * key, same circular view transition — so a visitor's choice here is the theme
- * they land in once they sign in.
- *
- * It shows the theme you'd switch *to*, and only after mount: the saved theme
- * isn't known during the server render, so drawing a sun before hydration
- * would flip to a moon in front of the visitor on every dark-theme load. The
- * button keeps its box either way, so nothing shifts when the icon arrives.
+ * Light/dark switch — MagicUI's animated toggler, driven by the app's own
+ * theme state rather than its built-in one, so a visitor's choice here is the
+ * `trax_theme` they land in once they sign in. The shape wipes across the
+ * page from the button on toggle; see the component for the reduced-motion
+ * and no-View-Transitions fallbacks.
  */
 function ThemeToggle() {
   const [theme, setTheme] = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
-
-  const next = theme === "dark" ? "light" : "dark";
 
   return (
-    <button
-      type="button"
-      onClick={(e) => toggleThemeWithTransition(e, next, setTheme)}
-      aria-label={`Switch to the ${next} theme`}
-      title={`Switch to the ${next} theme`}
-      className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface text-ink transition hover:border-border-strong md:h-9 md:w-9"
-    >
-      {mounted &&
-        (theme === "dark" ? <IconSun width={17} height={17} /> : <IconMoon width={17} height={17} />)}
-    </button>
+    <AnimatedThemeToggler
+      theme={theme}
+      onThemeChange={setTheme}
+      variant="circle"
+      duration={520}
+      className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface/70 text-ink transition hover:border-border-strong md:h-9 md:w-9"
+    />
   );
 }
 
@@ -69,24 +57,45 @@ export function MarketingNav() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
-  // The bar starts flush with the hero and only grows a border/shadow once
-  // you've left the top, so the first screen reads as one uninterrupted field.
+  // Flush and invisible over the hero; once you've left it, the bar pulls in
+  // off the edges and becomes a floating glass pill. `> 24` rather than `> 8`
+  // so the change happens after a deliberate scroll, not on a stray pixel.
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
+    const onScroll = () => setScrolled(window.scrollY > 24);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  /* Three states, and the transition between them is the whole effect:
+     over the hero it's a full-width transparent bar; scrolled away it's an
+     inset rounded pill with a blurred, translucent fill; with the phone menu
+     open it keeps the fill but squares off enough to hold the panel. */
+  const lifted = scrolled || open;
+
+  /* The gap above the pill is padding on the sticky header rather than a
+     margin on the pill: a top margin here collapses through the header and the
+     pill ends up flush against the viewport edge. */
   return (
     <header
-      className={`sticky top-0 z-40 transition-colors duration-200 ${
-        scrolled || open
-          ? "border-b border-border bg-surface/85 backdrop-blur-md"
-          : "border-b border-transparent bg-transparent"
+      className={`sticky top-0 z-40 transition-[padding] duration-300 ease-[cubic-bezier(0.22,0.61,0.36,1)] ${
+        lifted ? "pt-2.5 sm:pt-3.5" : "pt-0"
       }`}
     >
-      <div className="mx-auto flex h-[4.5rem] max-w-6xl items-center justify-between px-5 sm:px-8">
+      <div
+        className={`mx-auto transition-all duration-300 ease-[cubic-bezier(0.22,0.61,0.36,1)] ${
+          lifted
+            ? `w-[calc(100%-1.25rem)] max-w-5xl border border-border/70 bg-surface/70 shadow-[0_14px_44px_-20px_rgba(9,12,25,0.6)] backdrop-blur-xl sm:w-[calc(100%-3rem)] ${
+                open ? "rounded-[1.75rem]" : "rounded-full"
+              }`
+            : "w-full max-w-6xl rounded-none border border-transparent bg-transparent"
+        }`}
+      >
+        <div
+          className={`flex items-center justify-between transition-all duration-300 ease-[cubic-bezier(0.22,0.61,0.36,1)] ${
+            lifted ? "h-16 px-3.5 sm:h-[4.25rem] sm:px-5" : "h-[4.5rem] px-5 sm:px-8"
+          }`}
+        >
         <a href="#top" className="flex items-center gap-2.5" aria-label="TraxStaff — home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/icon-badge.svg" alt="" width={32} height={32} className="h-8 w-8" />
@@ -141,14 +150,16 @@ export function MarketingNav() {
         </div>
       </div>
 
-      <AnimatePresence>
+      {/* Inside the shell, so the panel is part of the same pill rather than a
+          separate slab under it. */}
+      <AnimatePresence initial={false}>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.15 }}
-            className="border-t border-border bg-surface px-5 pb-5 pt-3 md:hidden"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 0.61, 0.36, 1] }}
+            className="overflow-hidden border-t border-border/70 px-3.5 pb-4 pt-3 md:hidden"
           >
             <nav className="flex flex-col gap-1">
               {links.map((l) => (
@@ -162,7 +173,7 @@ export function MarketingNav() {
                 </a>
               ))}
             </nav>
-            <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+            <div className="mt-3 flex flex-col gap-2 border-t border-border/70 pt-3">
               <a
                 href={`${APP_URL}/login`}
                 className="rounded-full border border-border px-4 py-2.5 text-center text-sm font-medium text-ink transition hover:bg-canvas"
@@ -179,6 +190,7 @@ export function MarketingNav() {
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
     </header>
   );
 }

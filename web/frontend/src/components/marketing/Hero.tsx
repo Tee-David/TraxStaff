@@ -125,7 +125,7 @@ export function Hero() {
         />
       ),
       className: "left-2 top-[16%]",
-      float: -8,
+      float: -16,
     },
     {
       key: "android",
@@ -139,13 +139,13 @@ export function Hero() {
         />
       ),
       className: "right-2 top-[24%]",
-      float: 8,
+      float: 15,
     },
     {
       key: "focus",
       node: <TimerPill label="Focus" elapsed={elapsed} offset={72 * 60 + 9} className="-rotate-2" />,
       className: "left-[6%] top-[64%]",
-      float: 7,
+      float: 13,
     },
     {
       key: "linux",
@@ -159,13 +159,13 @@ export function Hero() {
         />
       ),
       className: "right-[4%] top-[62%]",
-      float: -7,
+      float: -14,
     },
   ];
 
   return (
     <section id="top" className="mk-hero relative overflow-hidden">
-      <div className="relative mx-auto max-w-7xl px-5 pb-24 pt-16 text-center sm:px-8 sm:pt-24 lg:pb-32">
+      <div className="relative mx-auto max-w-7xl px-5 pb-16 pt-4 text-center sm:px-8 sm:pb-24 sm:pt-24 lg:pb-32">
         {floaters.map((f) => (
           <motion.div
             key={f.key}
@@ -184,7 +184,7 @@ export function Hero() {
                     opacity: { duration: 0.5, delay: 0.35 },
                     scale: { duration: 0.5, delay: 0.35 },
                     y: {
-                      duration: 7 + Math.abs(f.float) * 0.2,
+                      duration: 5.5 + Math.abs(f.float) * 0.12,
                       repeat: Infinity,
                       ease: "easeInOut",
                       delay: 0.35,
@@ -201,13 +201,17 @@ export function Hero() {
               tapping it starts the clock. Everything from `sm` up is the
               layout as it was: tablets keep the live card below the buttons,
               and wide screens have the floating platform cards for this. */}
-          <motion.div {...revealItem} className="mb-8 flex justify-center sm:hidden">
+          <motion.div {...revealItem} className="mb-6 flex justify-center sm:hidden">
             <TrackerDemo />
           </motion.div>
 
+          {/* The eyebrow is the one thing here that can go: on a short phone
+              it's 60px between the tracker and the headline, and seeing the
+              whole hero at a glance matters more than the line does. Height,
+              not width — a 375×812 phone keeps it, a 375×667 doesn't. */}
           <motion.span
             {...revealItem}
-            className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15"
+            className="inline-flex items-center gap-2 rounded-full bg-field px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-lift)] ring-1 ring-white/15 [@media(max-height:750px)_and_(max-width:639px)]:hidden"
           >
             <IconClock width={13} height={13} className="text-accent" />
             Never covert, by design
@@ -215,7 +219,7 @@ export function Hero() {
 
           <motion.h1
             {...revealItem}
-            className="mx-auto mt-8 max-w-[52rem] font-heading text-[clamp(1.8rem,5.2vw,4rem)] font-bold leading-[1.06] tracking-[-0.04em] text-ink"
+            className="mx-auto mt-6 max-w-[52rem] font-heading sm:mt-8 text-[clamp(1.8rem,5.2vw,4rem)] font-bold leading-[1.06] tracking-[-0.04em] text-ink"
           >
             {/* Broken here rather than at "team" so the two lines come out
                 near-equal; the sizing above keeps each on one line right down
@@ -233,7 +237,7 @@ export function Hero() {
 
           <motion.p
             {...revealItem}
-            className="mx-auto mt-7 max-w-xl text-base leading-relaxed text-muted sm:text-lg"
+            className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-muted sm:mt-7 sm:text-lg"
           >
             {/* Two lengths, one at a time — `hidden` keeps the other out of the
                 accessibility tree as well as off the screen. The phone gets the
@@ -250,7 +254,7 @@ export function Hero() {
             </span>
           </motion.p>
 
-          <motion.div {...revealItem} className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
+          <motion.div {...revealItem} className="mt-6 flex flex-col items-stretch justify-center gap-3 sm:mt-10 sm:flex-row sm:items-center">
             <motion.a
               {...press}
               href={`${APP_URL}/app`}
@@ -269,7 +273,7 @@ export function Hero() {
 
           {/* Stand-in for the floating cards below xl, and the only timer on
               the page showing genuinely real elapsed time. */}
-          <motion.div {...revealItem} className="mt-14 flex justify-center xl:hidden">
+          <motion.div {...revealItem} className="mt-14 hidden justify-center sm:flex xl:hidden">
             <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 text-left shadow-[var(--shadow-lift)]">
               <div className="flex items-center gap-2">
                 <span className="mk-live-dot" />

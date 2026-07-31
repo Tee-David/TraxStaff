@@ -108,7 +108,12 @@ export function TrackerDemo() {
         </span>
       </div>
 
-      <div className="relative px-4 pb-2 pt-3">
+      {/* The panel is cropped against the viewport, not a fixed height: the
+          whole hero has to land on one screen, and how much of the tracker
+          fits before the headline is what gives. A tall phone gets the ring,
+          the totals and a project row; a short one crops into the totals. The
+          fade sits on this box, so it's always at the cut. */}
+      <div className="relative max-h-[34vh] overflow-hidden px-4 pb-2 pt-3">
         {/* One control, sized to the whole ring: on a phone the tap target is
             the panel's centre, not a 44px circle inside it. */}
         <button
@@ -117,7 +122,7 @@ export function TrackerDemo() {
           aria-label={running ? "Stop the demo timer" : "Start the demo timer"}
           className="group flex w-full cursor-pointer flex-col items-center rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
         >
-          <span className="relative grid h-[9.25rem] w-[9.25rem] place-items-center">
+          <span className="relative grid h-[8.5rem] w-[8.5rem] place-items-center">
             <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full" aria-hidden>
               <defs>
                 <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
@@ -211,7 +216,11 @@ export function TrackerDemo() {
           </span>
         </div>
 
-        <ul className="mt-2">
+        {/* The list is where the panel gets cut. One row is enough to say
+            "time lands on a project"; past that it's height the rest of the
+            hero needs on a phone, so the crop starts on the first row and the
+            frame ends a row and a half in. */}
+        <ul className="mt-2 max-h-[3.5rem] overflow-hidden">
           {PROJECTS.map((p, i) => {
             const live = running && i === 0;
             return (
@@ -248,7 +257,7 @@ export function TrackerDemo() {
         {/* The crop: the panel keeps going past the bottom of the frame. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-surface via-surface/85 to-transparent"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-surface via-surface/90 to-transparent"
         />
       </div>
     </div>

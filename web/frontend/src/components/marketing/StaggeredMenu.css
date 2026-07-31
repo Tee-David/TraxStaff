@@ -95,13 +95,16 @@
   gap: 1.25rem;
 }
 
+/* The links carry the panel, so they're set apart rather than stacked tight:
+   the gap is a share of the screen's height, which keeps the same rhythm on a
+   long phone and a short one. */
 .sm-panel-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: clamp(0.75rem, 2.6vh, 1.5rem);
 }
 
 /* Each row clips its own label, which is what lets the label start below the
@@ -162,9 +165,10 @@
   opacity: var(--sm-num-opacity, 0);
 }
 
-/* The two CTAs, in the same order they appear in the desktop bar. */
+/* The two CTAs, in the same order they appear in the desktop bar, held on the
+   bottom edge of the panel. */
 .sm-actions {
-  margin-top: 1.75rem;
+  margin-top: 1.25rem;
   display: flex;
   flex-direction: column;
   gap: 0.625rem;
@@ -202,6 +206,9 @@
   filter: brightness(1.05);
 }
 
+/* `margin-top: auto` on the first thing in the tail is what pins the whole tail
+   — contact links and the two buttons under them — to the bottom of the panel,
+   with every pixel of slack landing between it and the last menu item. */
 .sm-socials {
   margin-top: auto;
   padding-top: 2rem;

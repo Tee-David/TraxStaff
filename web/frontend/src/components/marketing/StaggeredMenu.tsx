@@ -406,21 +406,11 @@ export function StaggeredMenu({
             ))}
           </ul>
 
-          {actions.length > 0 && (
-            <div className="sm-actions">
-              {actions.map((a) => (
-                <a
-                  key={a.label}
-                  href={a.link}
-                  onClick={close}
-                  className={`sm-action${a.accent ? " sm-action--accent" : ""}`}
-                >
-                  {a.label}
-                </a>
-              ))}
-            </div>
-          )}
-
+          {/* The tail sits on the bottom edge of the panel — the list above it
+              takes the room it needs and the space left over falls between the
+              two, rather than the CTAs floating directly under the last link.
+              Contact first, then the buttons, so the thing you press is the
+              thing closest to your thumb. */}
           {footerLinks.length > 0 && (
             <div className="sm-socials" aria-label={footerTitle}>
               <h3 className="sm-socials-title">{footerTitle}</h3>
@@ -439,6 +429,21 @@ export function StaggeredMenu({
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {actions.length > 0 && (
+            <div className="sm-actions">
+              {actions.map((a) => (
+                <a
+                  key={a.label}
+                  href={a.link}
+                  onClick={close}
+                  className={`sm-action${a.accent ? " sm-action--accent" : ""}`}
+                >
+                  {a.label}
+                </a>
+              ))}
             </div>
           )}
         </div>

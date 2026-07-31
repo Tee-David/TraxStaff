@@ -32,8 +32,14 @@ export default function RootLayout({
             are above the fold — so the DNS lookup, TCP handshake and TLS
             negotiation for that host all sit on the critical path unless they
             start early. `preconnect` does all three before the CSS that
-            references them has even been parsed. */}
-        <link rel="preconnect" href={ASSETS_URL} crossOrigin="anonymous" />
+            references them has even been parsed.
+
+            Deliberately without `crossorigin`: these are CSS background-images,
+            which are fetched in no-CORS mode. A preconnect carrying the
+            attribute opens a CORS-mode connection, which those requests cannot
+            reuse — so it would warm a socket nothing then uses and leave the
+            real one still to be opened. */}
+        <link rel="preconnect" href={ASSETS_URL} />
         <link rel="dns-prefetch" href={ASSETS_URL} />
 
         {/* Apply saved theme before paint to avoid a flash; mark the doc as

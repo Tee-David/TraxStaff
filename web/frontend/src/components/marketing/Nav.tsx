@@ -142,7 +142,7 @@ export function MarketingNav() {
             <a
               key={l.href}
               href={l.href}
-              className="cursor-target py-2.5 text-sm font-medium text-muted transition-colors hover:text-ink"
+              className="mk-nav-link cursor-target py-2.5 text-sm font-semibold transition-colors"
             >
               {l.label}
             </a>

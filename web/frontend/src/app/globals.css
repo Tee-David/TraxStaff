@@ -47,32 +47,44 @@
 
 /* Dark theme — override the semantic tokens; every `bg-surface`, `text-ink`,
    `border-border`, etc. flips automatically. Toggled via data-theme on <html>. */
-/* The dark canvas is deliberately navy rather than near-black: the brand is
-   navy, and a neutral #0a0e1a read as a generic dark theme that happened to
-   have a navy logo on it. Everything here carries a blue hue at low lightness
-   so the page reads as the same product in either mode. */
+/* The dark canvas is the brand indigo, not a neutral near-black: #0a0e1a read as
+   a generic dark theme that happened to have a navy logo on it. The ramp below is
+   built on that one hue (240°) at rising lightness, so the page reads as the same
+   product in either mode.
+
+   The page colour is the fixed point here and everything else is derived from it.
+   Two consequences, before changing any of them:
+     - `--color-surface` sits *above* the canvas, because the sections use it as a
+       panel over the page and the cards inside those are canvas again.
+     - the solid `field` panels go the other way and sit *below* it. They used to
+       be the darkest thing on the page by being #0a0a45 themselves; now that the
+       page is that colour, they would dissolve into it. */
 :root[data-theme="dark"] {
-  --color-canvas: #0b1027;
-  --color-surface: #131a3a;
-  --color-elevated: #1b2450;
-  --color-border: #242d55;
-  --color-border-strong: #38447a;
+  --color-canvas: #0a0a45;
+  --color-surface: #15155a;
+  --color-elevated: #1e1e6b;
+  --color-border: #2a2a70;
+  --color-border-strong: #3f3f96;
   --color-ink: #eef1f8;
-  --color-muted: #a2acc9;
-  --color-faint: #737e9f;
-  --color-brand: #5468ff;      /* lit navy for legible accents/active states */
+  --color-muted: #a9b0d8;
+  --color-faint: #7b80b0;
+  --color-brand: #5468ff;      /* lit periwinkle for legible accents/active states */
   --color-brand-600: #6d7dff;
   /* Chart marks must follow the theme too. #000065 on the dark canvas is about
      1.3:1 — effectively invisible — so the categorical ramp lightens here. */
   --color-cat-focus: #5468ff;
-  --color-cat-break: #3e4875;
+  --color-cat-break: #3f3f7a;
   --color-positive: #35c281;
   --color-negative: #f4685f;
-  /* The solid navy panels have to stay clearly darker and more saturated than
-     the canvas now that the canvas is navy too — otherwise the download panel
-     and the footer dissolve into the page behind them. */
-  --color-field: #0a0a45;
-  --color-field-deep: #06062a;
+  /* The two big panels (Integrity, Download) and the footer under them. Darker
+     and considerably less saturated than the page, so they settle back into it
+     instead of reading as lit navy slabs dropped on top — the whole reason these
+     are separate tokens from `brand` is that they need to be tuned against the
+     page rather than against the accent ramp. Also behind the small `bg-field`
+     pills (the hero and testimonial eyebrows, Showcase's download button), which
+     is why white stays legible on it. */
+  --color-field: #0e132c;
+  --color-field-deep: #090d1e;
 }
 
 * {
@@ -288,10 +300,13 @@ h1, h2, h3, h4, h5, h6 {
    the vignette washes over it and knocks it further back. `pointer-events: none`
    because the hero's CTAs and the custom cursor are on top of it. */
 .mk-hero-motion {
-  --mk-tile-fill: color-mix(in srgb, var(--color-brand) 5%, transparent);
-  --mk-tile-line: color-mix(in srgb, var(--color-brand) 10%, transparent);
-  --mk-tile-brand: color-mix(in srgb, var(--color-brand) 11%, transparent);
-  --mk-tile-accent: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  /* How much of the image survives. This is the only knob that matters for
+     "does the hero still read": the tiles have to register as movement and
+     warmth without ever competing with the type in front of them. */
+  --mk-tile-image: 0.16;
+  --mk-tile-fill: color-mix(in srgb, var(--color-brand) 4%, transparent);
+  --mk-tile-line: color-mix(in srgb, var(--color-brand) 9%, transparent);
+  --mk-tile-gap: clamp(0.5rem, 1vw, 1rem);
   position: absolute;
   inset: 0;
   z-index: -3;
@@ -300,56 +315,83 @@ h1, h2, h3, h4, h5, h6 {
   -webkit-mask-image: radial-gradient(66% 56% at 50% 42%, transparent 0%, #000 94%);
   mask-image: radial-gradient(66% 56% at 50% 42%, transparent 0%, #000 94%);
 }
-/* The dark stage takes plain white at very low alpha for the neutral tiles: a
-   brand-tinted panel on a navy background reads as a colour cast rather than as
-   a panel, and the two accented tints are what carry the hue here. */
+/* The captures are mostly light UI, so on the dark stage they punch well above
+   their opacity — they need holding back further here, not less. */
 :root[data-theme="dark"] .mk-hero-motion {
-  --mk-tile-fill: rgba(255, 255, 255, 0.035);
-  --mk-tile-line: rgba(255, 255, 255, 0.065);
-  --mk-tile-brand: color-mix(in srgb, var(--color-brand) 17%, transparent);
-  --mk-tile-accent: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --mk-tile-image: 0.1;
+  --mk-tile-fill: rgba(255, 255, 255, 0.03);
+  --mk-tile-line: rgba(255, 255, 255, 0.06);
 }
-/* Oversized so that once it's rotated it still covers the corners, plus room for
-   the rows to slide without a leading edge coming into view. Both axes take the
-   larger of the two viewport dimensions because the requirement flips with
+/* Oversized so that once it's rotated it still covers the corners. Both axes take
+   the larger of the two viewport dimensions because the requirement flips with
    orientation: a tall phone needs the width padded out, a wide monitor needs the
-   height. */
+   height.
+
+   The width is also the number a row has to beat. `.mk-hero-motion-track`
+   translates by half its own width, so one row (seven tiles at the size below)
+   must be at least this wide or a bare edge scrolls into frame at the wrap. It
+   clears it from 360px through 2560px:
+     1920 wide → container 2688, row 7 × (384 + 16) = 2800
+     2560 wide → container 3584, row 7 × (512 + 16) = 3696
+      375 wide → container 1056, row 7 × (160 + 8)  = 1176
+   Tile width has no upper cap for that reason — capping it is what breaks the
+   relationship on a wide monitor. */
 .mk-hero-motion-grid {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: max(130vw, 120vh);
-  height: max(130vh, 120vw);
+  width: max(140vw, 130vh);
+  height: max(140vh, 130vw);
   display: grid;
   grid-template-rows: repeat(6, 1fr);
-  gap: clamp(0.5rem, 1vw, 1rem);
+  gap: var(--mk-tile-gap);
   transform: translate(-50%, -50%) rotate(-15deg);
   transform-origin: center center;
 }
 .mk-hero-motion-row {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: clamp(0.5rem, 1vw, 1rem);
+  overflow: hidden;
+}
+/* Same mechanism as the card marquees above: row + clone on one track, half a
+   width of travel, and the extra half-gap because the track is row + gap + row.
+   Compositor-only, so this costs nothing while it runs. */
+.mk-hero-motion-track {
+  display: flex;
+  gap: var(--mk-tile-gap);
+  width: max-content;
+  height: 100%;
   will-change: transform;
+  animation: mk-hero-motion-scroll var(--mk-row-duration, 90s) linear infinite;
+}
+.mk-hero-motion-track--reverse {
+  animation-direction: reverse;
+}
+@keyframes mk-hero-motion-scroll {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(calc(-50% - (var(--mk-tile-gap) / 2)), 0, 0); }
 }
 .mk-hero-motion-tile {
+  flex: none;
+  width: clamp(10rem, 20vw, 34rem);
   border: 1px solid var(--mk-tile-line);
   border-radius: clamp(0.5rem, 0.9vw, 0.875rem);
-  background: var(--mk-tile-fill);
+  background-color: var(--mk-tile-fill);
+  background-size: cover;
+  background-position: center top;
+  background-repeat: no-repeat;
+  /* Opacity on the tile rather than a wash over the top: a translucent overlay
+     would still hide the hero's own glow and ruled lines behind it, and the
+     whole point is that this sits *under* those. */
+  opacity: var(--mk-tile-image);
 }
-.mk-hero-motion-tile--brand {
-  background: var(--mk-tile-brand);
-}
-.mk-hero-motion-tile--accent {
-  background: var(--mk-tile-accent);
-}
-/* Still texture, no movement — the rows keep whatever transform they were born
-   with, which is none. The component skips the ticker entirely under this query;
-   this only softens the tiles, since a static pattern this size is more
-   noticeable than a drifting one. */
+/* Nothing moves, but the texture stays — a still grid of faint panels is a
+   perfectly good background, and it's dropped further because a static pattern
+   reads as more present than a drifting one. */
 @media (prefers-reduced-motion: reduce) {
+  .mk-hero-motion-track {
+    animation: none;
+  }
   .mk-hero-motion {
-    opacity: 0.6;
+    --mk-tile-image: 0.09;
   }
 }
 
@@ -601,6 +643,34 @@ h1, h2, h3, h4, h5, h6 {
 }
 .mk-page [id] {
   scroll-margin-top: 5.5rem;
+}
+
+/* The header's section links. Full black rather than `--color-muted`, because
+   these sit directly on the hero — a mid-grey link over a moving tile grid is
+   the first thing to get lost in it, and the bar has no fill of its own to lift
+   them off until you've scrolled past the hero.
+
+   The shadow is what keeps them legible whatever scrolls underneath: a soft
+   light halo behind black text, and a dark one behind white. Both are wide and
+   low-alpha, so they read as the text sitting slightly above the background
+   rather than as a visible drop shadow.
+
+   Hover goes to the accent instead of a lightness change, since full black and
+   full white have nowhere left to go. */
+.mk-nav-link {
+  color: #000000;
+  text-shadow:
+    0 0 10px rgba(255, 255, 255, 0.65),
+    0 1px 2px rgba(255, 255, 255, 0.75);
+}
+:root[data-theme="dark"] .mk-nav-link {
+  color: #ffffff;
+  text-shadow:
+    0 0 12px rgba(0, 0, 0, 0.55),
+    0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.mk-nav-link:hover {
+  color: var(--color-accent);
 }
 
 /* Keyboard focus. The marketing page is built from plain <a> elements rather

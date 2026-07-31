@@ -1,145 +1,114 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { gsap } from "gsap";
-import { useReducedMotion } from "motion/react";
-
 /**
- * The hero's background texture: a grid of panels, rotated off-axis, whose rows
- * drift in alternating directions as the pointer moves across the page.
+ * The hero's background texture: rows of image tiles, rotated off-axis, each row
+ * drifting on its own in the opposite direction to the one above it.
  *
- * Adapted from the ReactBits `GridMotion` component, with four changes it needed
- * to work here:
+ * Adapted from the ReactBits `GridMotion` component, but the motion model is the
+ * opposite of that one's. The original ties row position to `mousemove`, so the
+ * background is dead until you move the pointer and then lurches with it. This
+ * runs by itself, at a constant speed, and ignores the pointer and the scroll
+ * position entirely — closer to the marquees further down the page, which is
+ * also why it reuses their technique: a CSS transform animation on a track
+ * holding the row plus one clone. That runs on the compositor, so a background
+ * that never stops costs no main-thread work and can't compete with scrolling.
  *
- *  1. No imagery. The original fills its tiles with stock photographs. Nothing
- *     on this site is a stock photo, and a wall of them behind the headline
- *     would be both off-brand and the single most distracting thing on the page.
- *     The tiles are tinted panels built from the theme's own tokens instead, so
- *     this reads as an extension of the blueprint field the rest of the page
- *     already uses rather than a photo collage behind it.
- *  2. It has to be invisible where the words are. The mask on `.mk-hero-motion`
- *     is the inverse of the one on the hero's ruled lines: tiles are absent
- *     behind the headline and strongest out at the edges, so the two textures
- *     divide the stage between them instead of stacking up in the middle.
- *  3. It has to move without a mouse. `mousemove` leaves the whole thing frozen
- *     on every phone and tablet, so with no fine pointer the grid drifts on a
- *     slow sine of its own. Under `prefers-reduced-motion` it doesn't move at
- *     all — the tiles stay as static texture.
- *  4. `window` can't be touched during render (the original seeds a ref from
- *     `window.innerWidth`, which throws in SSR). Everything here happens in an
- *     effect.
+ * No GSAP, no listeners, no state. The whole thing is markup plus the CSS in
+ * globals.css.
  *
- * Also `quickTo` rather than a fresh `gsap.to` per row per frame, which is what
- * the original does — that allocates ~360 tweens a second for a decorative
- * background.
+ * IMAGERY
+ * -------
+ * These are the app's own screenshots. There is no stock photography in this
+ * repo, and hotlinking a photo CDN from the production marketing page would put
+ * a third party in the render path of the first thing anyone sees — so the tiles
+ * use the eight real captures in `public/screens` instead. At the opacity this
+ * runs at they read as texture rather than as content, which is the point: you
+ * should register movement and warmth behind the headline, not screenshots.
+ *
+ * To swap in licensed stock photography, drop the files in `public/` and change
+ * `TILE_IMAGES` below. Nothing else needs to move — tile size, count and the
+ * per-row timing are all independent of what's inside them.
  */
 
-/* 6 × 8 rather than the original's 4 × 7. The grid has to be oversized to cover
-   the viewport once it's rotated (see the sizing in globals.css), and at four
-   rows that overshoot makes each tile tall enough that only two of them are ever
-   on screen — which reads as stripes, not a grid. */
+/** Rows down the grid. Each one scrolls opposite to its neighbours. */
 const ROWS = 6;
-const COLS = 8;
-
-/** Per-row easing, so the rows trail the pointer by different amounts. */
-const INERTIA = [0.6, 0.4, 0.3, 0.2, 0.45, 0.28];
-
-/** How far the outermost rows travel, end to end, at a normal desktop width. */
-const MAX_TRAVEL = 280;
 
 /**
- * Which tint each tile gets. A fixed function of the index rather than
- * `Math.random()`, so the server and client render the same markup — and so the
- * distribution stays put between renders instead of reshuffling on every
- * hydration.
+ * Tiles in a single row, before cloning.
+ *
+ * The loop translates the track by half its width, so one row has to be at
+ * least as wide as the (oversized, rotated) container or a bare edge scrolls
+ * into view. Seven tiles clears that from a 360px phone up to a 2560px monitor —
+ * see the sizing note in globals.css.
  */
-function tintFor(index: number) {
-  const m = (index * 5) % 11;
-  if (m === 0) return "mk-hero-motion-tile--accent";
-  if (m < 4) return "mk-hero-motion-tile--brand";
-  return "";
+const TILES_PER_ROW = 7;
+
+const TILE_IMAGES = [
+  "/screens/desktop-dashboard.webp",
+  "/screens/feature-timesheets.webp",
+  "/screens/mobile-timer.webp",
+  "/screens/feature-reports.webp",
+  "/screens/tablet-dashboard.webp",
+  "/screens/feature-projects.webp",
+  "/screens/desktop-tracker.webp",
+  "/screens/feature-activity.webp",
+];
+
+/**
+ * Seconds for one full pass, per row. Deliberately uneven and mutually
+ * non-multiple: rows on tidy round durations drift back into alignment every so
+ * often and the whole field briefly reads as one sliding sheet.
+ */
+const ROW_DURATIONS = ["82s", "104s", "71s", "119s", "93s", "134s"];
+
+/**
+ * Which image each tile gets. A fixed function of the index rather than
+ * `Math.random()`, so the server and the client render identical markup and the
+ * layout doesn't reshuffle on hydration. The stride is coprime with the image
+ * count, so no row repeats an image until it has used all eight, and adjacent
+ * rows start on different ones.
+ */
+function imageFor(row: number, col: number) {
+  return TILE_IMAGES[(row * 3 + col * 5) % TILE_IMAGES.length];
+}
+
+function Tile({ row, col }: { row: number; col: number }) {
+  return (
+    <span
+      className="mk-hero-motion-tile"
+      style={{ backgroundImage: `url(${imageFor(row, col)})` }}
+    />
+  );
 }
 
 export function HeroGridMotion() {
-  const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const reduce = useReducedMotion() ?? false;
-
-  useEffect(() => {
-    if (reduce) return;
-
-    const rows = rowRefs.current.filter((r): r is HTMLDivElement => r !== null);
-    if (rows.length === 0) return;
-
-    // A background must never be the reason the page drops frames, so the
-    // ticker keeps running at its own pace rather than trying to catch up after
-    // a long main-thread task.
-    gsap.ticker.lagSmoothing(0);
-
-    const setX = rows.map((row, i) =>
-      gsap.quickTo(row, "x", {
-        duration: 0.8 + INERTIA[i % INERTIA.length],
-        ease: "power3.out",
-      })
-    );
-
-    const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-    let pointerX = window.innerWidth / 2;
-
-    const onPointerMove = (e: PointerEvent) => {
-      pointerX = e.clientX;
-    };
-    if (finePointer) {
-      window.addEventListener("pointermove", onPointerMove, { passive: true });
-    }
-
-    const start = performance.now();
-
-    const tick = () => {
-      // Travel is capped against the viewport as well as in absolute px: 280px
-      // of shift is a third of a phone's width, which turns a drift into a
-      // lurch.
-      const travel = Math.min(MAX_TRAVEL, window.innerWidth * 0.3);
-      const seconds = (performance.now() - start) / 1000;
-      /* 0…1 across the viewport with a pointer; a slow 18-second round trip
-         without one. */
-      const norm = finePointer
-        ? pointerX / window.innerWidth
-        : 0.5 + Math.sin(seconds / 9) * 0.5;
-
-      for (let i = 0; i < setX.length; i += 1) {
-        const direction = i % 2 === 0 ? 1 : -1;
-        setX[i]((norm * travel - travel / 2) * direction);
-      }
-    };
-
-    gsap.ticker.add(tick);
-
-    return () => {
-      gsap.ticker.remove(tick);
-      if (finePointer) window.removeEventListener("pointermove", onPointerMove);
-      gsap.killTweensOf(rows);
-    };
-  }, [reduce]);
-
   return (
     <div className="mk-hero-motion" aria-hidden>
       <div className="mk-hero-motion-grid">
-        {Array.from({ length: ROWS }, (_, rowIndex) => (
-          <div
-            key={rowIndex}
-            className="mk-hero-motion-row"
-            ref={(el) => {
-              rowRefs.current[rowIndex] = el;
-            }}
-          >
-            {Array.from({ length: COLS }, (_, colIndex) => (
-              <span
-                key={colIndex}
-                className={`mk-hero-motion-tile ${tintFor(rowIndex * COLS + colIndex)}`}
-              />
-            ))}
-          </div>
-        ))}
+        {Array.from({ length: ROWS }, (_, row) => {
+          const tiles = Array.from({ length: TILES_PER_ROW }, (_, col) => (
+            <Tile key={col} row={row} col={col} />
+          ));
+
+          return (
+            <div key={row} className="mk-hero-motion-row">
+              {/* Alternating rows run the animation in reverse, so every row
+                  travels against the two beside it. */}
+              <div
+                className={`mk-hero-motion-track ${
+                  row % 2 === 1 ? "mk-hero-motion-track--reverse" : ""
+                }`}
+                style={{ "--mk-row-duration": ROW_DURATIONS[row % ROW_DURATIONS.length] } as React.CSSProperties}
+              >
+                {tiles}
+                {/* The clone is what makes the wrap seamless. */}
+                {Array.from({ length: TILES_PER_ROW }, (_, col) => (
+                  <Tile key={`clone-${col}`} row={row} col={col} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

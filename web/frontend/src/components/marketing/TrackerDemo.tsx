@@ -86,13 +86,16 @@ export function TrackerDemo() {
   const today = SEED_TODAY_SECONDS + banked + elapsed;
 
   const size = 184;
-  const stroke = 13;
+  /* Thinner than it was (13). The ring has to hold a label, a clock and a button
+     inside it without any of them touching the stroke, and every unit taken off
+     the stroke is a unit of usable inner radius. */
+  const stroke = 10.5;
   const r = (size - stroke) / 2;
   const circ = 2 * Math.PI * r;
   const dash = circ * Math.min(1, today / DAY_TARGET_SECONDS);
 
   return (
-    <div className="w-full max-w-[19.5rem] overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-lift)]">
+    <div className="w-full max-w-[21.5rem] overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-lift)]">
       {/* Window chrome — this is a crop of the desktop app, and reads as one. */}
       <div className="flex items-center gap-2 border-b border-border bg-canvas px-3.5 py-2.5">
         <span className="flex gap-1.5" aria-hidden>
@@ -108,12 +111,12 @@ export function TrackerDemo() {
         </span>
       </div>
 
-      {/* The panel is cropped against the viewport, not a fixed height: the
-          whole hero has to land on one screen, and how much of the tracker
-          fits before the headline is what gives. A tall phone gets the ring,
-          the totals and a project row; a short one crops into the totals. The
-          fade sits on this box, so it's always at the cut. */}
-      <div className="relative max-h-[clamp(8rem,30vh,15rem)] overflow-hidden px-4 pb-2 pt-3">
+      {/* The crop used to sit on this whole box, which meant a short screen cut
+          into the ring and swallowed the "Tap to start the timer" pill — the one
+          thing on the panel telling you it does anything. Now the control (ring
+          + pill) is never cropped at any height, and only the totals-and-projects
+          tail below it gives way. See the tail's own wrapper. */}
+      <div className="px-4 pb-2 pt-3">
         {/* One control, sized to the whole ring: on a phone the tap target is
             the panel's centre, not a 44px circle inside it. */}
         <button
@@ -122,7 +125,10 @@ export function TrackerDemo() {
           aria-label={running ? "Stop the demo timer" : "Start the demo timer"}
           className="group flex w-full cursor-pointer flex-col items-center rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
         >
-          <span className="relative grid h-[8.5rem] w-[8.5rem] place-items-center">
+          {/* Scales with the viewport instead of sitting at a fixed 8.5rem, so a
+              320px phone gets a ring that fits its width and a 430px one gets the
+              full size. */}
+          <span className="relative grid h-[clamp(6.25rem,30vw,8.75rem)] w-[clamp(6.25rem,30vw,8.75rem)] place-items-center">
             <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full" aria-hidden>
               <defs>
                 <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
@@ -145,33 +151,39 @@ export function TrackerDemo() {
               />
             </svg>
 
-            <span className="absolute inset-0 flex flex-col items-center justify-center">
+            {/* Inset rather than `inset-0`. Filling the whole ring box put the
+                label and the clock hard against the stroke, so they read as
+                overlapping it. 14% clears the stroke and leaves a margin inside
+                the arc at every size the clamp above produces. */}
+            <span className="absolute inset-[14%] flex flex-col items-center justify-center">
               <span
-                className={`inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide ${
+                className={`inline-flex items-center gap-1.5 text-[clamp(8px,2.4vw,10px)] font-semibold uppercase tracking-wide ${
                   running ? "text-positive" : "text-muted"
                 }`}
               >
-                <span className={`h-[6px] w-[6px] rounded-full ${running ? "bg-positive" : "bg-faint"}`} />
+                <span className={`h-[5px] w-[5px] shrink-0 rounded-full ${running ? "bg-positive" : "bg-faint"}`} />
                 {running ? "Tracking" : "Not tracking"}
               </span>
 
-              <span className="mk-clock-brand mt-1 font-heading text-[1.55rem] font-bold leading-none tabular-nums tracking-tight">
+              {/* Scales with the ring — a fixed 1.55rem clock overflowed the arc
+                  once the ring shrank on a narrow phone. */}
+              <span className="mk-clock-brand mt-1 font-heading text-[clamp(1.1rem,5.1vw,1.5rem)] font-bold leading-none tabular-nums tracking-tight">
                 {clock(today)}
               </span>
 
-              <span className="relative mt-2.5 grid place-items-center">
+              <span className="relative mt-2 grid place-items-center">
                 {/* The nudge: while it's idle the button breathes, so the
                     thing to tap is the thing that's moving. */}
                 {!running && !reduce && (
                   <motion.span
                     aria-hidden
-                    className="absolute h-10 w-10 rounded-full bg-brand"
+                    className="absolute h-9 w-9 rounded-full bg-brand"
                     animate={{ scale: [1, 1.55], opacity: [0.35, 0] }}
                     transition={{ duration: 1.8, repeat: Infinity, ease: "easeOut" }}
                   />
                 )}
                 <span
-                  className={`grid h-10 w-10 place-items-center rounded-full text-white transition group-active:scale-95 ${
+                  className={`grid h-9 w-9 place-items-center rounded-full text-white transition group-active:scale-95 ${
                     running ? "bg-accent" : "bg-brand"
                   }`}
                   style={{
@@ -192,18 +204,37 @@ export function TrackerDemo() {
             </span>
           </span>
 
-          <span
-            className={`mt-3 inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition ${
+          {/* Bumps while idle, still once running. The pulse behind the play
+              button says "something here is live"; this says "and it's you that
+              has to do it" — two different jobs, so both stay. Movement stops
+              under prefers-reduced-motion, where the border and tint carry it. */}
+          <motion.span
+            className={`mt-3 inline-flex max-w-full items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[clamp(11px,3vw,12px)] font-semibold transition ${
               running
                 ? "border-transparent bg-positive/12 text-positive"
                 : "border-brand/35 bg-brand/[0.07] text-brand"
             }`}
+            animate={running || reduce ? { y: 0 } : { y: [0, -4, 0] }}
+            transition={
+              running || reduce
+                ? { duration: 0.2 }
+                : { duration: 1.5, repeat: Infinity, ease: "easeInOut", repeatDelay: 0.35 }
+            }
           >
             {running ? "Tracking — tap to stop" : "Tap to start the timer"}
-          </span>
+          </motion.span>
         </button>
 
-        <div className="mt-4 grid grid-cols-2 gap-3 border-b border-border pb-3">
+        {/* The tail: totals and the project list. This is the only part that
+            gives way, and it's the right part to — it's context, where the ring
+            above it is the thing you interact with.
+
+            Cropped by viewport height, and dropped entirely below 720px, which is
+            what keeps the whole hero on one screen on a short phone. A 375x667
+            screen shows chrome + ring + pill and nothing else; a 375x812 gets the
+            totals and a project row under it. */}
+        <div className="relative mt-3.5 max-h-[clamp(2.75rem,9vh,6.5rem)] overflow-hidden [@media(max-height:720px)]:hidden">
+        <div className="grid grid-cols-2 gap-3 border-b border-border pb-3">
           <span className="flex flex-col">
             <span className="text-[11px] text-muted">This week</span>
             <span className="mk-clock font-heading text-base font-bold tabular-nums">
@@ -216,11 +247,7 @@ export function TrackerDemo() {
           </span>
         </div>
 
-        {/* The list is where the panel gets cut. One row is enough to say
-            "time lands on a project"; past that it's height the rest of the
-            hero needs on a phone, so the crop starts on the first row and the
-            frame ends a row and a half in. */}
-        <ul className="mt-2 max-h-[3.5rem] overflow-hidden">
+        <ul className="mt-2">
           {PROJECTS.map((p, i) => {
             const live = running && i === 0;
             return (
@@ -254,11 +281,13 @@ export function TrackerDemo() {
           })}
         </ul>
 
-        {/* The crop: the panel keeps going past the bottom of the frame. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-surface via-surface/90 to-transparent"
-        />
+          {/* The crop: the panel keeps going past the bottom of the frame. Sits
+              on the tail's box, so it's always exactly at the cut. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-surface via-surface/90 to-transparent"
+          />
+        </div>
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
 import { Mark } from "./Mark";
+import { TrackerDemo } from "./TrackerDemo";
 import { APP_URL } from "@/lib/site";
 import { IconClock, IconAndroid, IconWindows, IconLinux } from "@/components/icons";
 
@@ -102,48 +103,6 @@ function TimerPill({
   );
 }
 
-/**
- * The desktop tray window, cropped to the ring and its clock, in a small
- * window frame — a phone gets the tracker itself above the headline, where a
- * wide screen gets the floating platform cards out in the margins.
- *
- * It's the same capture the showcase further down uses, so it's the real app
- * rather than a drawing of it, and the crop is why it stays small: the ring,
- * the running clock and the tracking chip, then the window runs out.
- */
-function TrackerMockup() {
-  return (
-    <div className="w-[13.5rem] overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-lift)]">
-      <div className="flex items-center gap-1.5 border-b border-border bg-canvas px-3 py-2">
-        <span className="flex gap-1" aria-hidden>
-          <span className="h-2 w-2 rounded-full bg-[#ff5f57]" />
-          <span className="h-2 w-2 rounded-full bg-[#febc2e]" />
-          <span className="h-2 w-2 rounded-full bg-[#28c840]" />
-        </span>
-        <span className="mx-auto text-[9px] font-medium text-faint">Tracker</span>
-      </div>
-      {/* Cut just past the day/week totals, so nothing lands half-drawn. */}
-      <div className="relative h-[13.5rem] overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/screens/desktop-tracker.webp"
-          alt="The TraxStaff desktop tray window: a progress ring around a running clock at 03:36:27, with today's and this week's totals below it."
-          width={700}
-          height={1190}
-          className="block w-full"
-        />
-        {/* The window keeps going past the crop rather than stopping dead.
-            White rather than `surface`: it fades into the capture's own
-            background, which is the app's light theme in both of ours. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent"
-        />
-      </div>
-    </div>
-  );
-}
-
 export function Hero() {
   const { revealStagger, revealItem, reduce, press } = useMotionPresets();
   const elapsed = useElapsed();
@@ -238,11 +197,12 @@ export function Hero() {
         ))}
 
         <motion.div {...revealStagger()} className="relative z-10">
-          {/* Phones only. Everything from `sm` up is the layout as it was:
-              tablets keep the live card below the buttons and wide screens
-              have the floating platform cards for this. */}
+          {/* Phones only, and a working panel rather than a picture of one —
+              tapping it starts the clock. Everything from `sm` up is the
+              layout as it was: tablets keep the live card below the buttons,
+              and wide screens have the floating platform cards for this. */}
           <motion.div {...revealItem} className="mb-8 flex justify-center sm:hidden">
-            <TrackerMockup />
+            <TrackerDemo />
           </motion.div>
 
           <motion.span

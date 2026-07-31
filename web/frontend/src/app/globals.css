@@ -519,6 +519,14 @@ h1, h2, h3, h4, h5, h6 {
 :root[data-theme="dark"] .mk-clock {
   color: #ffffff;
 }
+/* Same rule for the clock inside the tracker ring, which is brand-navy on the
+   panel's white rather than ink on the page. */
+.mk-clock-brand {
+  color: var(--color-brand);
+}
+:root[data-theme="dark"] .mk-clock-brand {
+  color: #ffffff;
+}
 
 /* The live indicator. One pulsing dot, used only where tracking is genuinely
    running — the hero ribbon and the platform chips that mirror it.

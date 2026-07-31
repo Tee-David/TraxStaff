@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
 import { SUPPORT_EMAIL } from "@/lib/site";
@@ -46,6 +47,81 @@ function Column({
   );
 }
 
+/**
+ * Newsletter sign-up.
+ *
+ * Posts to `/api/newsletter`, which mails the address to the support inbox —
+ * there is no list service behind it yet, so the copy promises only what that
+ * can deliver: occasional product updates, nothing shared. It reports failure
+ * rather than showing a thank-you regardless, since the visitor can act on
+ * knowing it didn't go through.
+ */
+function NewsletterForm() {
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState<
+    { status: "idle" | "sending" | "done" } | { status: "error"; message: string }
+  >({ status: "idle" });
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (state.status === "sending") return;
+    setState({ status: "sending" });
+    try {
+      const res = await fetch("/api/newsletter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        setState({ status: "error", message: data?.error ?? "That didn't go through. Try again?" });
+        return;
+      }
+      setEmail("");
+      setState({ status: "done" });
+    } catch {
+      setState({ status: "error", message: "That didn't go through. Try again?" });
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="mt-7 max-w-sm">
+      <label htmlFor="newsletter-email" className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/40">
+        Product updates
+      </label>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <input
+          id="newsletter-email"
+          type="email"
+          required
+          value={email}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            if (state.status !== "idle") setState({ status: "idle" });
+          }}
+          placeholder="you@company.com"
+          autoComplete="email"
+          className="min-w-0 flex-1 rounded-full border border-white/15 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition placeholder:text-white/35 focus:border-white/40"
+        />
+        <button
+          type="submit"
+          disabled={state.status === "sending"}
+          className="mk-cta cursor-target shrink-0 rounded-full bg-accent px-5 py-2.5 text-sm font-bold transition hover:brightness-105 disabled:opacity-60"
+        >
+          {state.status === "sending" ? "Sending…" : "Subscribe"}
+        </button>
+      </div>
+      <p aria-live="polite" className="mt-2.5 text-xs leading-relaxed text-white/45">
+        {state.status === "done"
+          ? "Thanks — we've got it. You'll hear from us when there's something worth sending."
+          : state.status === "error"
+            ? state.message
+            : "Occasional product updates. No spam, and we don't pass your address on."}
+      </p>
+    </form>
+  );
+}
+
 export function Footer({ currentYear }: { currentYear: number }) {
   const { revealStagger, revealItem } = useMotionPresets();
 
@@ -57,15 +133,16 @@ export function Footer({ currentYear }: { currentYear: number }) {
           className="grid gap-12 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr]"
         >
           <motion.div {...revealItem}>
-            <a href="#top" className="flex items-center gap-2.5" aria-label="TraxStaff — back to top">
+            <a href="#top" className="flex items-center gap-3" aria-label="TraxStaff — back to top">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/icon-badge.svg" alt="" width={30} height={30} className="h-[1.875rem] w-[1.875rem]" />
-              <span className="font-heading text-base font-bold tracking-[-0.03em]">TraxStaff</span>
+              <img src="/brand/icon-badge.svg" alt="" width={44} height={44} className="h-10 w-10 sm:h-11 sm:w-11" />
+              <span className="font-heading text-xl font-bold tracking-[-0.03em] sm:text-[1.375rem]">TraxStaff</span>
             </a>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/55">
               Visible time tracking for teams &mdash; on Windows, Linux and
               Android. Never covert, tamper-evident by design.
             </p>
+            <NewsletterForm />
           </motion.div>
 
           <Column title="Product" item={revealItem}>

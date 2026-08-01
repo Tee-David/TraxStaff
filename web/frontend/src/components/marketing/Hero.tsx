@@ -275,7 +275,7 @@ export function Hero() {
 
           <motion.p
             {...revealItem}
-            className="mx-auto mt-[clamp(0.75rem,2.2vh,1.75rem)] max-w-xl text-base leading-relaxed text-white/70 sm:text-lg"
+            className="mx-auto mt-[clamp(0.75rem,2.2vh,1.75rem)] max-w-xl text-base leading-relaxed text-white/85 sm:text-lg"
           >
             {/* Two lengths, one at a time — `hidden` keeps the other out of the
                 accessibility tree as well as off the screen. The phone gets the

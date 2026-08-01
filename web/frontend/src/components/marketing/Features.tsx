@@ -143,6 +143,51 @@ const slides: Slide[] = [
 /** How long each slide holds before the track advances on its own. */
 const AUTOPLAY_MS = 3000;
 
+/** One slide, in the track. `clone` renders the loop's trailing duplicate. */
+function CarouselSlide({
+  slide: s,
+  position,
+  press,
+  clone = false,
+}: {
+  slide: Slide;
+  position: number;
+  press: Record<string, unknown>;
+  clone?: boolean;
+}) {
+  return (
+    <div
+      role={clone ? undefined : "group"}
+      aria-roledescription={clone ? undefined : "slide"}
+      aria-label={clone ? undefined : `${position + 1} of ${slides.length}: ${s.title}`}
+      aria-hidden={clone || undefined}
+      inert={clone || undefined}
+      className="w-full shrink-0 snap-center"
+    >
+      <div className="cursor-target grid h-full gap-8 rounded-3xl border border-border bg-canvas/70 p-7 sm:p-9 lg:grid-cols-2 lg:items-center">
+        <div className={s.mirrored ? "lg:order-2" : undefined}>
+          <h3 className="font-heading text-2xl font-bold tracking-[-0.03em] text-ink sm:text-[1.75rem]">
+            {s.title}
+          </h3>
+          <p className="mt-3.5 max-w-md text-sm leading-relaxed text-muted sm:text-base">{s.body}</p>
+          {s.cta && (
+            <motion.a
+              {...press}
+              href={s.cta.href}
+              className="cursor-target mt-7 block w-full rounded-full bg-brand px-5 py-4 text-center text-sm font-semibold text-brand-fg transition-colors hover:bg-brand-600 sm:inline-block sm:w-auto sm:py-3"
+            >
+              {s.cta.label}
+            </motion.a>
+          )}
+        </div>
+        <div className={s.mirrored ? "lg:order-1" : undefined}>
+          <Shot shot={s.shot} alt={s.alt} badge={s.badge} badgeClass={s.badgeClass} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * One card per view, on a scroll-snapping track.
  *
@@ -150,9 +195,23 @@ const AUTOPLAY_MS = 3000;
  * it with the platform's own physics, the arrows and dots are just programmatic
  * scrolls, and it stays keyboard-scrollable and readable with JS off.
  *
- * It advances itself every three seconds, and because it does, it wraps: the
- * arrows wrap with it rather than disabling at the ends, so there is one
- * consistent story about what "next" means.
+ * THE LOOP
+ * --------
+ * It never rewinds. Going forward from the last slide keeps travelling right
+ * onto the first one, and going back from the first keeps travelling left onto
+ * the last — the track behaves like a ring rather than a strip with two ends.
+ *
+ * A copy of the first slide is appended after the last, so "forward from the
+ * end" is just one more step to the right. Once the scroll settles on that
+ * copy, the scroll position is snapped back to the real first slide with no
+ * animation: the two show the same thing, so there is nothing to see.
+ *
+ * Backwards works the same trick in reverse — from the first slide the position
+ * jumps instantly to the trailing copy (identical pixels, no visible change)
+ * and then animates left onto the last slide. Only the copy is cloned, so with
+ * JS off the track still starts on slide one and reads in order.
+ *
+ * It advances itself every three seconds.
  *
  * Three things stop the timer, covering all three input kinds — WCAG 2.2.2
  * needs a real mechanism, and hover alone only serves a mouse:
@@ -172,40 +231,103 @@ function FeatureCarousel() {
   const [hovered, setHovered] = useState(false);
   const [tookOver, setTookOver] = useState(false);
 
-  const goTo = useCallback(
-    (next: number) => {
+  /* Where the track actually is, as a child position: 0…slides.length-1 are the
+     real slides and slides.length is the trailing copy of the first one. Kept in
+     a ref rather than state because it changes on every scroll frame and nothing
+     renders off it — `index` (the real slide, for the dots) does that. */
+  const posRef = useRef(0);
+  const idleRef = useRef<number | null>(null);
+
+  /** Slide width — one slide fills the track, so this is the step. */
+  const step = () => trackRef.current?.clientWidth ?? 0;
+
+  const scrollToPos = useCallback(
+    (pos: number, smooth = true) => {
       const el = trackRef.current;
-      if (!el) return;
-      // Wraps rather than clamps, so a click on either arrow always moves.
-      const wrapped = ((next % slides.length) + slides.length) % slides.length;
-      el.scrollTo({ left: wrapped * el.clientWidth, behavior: reduce ? "auto" : "smooth" });
-      setIndex(wrapped);
+      const w = step();
+      if (!el || w === 0) return;
+      posRef.current = pos;
+      setIndex(pos % slides.length);
+      el.scrollTo({ left: pos * w, behavior: smooth && !reduce ? "smooth" : "auto" });
     },
     [reduce]
   );
 
-  // Swiping moves the track without going through `goTo`, so the dots follow
-  // the scroll position rather than the other way round.
+  /** Forward one, always rightward — off the end and onto the copy. */
+  const next = useCallback(() => scrollToPos(posRef.current + 1), [scrollToPos]);
+
+  /** Back one, always leftward. From the first slide that means hopping to the
+   *  identical copy at the end first, then animating off it. */
+  const prev = useCallback(() => {
+    const el = trackRef.current;
+    const w = step();
+    if (!el || w === 0) return;
+    if (posRef.current <= 0) {
+      el.scrollTo({ left: slides.length * w, behavior: "auto" });
+      posRef.current = slides.length;
+      // Next frame, so the jump has landed before the animation starts from it.
+      requestAnimationFrame(() => scrollToPos(slides.length - 1));
+      return;
+    }
+    scrollToPos(posRef.current - 1);
+  }, [scrollToPos]);
+
+  const goTo = useCallback(
+    (realIndex: number) => {
+      // From the trailing copy, the real slides are all to the left; step back
+      // onto the real first slide first so a dot doesn't rewind the whole track.
+      if (posRef.current >= slides.length) {
+        const el = trackRef.current;
+        if (el) el.scrollTo({ left: 0, behavior: "auto" });
+        posRef.current = 0;
+      }
+      scrollToPos(realIndex);
+    },
+    [scrollToPos]
+  );
+
+  /* Swiping moves the track without going through the controls, so the dots
+     follow the scroll position rather than the other way round — and once the
+     scroll has come to rest on the trailing copy, that's when the position is
+     quietly moved back to the real first slide. The delay is the "has it
+     stopped" test: `scrollend` isn't in every browser yet, and a smooth scroll
+     fires scroll events the whole way, so a short gap in them is the signal. */
   const onScroll = useCallback(() => {
     const el = trackRef.current;
-    if (!el) return;
-    setIndex(Math.round(el.scrollLeft / el.clientWidth));
+    const w = step();
+    if (!el || w === 0) return;
+    const pos = Math.round(el.scrollLeft / w);
+    posRef.current = pos;
+    setIndex(pos % slides.length);
+
+    if (idleRef.current !== null) window.clearTimeout(idleRef.current);
+    idleRef.current = window.setTimeout(() => {
+      const track = trackRef.current;
+      const width = step();
+      if (!track || width === 0) return;
+      if (Math.round(track.scrollLeft / width) >= slides.length) {
+        track.scrollTo({ left: 0, behavior: "auto" });
+        posRef.current = 0;
+        setIndex(0);
+      }
+    }, 160);
   }, []);
 
-  /* Reads the live scroll position instead of `index`, so a swipe part-way
-     through the interval advances from where the track actually is — and so the
-     interval isn't torn down and restarted on every slide change. */
+  useEffect(() => () => {
+    if (idleRef.current !== null) window.clearTimeout(idleRef.current);
+  }, []);
+
+  /* Advances off the live position, so a swipe part-way through the interval
+     carries on from where the track actually is — and so the interval isn't
+     torn down and restarted on every slide change. */
   useEffect(() => {
     if (reduce || hovered || tookOver) return;
     const id = window.setInterval(() => {
-      const el = trackRef.current;
-      if (!el || el.clientWidth === 0) return;
-      const next = (Math.round(el.scrollLeft / el.clientWidth) + 1) % slides.length;
-      el.scrollTo({ left: next * el.clientWidth, behavior: "smooth" });
-      setIndex(next);
+      if (step() === 0) return;
+      next();
     }, AUTOPLAY_MS);
     return () => window.clearInterval(id);
-  }, [reduce, hovered, tookOver]);
+  }, [reduce, hovered, tookOver, next]);
 
   return (
     <div
@@ -231,37 +353,13 @@ function FeatureCarousel() {
         className="mk-carousel flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain"
       >
         {slides.map((s, i) => (
-          <div
-            key={s.key}
-            role="group"
-            aria-roledescription="slide"
-            aria-label={`${i + 1} of ${slides.length}: ${s.title}`}
-            className="w-full shrink-0 snap-center"
-          >
-            <div className="cursor-target grid h-full gap-8 rounded-3xl border border-border bg-canvas/70 p-7 sm:p-9 lg:grid-cols-2 lg:items-center">
-              <div className={s.mirrored ? "lg:order-2" : undefined}>
-                <h3 className="font-heading text-2xl font-bold tracking-[-0.03em] text-ink sm:text-[1.75rem]">
-                  {s.title}
-                </h3>
-                <p className="mt-3.5 max-w-md text-sm leading-relaxed text-muted sm:text-base">
-                  {s.body}
-                </p>
-                {s.cta && (
-                  <motion.a
-                    {...press}
-                    href={s.cta.href}
-                    className="cursor-target mt-7 block w-full rounded-full bg-brand px-5 py-4 text-center text-sm font-semibold text-brand-fg transition-colors hover:bg-brand-600 sm:inline-block sm:w-auto sm:py-3"
-                  >
-                    {s.cta.label}
-                  </motion.a>
-                )}
-              </div>
-              <div className={s.mirrored ? "lg:order-1" : undefined}>
-                <Shot shot={s.shot} alt={s.alt} badge={s.badge} badgeClass={s.badgeClass} />
-              </div>
-            </div>
-          </div>
+          <CarouselSlide key={s.key} slide={s} position={i} press={press} />
         ))}
+        {/* The copy that makes the loop endless — see the note on the component.
+            Hidden from assistive tech and taken out of the tab order, since it's
+            the same slide as the first one and announcing it twice would be a
+            lie about how many there are. */}
+        <CarouselSlide key="loop-clone" slide={slides[0]} position={0} press={press} clone />
       </div>
 
       <div className="mt-7 flex items-center justify-center gap-5">
@@ -273,7 +371,7 @@ function FeatureCarousel() {
           type="button"
           onClick={() => {
             setTookOver(true);
-            goTo(index - 1);
+            prev();
           }}
           aria-label="Previous screen"
           className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-canvas/70 text-ink transition-colors hover:border-muted"
@@ -304,7 +402,7 @@ function FeatureCarousel() {
           type="button"
           onClick={() => {
             setTookOver(true);
-            goTo(index + 1);
+            next();
           }}
           aria-label="Next screen"
           className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-canvas/70 text-ink transition-colors hover:border-muted"

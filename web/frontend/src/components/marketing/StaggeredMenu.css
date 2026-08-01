@@ -261,9 +261,10 @@
   opacity: 0.4;
 }
 
-/* The toggle. Layout only — the bar it sits in supplies the shape, the fill and
-   the colour through `toggleClassName`, so it can be white over the hero and ink
-   once the pill lifts.
+/* The toggle: the glyph and nothing else, so it sits in the bar as a round icon
+   button the same size as the theme switch beside it. Layout only — the bar
+   supplies the shape, the fill and the colour through `toggleClassName`, so the
+   button can be white over the hero and ink once the pill lifts.
 
    Nothing here may set `background`, `border` or `display`: this file is
    unlayered and Tailwind's utilities live in `@layer utilities`, so anything
@@ -273,36 +274,10 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  justify-content: center;
   cursor: pointer;
-  font-family: inherit;
-  font-size: 0.8125rem;
-  font-weight: 600;
   line-height: 1;
   overflow: visible;
-}
-
-.sm-toggle-textWrap {
-  position: relative;
-  display: inline-block;
-  height: 1em;
-  overflow: hidden;
-  white-space: nowrap;
-  /* Wide enough for "Close", so the bar doesn't reflow as the word cycles. */
-  width: 2.75em;
-  text-align: left;
-}
-
-.sm-toggle-textInner {
-  display: flex;
-  flex-direction: column;
-  line-height: 1;
-}
-
-.sm-toggle-line {
-  display: block;
-  height: 1em;
-  line-height: 1;
 }
 
 /* Three bars, stacked on the same centre point and pushed apart by the
@@ -336,10 +311,3 @@
   will-change: transform;
 }
 
-/* Narrow phones: the label is the first thing to go, before the panel or the
-   numbering — the plus-to-cross already says what the control does. */
-@media (max-width: 359px) {
-  .sm-toggle-textWrap {
-    display: none;
-  }
-}

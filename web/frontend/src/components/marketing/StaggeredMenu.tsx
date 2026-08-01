@@ -81,7 +81,6 @@ export function StaggeredMenu({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [textLines, setTextLines] = useState(["Menu", "Close"]);
 
   const openRef = useRef(false);
   const panelRef = useRef<HTMLElement | null>(null);
@@ -91,13 +90,11 @@ export function StaggeredMenu({
   const barMidRef = useRef<HTMLSpanElement | null>(null);
   const barBottomRef = useRef<HTMLSpanElement | null>(null);
   const iconRef = useRef<HTMLSpanElement | null>(null);
-  const textInnerRef = useRef<HTMLSpanElement | null>(null);
   const toggleBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const openTlRef = useRef<gsap.core.Timeline | null>(null);
   const closeTweenRef = useRef<gsap.core.Tween | null>(null);
   const iconTlRef = useRef<gsap.core.Timeline | null>(null);
-  const textCycleAnimRef = useRef<gsap.core.Tween | null>(null);
   const busyRef = useRef(false);
 
   useEffect(() => setMounted(true), []);
@@ -130,8 +127,7 @@ export function StaggeredMenu({
       const mid = barMidRef.current;
       const bottom = barBottomRef.current;
       const icon = iconRef.current;
-      const textInner = textInnerRef.current;
-      if (!panel || !top || !mid || !bottom || !icon || !textInner) return;
+      if (!panel || !top || !mid || !bottom || !icon) return;
 
       const preLayers = preContainer
         ? (Array.from(preContainer.querySelectorAll(".sm-prelayer")) as HTMLElement[])
@@ -148,7 +144,6 @@ export function StaggeredMenu({
       gsap.set(mid, { y: 0, opacity: 1, scaleX: 1 });
       gsap.set(bottom, { y: BAR_OFFSET });
       gsap.set(icon, { rotate: 0, transformOrigin: "50% 50%" });
-      gsap.set(textInner, { yPercent: 0 });
     });
     return () => ctx.revert();
   }, [mounted, position]);
@@ -338,37 +333,6 @@ export function StaggeredMenu({
     [d]
   );
 
-  /* The label doesn't swap, it rolls: a short stack of alternating Menu/Close
-     lines is built and the column slides to the last one, so the word flickers
-     between the two states before settling on the right one. */
-  const animateText = useCallback(
-    (opening: boolean) => {
-      const inner = textInnerRef.current;
-      if (!inner) return;
-      textCycleAnimRef.current?.kill();
-
-      const target = opening ? "Close" : "Menu";
-      const seq = [opening ? "Menu" : "Close"];
-      let last = seq[0];
-      for (let i = 0; i < 3; i++) {
-        last = last === "Menu" ? "Close" : "Menu";
-        seq.push(last);
-      }
-      if (last !== target) seq.push(target);
-      seq.push(target);
-      setTextLines(seq);
-
-      gsap.set(inner, { yPercent: 0 });
-      const finalShift = ((seq.length - 1) / seq.length) * 100;
-      textCycleAnimRef.current = gsap.to(inner, {
-        yPercent: -finalShift,
-        duration: d(0.5 + seq.length * 0.07),
-        ease: "power4.out",
-      });
-    },
-    [d]
-  );
-
   const setOpenState = useCallback(
     (target: boolean) => {
       if (openRef.current === target) return;
@@ -378,9 +342,8 @@ export function StaggeredMenu({
       if (target) playOpen();
       else playClose();
       animateIcon(target);
-      animateText(target);
     },
-    [animateIcon, animateText, onOpenChange, playClose, playOpen]
+    [animateIcon, onOpenChange, playClose, playOpen]
   );
 
   const close = useCallback(() => setOpenState(false), [setOpenState]);
@@ -503,15 +466,6 @@ export function StaggeredMenu({
         aria-controls="staggered-menu-panel"
         onClick={() => setOpenState(!openRef.current)}
       >
-        <span className="sm-toggle-textWrap" aria-hidden="true">
-          <span ref={textInnerRef} className="sm-toggle-textInner">
-            {textLines.map((l, i) => (
-              <span className="sm-toggle-line" key={i}>
-                {l}
-              </span>
-            ))}
-          </span>
-        </span>
         <span ref={iconRef} className="sm-icon" aria-hidden="true">
           <span ref={barTopRef} className="sm-icon-line" />
           <span ref={barMidRef} className="sm-icon-line" />

@@ -249,54 +249,33 @@ h1, h2, h3, h4, h5, h6 {
      the fold at every size — the page never sat still at scroll 0 and the
      platform rail's bottom edge was always just under it. */
   --mk-nav-h: 4.625rem;
-  --mk-hero-line: color-mix(in srgb, var(--color-brand) 15%, transparent);
-  --mk-hero-glow: color-mix(in srgb, var(--color-brand) 14%, transparent);
+  /* The stage is dark in both themes, at every width.
+
+     The background here is a field of drifting screenshots, and screenshots are
+     mostly light UI — on the pale stage this used to have, they came out as
+     grey mush with nothing separating the artwork from the type in front of it,
+     and the white cards floating over it read as slightly whiter rectangles on
+     white. The same dark wash the dark theme was already using fixes both: the
+     tiles fall back to texture, and everything on top of them reads as lit.
+
+     Navy rather than the old near-black #05060e: the canvas below is navy, and
+     a black stage above it made the seam at the hero's bottom edge the most
+     visible line on the page. It sits a few steps under the canvas so the hero
+     still reads as the lit stage, with the glow carrying the depth.
+
+     Everything on the stage is written for a dark background because of this —
+     the type, the platform rail and the nav over it (Hero.tsx,
+     PlatformStrip.tsx, Nav.tsx). Lighten this and all of those have to move
+     with it. */
+  --mk-hero-line: rgba(255, 255, 255, 0.07);
+  --mk-hero-glow: color-mix(in srgb, var(--color-brand) 38%, transparent);
   position: relative;
   isolation: isolate;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
   min-height: 100svh;
-  background: #eff1f8;
-}
-:root[data-theme="dark"] .mk-hero {
-  --mk-hero-line: rgba(255, 255, 255, 0.07);
-  /* Navy rather than the old near-black #05060e: the canvas below is navy now,
-     and a black stage above it made the seam at the hero's bottom edge the most
-     visible line on the page. Sits a few steps under the canvas so the hero
-     still reads as the lit stage, with a stronger glow carrying the depth the
-     darker background used to. */
-  --mk-hero-glow: color-mix(in srgb, var(--color-brand) 38%, transparent);
   background: #080d20;
-}
-/* Phones run the dark stage in *both* themes.
-
-   On a laptop the pale stage has room to breathe: the tiles sit far out at the
-   edges, well away from the type. A phone is 375px of the same composition, so
-   the drifting screenshots end up directly behind the headline and the rail,
-   and light tiles on a light stage gave the whole thing a grey, washed look
-   with nothing to separate the content from the artwork. Dropping the same dark
-   wash the dark theme uses over it fixes both at once — the tiles fall back to
-   a texture, and the white tracker panel reads as lit rather than as a slightly
-   whiter rectangle on white.
-
-   Everything on the stage flips with it: the type, the platform rail and the
-   nav over it all carry `sm:` variants back to the light treatment from 640px
-   up (Hero.tsx, PlatformStrip.tsx, Nav.tsx). Change the breakpoint here and
-   those have to move with it. */
-@media (max-width: 639px) {
-  .mk-hero {
-    --mk-hero-line: rgba(255, 255, 255, 0.07);
-    --mk-hero-glow: color-mix(in srgb, var(--color-brand) 38%, transparent);
-    background: #080d20;
-  }
-  /* Same holding-back the dark theme needs: these captures are mostly light UI,
-     so on a dark stage they punch well above their opacity. */
-  .mk-hero-motion {
-    --mk-tile-image: 0.1;
-    --mk-tile-fill: rgba(255, 255, 255, 0.03);
-    --mk-tile-line: rgba(255, 255, 255, 0.06);
-  }
 }
 
 /* Ruled lines, then a vignette that pulls the edges down so the centre reads
@@ -338,10 +317,14 @@ h1, h2, h3, h4, h5, h6 {
 .mk-hero-motion {
   /* How much of the image survives. This is the only knob that matters for
      "does the hero still read": the tiles have to register as movement and
-     warmth without ever competing with the type in front of them. */
-  --mk-tile-image: 0.16;
-  --mk-tile-fill: color-mix(in srgb, var(--color-brand) 4%, transparent);
-  --mk-tile-line: color-mix(in srgb, var(--color-brand) 9%, transparent);
+     warmth without ever competing with the type in front of them.
+
+     Held back harder than the 0.16 the pale stage could carry — the captures
+     are mostly light UI, so on the dark stage they punch well above their
+     opacity. Same values in both themes, since the stage is the same. */
+  --mk-tile-image: 0.1;
+  --mk-tile-fill: rgba(255, 255, 255, 0.03);
+  --mk-tile-line: rgba(255, 255, 255, 0.06);
   --mk-tile-gap: clamp(0.5rem, 1vw, 1rem);
   position: absolute;
   inset: 0;
@@ -350,13 +333,6 @@ h1, h2, h3, h4, h5, h6 {
   pointer-events: none;
   -webkit-mask-image: radial-gradient(66% 56% at 50% 42%, transparent 0%, #000 94%);
   mask-image: radial-gradient(66% 56% at 50% 42%, transparent 0%, #000 94%);
-}
-/* The captures are mostly light UI, so on the dark stage they punch well above
-   their opacity — they need holding back further here, not less. */
-:root[data-theme="dark"] .mk-hero-motion {
-  --mk-tile-image: 0.1;
-  --mk-tile-fill: rgba(255, 255, 255, 0.03);
-  --mk-tile-line: rgba(255, 255, 255, 0.06);
 }
 /* Oversized so that once it's rotated it still covers the corners. Both axes take
    the larger of the two viewport dimensions because the requirement flips with
@@ -700,6 +676,15 @@ h1, h2, h3, h4, h5, h6 {
     0 1px 2px rgba(255, 255, 255, 0.75);
 }
 :root[data-theme="dark"] .mk-nav-link {
+  color: #ffffff;
+  text-shadow:
+    0 0 12px rgba(0, 0, 0, 0.55),
+    0 1px 3px rgba(0, 0, 0, 0.7);
+}
+/* While the bar is over the hero — which is a dark stage in both themes — or
+   over the phone menu's navy panel. Nav.tsx puts this on and takes it off with
+   the same `onDark` flag that colours the wordmark and the round controls. */
+.mk-nav-link--on-dark {
   color: #ffffff;
   text-shadow:
     0 0 12px rgba(0, 0, 0, 0.55),

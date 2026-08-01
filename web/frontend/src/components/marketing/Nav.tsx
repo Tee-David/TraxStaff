@@ -97,19 +97,17 @@ export function MarketingNav() {
      pale fill. */
   const lifted = scrolled && !open;
 
-  /* Two independent reasons for the bar to go white, and they don't cover the
-     same elements:
-       - over the hero, but only below `sm`, where the hero stage is dark in both
-         themes (see `.mk-hero` in globals.css). That's the wordmark's rule.
-       - with the menu open, at any width the menu exists at, because both
-         controls on the right sit over the navy panel by then. */
-  const overDarkHero = !scrolled;
-  const wordmarkTone = overDarkHero ? "text-white sm:text-ink" : "text-ink";
-  const controlTone = open
+  /* Everything in the bar reads on dark until the hero is behind you.
+
+     The hero stage is dark in both themes at every width (see `.mk-hero` in
+     globals.css), and the phone menu's panel is a navy sheet — so the wordmark,
+     the links and the two round controls are white while either is under them,
+     and go back to ink once the pill lifts over the pale sections below. */
+  const onDark = !scrolled || open;
+  const wordmarkTone = onDark ? "text-white" : "text-ink";
+  const controlTone = onDark
     ? "border-white/25 bg-white/10 text-white hover:border-white/45"
-    : overDarkHero
-      ? "border-white/25 bg-white/10 text-white hover:border-white/45 sm:border-border sm:bg-surface/70 sm:text-ink sm:hover:border-border-strong"
-      : "border-border bg-surface/70 text-ink hover:border-border-strong";
+    : "border-border bg-surface/70 text-ink hover:border-border-strong";
 
   /* The gap above the pill is padding on the sticky header rather than a
      margin on the pill: a top margin here collapses through the header and the
@@ -149,7 +147,9 @@ export function MarketingNav() {
             <a
               key={l.href}
               href={l.href}
-              className="mk-nav-link cursor-target py-2.5 text-sm font-semibold transition-colors"
+              className={`mk-nav-link cursor-target py-2.5 text-sm font-semibold transition-colors ${
+                onDark ? "mk-nav-link--on-dark" : ""
+              }`}
             >
               {l.label}
             </a>

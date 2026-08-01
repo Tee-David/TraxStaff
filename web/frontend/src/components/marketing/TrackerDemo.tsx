@@ -127,8 +127,17 @@ export function TrackerDemo() {
         >
           {/* Scales with the viewport instead of sitting at a fixed 8.5rem, so a
               320px phone gets a ring that fits its width and a 430px one gets the
-              full size. */}
-          <span className="relative grid h-[clamp(6.25rem,30vw,8.75rem)] w-[clamp(6.25rem,30vw,8.75rem)] place-items-center">
+              full size.
+
+              The floor and the rate are both set by what has to sit *inside* the
+              arc rather than by the panel: at 30vw the running clock came within
+              a few pixels of the stroke on a 390px screen, because the clock is
+              sized off the viewport too and eight tabular digits don't shrink as
+              fast as the circle does. At 44vw, with the clock sized below, the
+              widest line inside is about 55% of the inner circle at every width
+              the clamp covers — so there is visible ring on both sides of it,
+              which is the whole point of drawing a ring. */}
+          <span className="relative grid h-[clamp(7.5rem,44vw,11rem)] w-[clamp(7.5rem,44vw,11rem)] place-items-center">
             <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full" aria-hidden>
               <defs>
                 <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
@@ -151,13 +160,18 @@ export function TrackerDemo() {
               />
             </svg>
 
-            {/* Inset rather than `inset-0`. Filling the whole ring box put the
+            {/* The content box, well inside the arc. Filling the ring box put the
                 label and the clock hard against the stroke, so they read as
-                overlapping it. 14% clears the stroke and leaves a margin inside
-                the arc at every size the clamp above produces. */}
-            <span className="absolute inset-[14%] flex flex-col items-center justify-center">
+                overlapping it.
+
+                The stroke takes about 6% of the box on each side, so 22% leaves
+                a clear sixth of the ring's width as empty space between the arc
+                and anything printed inside it — a gutter you can see, not a
+                hairline. Everything below is sized against this box rather than
+                against the ring, so the gutter holds at every width. */}
+            <span className="absolute inset-[22%] flex flex-col items-center justify-center">
               <span
-                className={`inline-flex items-center gap-1.5 text-[clamp(8px,2.4vw,10px)] font-semibold uppercase tracking-wide ${
+                className={`inline-flex items-center gap-1.5 text-[clamp(7px,2.1vw,9px)] font-semibold uppercase tracking-wide ${
                   running ? "text-positive" : "text-muted"
                 }`}
               >
@@ -166,8 +180,10 @@ export function TrackerDemo() {
               </span>
 
               {/* Scales with the ring — a fixed 1.55rem clock overflowed the arc
-                  once the ring shrank on a narrow phone. */}
-              <span className="mk-clock-brand mt-1 font-heading text-[clamp(1.1rem,5.1vw,1.5rem)] font-bold leading-none tabular-nums tracking-tight">
+                  once the ring shrank on a narrow phone. Eight digits at 4.6vw
+                  come out around 55% of the inner circle, which is what keeps
+                  the gutter above visible rather than nominal. */}
+              <span className="mk-clock-brand mt-1 font-heading text-[clamp(1rem,4.6vw,1.4rem)] font-bold leading-none tabular-nums tracking-tight">
                 {clock(today)}
               </span>
 

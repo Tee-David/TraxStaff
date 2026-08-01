@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
-import { APP_URL } from "@/lib/site";
+import { APP_URL, SUPPORT_EMAIL } from "@/lib/site";
+import { RELEASES_FALLBACK_URL } from "@/lib/releases";
 import { useTheme } from "@/lib/theme";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
+import { StaggeredMenu } from "./StaggeredMenu";
 import { IconLogin, IconArrowRight } from "@/components/icons";
 
 /**
@@ -17,22 +18,6 @@ const links = [
   { href: "#download", label: "Download" },
 ];
 
-/** Small inline menu glyphs — just for this nav, not worth adding to the shared icon set. */
-function IconMenu() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden>
-      <path d="M4 7h16M4 12h16M4 17h16" />
-    </svg>
-  );
-}
-function IconClose() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden>
-      <path d="M6 6l12 12M18 6L6 18" />
-    </svg>
-  );
-}
-
 /**
  * Light/dark switch — MagicUI's animated toggler, driven by the app's own
  * theme state rather than its built-in one, so a visitor's choice here is the
@@ -40,7 +25,7 @@ function IconClose() {
  * page from the button on toggle; see the component for the reduced-motion
  * and no-View-Transitions fallbacks.
  */
-function ThemeToggle() {
+function ThemeToggle({ tone }: { tone: string }) {
   const [theme, setTheme] = useTheme();
 
   return (
@@ -49,7 +34,7 @@ function ThemeToggle() {
       onThemeChange={setTheme}
       variant="circle"
       duration={520}
-      className="cursor-target flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface/70 text-ink transition hover:border-border-strong md:h-9 md:w-9"
+      className={`cursor-target flex h-11 w-11 items-center justify-center rounded-full border transition md:h-9 md:w-9 ${tone}`}
     />
   );
 }
@@ -100,11 +85,31 @@ export function MarketingNav() {
     };
   }, []);
 
-  /* Three states, and the transition between them is the whole effect:
-     over the hero it's a full-width transparent bar; scrolled away it's an
-     inset rounded pill with a blurred, translucent fill; with the phone menu
-     open it keeps the fill but squares off enough to hold the panel. */
-  const lifted = scrolled || open;
+  /* Two states now, and the transition between them is the whole effect: over
+     the hero it's a full-width transparent bar, scrolled away it's an inset
+     rounded pill with a blurred, translucent fill.
+
+     The phone menu takes the bar back to the transparent state while it's open,
+     whatever the scroll position. The menu panel is a navy sheet that slides in
+     *under* this bar (see StaggeredMenu.css), so a pale pill sitting on it would
+     read as a chip of the old page left behind — and the toggle inside the pill
+     has to go white to stay legible against that sheet, which it can't do on a
+     pale fill. */
+  const lifted = scrolled && !open;
+
+  /* Two independent reasons for the bar to go white, and they don't cover the
+     same elements:
+       - over the hero, but only below `sm`, where the hero stage is dark in both
+         themes (see `.mk-hero` in globals.css). That's the wordmark's rule.
+       - with the menu open, at any width the menu exists at, because both
+         controls on the right sit over the navy panel by then. */
+  const overDarkHero = !scrolled;
+  const wordmarkTone = overDarkHero ? "text-white sm:text-ink" : "text-ink";
+  const controlTone = open
+    ? "border-white/25 bg-white/10 text-white hover:border-white/45"
+    : overDarkHero
+      ? "border-white/25 bg-white/10 text-white hover:border-white/45 sm:border-border sm:bg-surface/70 sm:text-ink sm:hover:border-border-strong"
+      : "border-border bg-surface/70 text-ink hover:border-border-strong";
 
   /* The gap above the pill is padding on the sticky header rather than a
      margin on the pill: a top margin here collapses through the header and the
@@ -118,9 +123,7 @@ export function MarketingNav() {
       <div
         className={`mx-auto transition-all duration-300 ease-[cubic-bezier(0.22,0.61,0.36,1)] ${
           lifted
-            ? `w-[calc(100%-1.25rem)] max-w-5xl border border-border/70 bg-surface/70 shadow-[0_14px_44px_-20px_rgba(9,12,25,0.6)] backdrop-blur-xl sm:w-[calc(100%-3rem)] ${
-                open ? "rounded-[1.75rem]" : "rounded-full"
-              }`
+            ? "w-[calc(100%-1.25rem)] max-w-5xl rounded-full border border-border/70 bg-surface/70 shadow-[0_14px_44px_-20px_rgba(9,12,25,0.6)] backdrop-blur-xl sm:w-[calc(100%-3rem)]"
             : "w-full max-w-6xl rounded-none border border-transparent bg-transparent"
         }`}
       >
@@ -132,7 +135,9 @@ export function MarketingNav() {
         <a href="#top" className="flex items-center gap-2.5" aria-label="TraxStaff — home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/icon-badge.svg" alt="" width={32} height={32} className="h-8 w-8" />
-          <span className="font-heading text-lg font-bold tracking-[-0.03em] text-ink">TraxStaff</span>
+          <span className={`font-heading text-lg font-bold tracking-[-0.03em] transition-colors ${wordmarkTone}`}>
+            TraxStaff
+          </span>
         </a>
 
         {/* Tighter between `md` and `lg`: the centred links are positioned off
@@ -154,7 +159,7 @@ export function MarketingNav() {
         {/* The switch sits outside the desktop-only group so it's reachable on
             a phone too, next to the menu button rather than buried inside it. */}
         <div className="flex items-center gap-2">
-          <ThemeToggle />
+          <ThemeToggle tone={controlTone} />
 
           <div className="hidden items-center gap-2 md:flex">
             <a
@@ -173,60 +178,31 @@ export function MarketingNav() {
             </a>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setOpen((o) => !o)}
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface text-ink transition hover:border-border-strong md:hidden"
-            aria-label={open ? "Close menu" : "Open menu"}
-            aria-expanded={open}
-          >
-            {open ? <IconClose /> : <IconMenu />}
-          </button>
+          {/* The phone menu. The button is placed here, in the bar; the sheets
+              and the panel it drives are portalled to the body — see the
+              component for why. */}
+          <div className="md:hidden">
+            <StaggeredMenu
+              items={links.map((l) => ({
+                label: l.label,
+                link: l.href,
+                ariaLabel: `Go to ${l.label}`,
+              }))}
+              actions={[
+                { label: "Log in", link: `${APP_URL}/login` },
+                { label: "Start free", link: `${APP_URL}/app`, accent: true },
+              ]}
+              footerLinks={[
+                { label: SUPPORT_EMAIL, link: `mailto:${SUPPORT_EMAIL}` },
+                { label: "Releases", link: RELEASES_FALLBACK_URL, external: true },
+              ]}
+              onOpenChange={setOpen}
+              toggleClassName={`cursor-target h-11 w-11 rounded-full border transition ${controlTone}`}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Inside the shell, so the panel is part of the same pill rather than a
-          separate slab under it. */}
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.22, ease: [0.22, 0.61, 0.36, 1] }}
-            className="overflow-hidden border-t border-border/70 px-3.5 pb-4 pt-3 md:hidden"
-          >
-            <nav className="flex flex-col gap-1">
-              {links.map((l) => (
-                <a
-                  key={l.href}
-                  href={l.href}
-                  onClick={() => setOpen(false)}
-                  className="rounded-xl px-3 py-2.5 text-sm font-medium text-ink transition hover:bg-canvas"
-                >
-                  {l.label}
-                </a>
-              ))}
-            </nav>
-            <div className="mt-3 flex flex-col gap-2 border-t border-border/70 pt-3">
-              <a
-                href={`${APP_URL}/login`}
-                className="flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2.5 text-center text-sm font-medium text-ink transition hover:bg-canvas"
-              >
-                <IconLogin width={16} height={16} />
-                Log in
-              </a>
-              <a
-                href={`${APP_URL}/app`}
-                className="mk-cta flex items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-center text-sm font-bold transition hover:brightness-105"
-              >
-                Start free
-                <IconArrowRight width={16} height={16} />
-              </a>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
       </div>
     </header>
   );

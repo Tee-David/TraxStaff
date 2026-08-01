@@ -73,7 +73,9 @@ export function MarketingNav() {
      Measured from the DOM rather than assumed: the hero is `100svh`, and `svh`
      can't be computed in JS. Re-measured on resize and orientation change. */
   useEffect(() => {
-    const NAV_H = 72; // `--mk-nav-h` / the bar's h-[4.5rem] in its resting state
+    // Must track `--mk-nav-h`: the h-[4.5rem] bar plus the 1px transparent
+    // border the shell carries in its resting state.
+    const NAV_H = 74;
     let threshold = 24;
 
     const measure = () => {

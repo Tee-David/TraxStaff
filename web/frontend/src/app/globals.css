@@ -242,7 +242,13 @@ h1, h2, h3, h4, h5, h6 {
    Flex column, so the platform rail can sit on the bottom edge of that screen
    while the headline block takes whatever is left and centres itself in it. */
 .mk-hero {
-  --mk-nav-h: 4.5rem;
+  /* 4.625rem, not the 4.5rem the bar's `h-[4.5rem]` implies: in its flush
+     state the shell also carries `border border-transparent`, so it occupies
+     72px + 1px top + 1px bottom. At 4.5rem the hero was pulled up two pixels
+     short of the viewport top and, being 100svh tall, ended two pixels past
+     the fold at every size — the page never sat still at scroll 0 and the
+     platform rail's bottom edge was always just under it. */
+  --mk-nav-h: 4.625rem;
   --mk-hero-line: color-mix(in srgb, var(--color-brand) 15%, transparent);
   --mk-hero-glow: color-mix(in srgb, var(--color-brand) 14%, transparent);
   position: relative;

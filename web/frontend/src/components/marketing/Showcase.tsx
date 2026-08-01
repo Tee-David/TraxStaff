@@ -5,6 +5,7 @@ import { useMotionPresets } from "@/lib/motion";
 import { APP_URL } from "@/lib/site";
 import { Mark } from "./Mark";
 import { PhoneFrame, TabletFrame } from "./DeviceFrames";
+import { IconDownload, IconDashboard } from "@/components/icons";
 
 /**
  * The product, shown rather than described.
@@ -83,15 +84,17 @@ export function Showcase() {
             <motion.a
               {...press}
               href="#download"
-              className="cursor-target w-full rounded-full bg-field px-6 py-4 text-center text-sm font-semibold text-white transition-colors hover:bg-brand-600 sm:w-auto sm:py-3.5"
+              className="cursor-target inline-flex w-full items-center justify-center gap-2 rounded-full bg-field px-6 py-4 text-center text-sm font-semibold text-white transition-colors hover:bg-brand-600 sm:w-auto sm:py-3.5"
             >
+              <IconDownload width={17} height={17} aria-hidden />
               Download the app
             </motion.a>
             <motion.a
               {...press}
               href={`${APP_URL}/app`}
-              className="cursor-target w-full rounded-full border border-ink/15 bg-surface px-6 py-4 text-center text-sm font-semibold text-ink transition-colors hover:border-ink/30 sm:w-auto sm:py-3.5"
+              className="cursor-target inline-flex w-full items-center justify-center gap-2 rounded-full border border-ink/15 bg-surface px-6 py-4 text-center text-sm font-semibold text-ink transition-colors hover:border-ink/30 sm:w-auto sm:py-3.5"
             >
+              <IconDashboard width={17} height={17} aria-hidden />
               Open the dashboard
             </motion.a>
           </motion.div>

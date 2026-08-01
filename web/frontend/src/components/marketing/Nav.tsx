@@ -195,7 +195,7 @@ export function MarketingNav() {
                 { label: "Releases", link: RELEASES_FALLBACK_URL, external: true },
               ]}
               onOpenChange={setOpen}
-              toggleClassName={`cursor-target h-11 rounded-full border px-4 transition ${controlTone}`}
+              toggleClassName={`cursor-target h-11 w-11 rounded-full border transition ${controlTone}`}
             />
           </div>
         </div>

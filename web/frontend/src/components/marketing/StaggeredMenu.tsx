@@ -30,6 +30,10 @@ import "./StaggeredMenu.css";
  * stays on top of the panel, which is how the upstream layout behaves too.
  */
 
+/** How far the outer bars of the hamburger sit from the middle one, in px.
+ *  Matches the icon box in StaggeredMenu.css — change both together. */
+const BAR_OFFSET = 5;
+
 export type StaggeredMenuItem = {
   label: string;
   link: string;
@@ -83,15 +87,16 @@ export function StaggeredMenu({
   const panelRef = useRef<HTMLElement | null>(null);
   const preLayersRef = useRef<HTMLDivElement | null>(null);
   const preLayerElsRef = useRef<HTMLElement[]>([]);
-  const plusHRef = useRef<HTMLSpanElement | null>(null);
-  const plusVRef = useRef<HTMLSpanElement | null>(null);
+  const barTopRef = useRef<HTMLSpanElement | null>(null);
+  const barMidRef = useRef<HTMLSpanElement | null>(null);
+  const barBottomRef = useRef<HTMLSpanElement | null>(null);
   const iconRef = useRef<HTMLSpanElement | null>(null);
   const textInnerRef = useRef<HTMLSpanElement | null>(null);
   const toggleBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const openTlRef = useRef<gsap.core.Timeline | null>(null);
   const closeTweenRef = useRef<gsap.core.Tween | null>(null);
-  const spinTweenRef = useRef<gsap.core.Tween | null>(null);
+  const iconTlRef = useRef<gsap.core.Timeline | null>(null);
   const textCycleAnimRef = useRef<gsap.core.Tween | null>(null);
   const busyRef = useRef(false);
 
@@ -121,11 +126,12 @@ export function StaggeredMenu({
     const ctx = gsap.context(() => {
       const panel = panelRef.current;
       const preContainer = preLayersRef.current;
-      const plusH = plusHRef.current;
-      const plusV = plusVRef.current;
+      const top = barTopRef.current;
+      const mid = barMidRef.current;
+      const bottom = barBottomRef.current;
       const icon = iconRef.current;
       const textInner = textInnerRef.current;
-      if (!panel || !plusH || !plusV || !icon || !textInner) return;
+      if (!panel || !top || !mid || !bottom || !icon || !textInner) return;
 
       const preLayers = preContainer
         ? (Array.from(preContainer.querySelectorAll(".sm-prelayer")) as HTMLElement[])
@@ -135,8 +141,12 @@ export function StaggeredMenu({
       const offscreen = position === "left" ? -100 : 100;
       gsap.set([panel, ...preLayers], { xPercent: offscreen, opacity: 1 });
       if (preContainer) gsap.set(preContainer, { xPercent: 0, opacity: 1 });
-      gsap.set(plusH, { transformOrigin: "50% 50%", rotate: 0 });
-      gsap.set(plusV, { transformOrigin: "50% 50%", rotate: 90 });
+      // Three bars at rest: the middle one on the centre line, the other two a
+      // bar-and-a-half above and below it.
+      gsap.set([top, mid, bottom], { transformOrigin: "50% 50%", rotate: 0 });
+      gsap.set(top, { y: -BAR_OFFSET });
+      gsap.set(mid, { y: 0, opacity: 1, scaleX: 1 });
+      gsap.set(bottom, { y: BAR_OFFSET });
       gsap.set(icon, { rotate: 0, transformOrigin: "50% 50%" });
       gsap.set(textInner, { yPercent: 0 });
     });
@@ -282,17 +292,48 @@ export function StaggeredMenu({
     });
   }, [d, position]);
 
+  /* Hamburger to cross and back: the outer bars slide onto the centre line and
+     tip 45° apart while the middle one drops out from the middle, and the whole
+     glyph turns a half-circle as it goes, so the two states are one movement
+     rather than a swap. */
   const animateIcon = useCallback(
     (opening: boolean) => {
       const icon = iconRef.current;
-      if (!icon) return;
-      spinTweenRef.current?.kill();
-      spinTweenRef.current = gsap.to(icon, {
-        rotate: opening ? 225 : 0,
-        duration: opening ? d(0.8) : d(0.35),
-        ease: opening ? "power4.out" : "power3.inOut",
-        overwrite: "auto",
-      });
+      const top = barTopRef.current;
+      const mid = barMidRef.current;
+      const bottom = barBottomRef.current;
+      if (!icon || !top || !mid || !bottom) return;
+
+      iconTlRef.current?.kill();
+      const tl = gsap.timeline({ defaults: { overwrite: "auto" } });
+      iconTlRef.current = tl;
+
+      tl.to(
+        mid,
+        { opacity: opening ? 0 : 1, scaleX: opening ? 0.4 : 1, duration: d(0.2), ease: "power2.out" },
+        0
+      )
+        .to(
+          top,
+          {
+            y: opening ? 0 : -BAR_OFFSET,
+            rotate: opening ? 45 : 0,
+            duration: d(0.4),
+            ease: "power3.inOut",
+          },
+          opening ? d(0.06) : 0
+        )
+        .to(
+          bottom,
+          {
+            y: opening ? 0 : BAR_OFFSET,
+            rotate: opening ? -45 : 0,
+            duration: d(0.4),
+            ease: "power3.inOut",
+          },
+          opening ? d(0.06) : 0
+        )
+        .to(icon, { rotate: opening ? 180 : 0, duration: d(0.5), ease: "power3.inOut" }, 0);
     },
     [d]
   );
@@ -472,8 +513,9 @@ export function StaggeredMenu({
           </span>
         </span>
         <span ref={iconRef} className="sm-icon" aria-hidden="true">
-          <span ref={plusHRef} className="sm-icon-line" />
-          <span ref={plusVRef} className="sm-icon-line sm-icon-line-v" />
+          <span ref={barTopRef} className="sm-icon-line" />
+          <span ref={barMidRef} className="sm-icon-line" />
+          <span ref={barBottomRef} className="sm-icon-line" />
         </span>
       </button>
 

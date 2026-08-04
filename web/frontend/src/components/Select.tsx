@@ -40,6 +40,8 @@ export function Select({
   const searchRef = useRef<HTMLInputElement>(null);
   // Viewport width at the moment the panel opened — see the resize handler.
   const openWidth = useRef(0);
+  // When it opened, so the tail of the opening tap can be ignored.
+  const openedAt = useRef(0);
   const open = rect !== null;
   const canSearch = searchable ?? options.length > 6;
   const selected = options.find((o) => o.value === value);
@@ -51,16 +53,36 @@ export function Select({
   }
 
   function toggle() {
-    if (open) return close();
+    // The synthesized click a touch screen sends after touchend lands back on
+    // this same button, so a plain toggle closed the list in the same gesture
+    // that opened it — the dropdown could not be opened on a phone at all.
+    // Closing by tapping the trigger again still works; it just has to be a
+    // separate tap rather than the tail of the opening one.
+    if (open) return closeUnlessJustOpened();
     openWidth.current = window.innerWidth;
+    openedAt.current = Date.now();
     setRect(btnRef.current?.getBoundingClientRect() ?? null);
+  }
+
+  /**
+   * Ignore dismissals for a moment after opening. A tap on a touch screen
+   * produces a whole sequence of events after the one that opened the list
+   * (mousedown/mouseup/click, plus scroll and resize as the keyboard or URL bar
+   * move), and any of them arriving late reads as "the user dismissed this"
+   * when they have not even seen the list yet. Short enough to be invisible for
+   * a genuine click-away.
+   */
+  const GRACE_MS = 350;
+  function closeUnlessJustOpened() {
+    if (Date.now() - openedAt.current < GRACE_MS) return;
+    close();
   }
 
   useEffect(() => {
     if (!open) return;
     function outside(e: MouseEvent) {
       const t = e.target as Node;
-      if (!btnRef.current?.contains(t) && !panelRef.current?.contains(t)) close();
+      if (!btnRef.current?.contains(t) && !panelRef.current?.contains(t)) closeUnlessJustOpened();
     }
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
 
@@ -71,7 +93,7 @@ export function Select({
     function onScroll(e: Event) {
       const t = e.target as Node | null;
       if (t && panelRef.current?.contains(t)) return;
-      close();
+      closeUnlessJustOpened();
     }
 
     // Only a real width change (rotation, window resize) invalidates the
@@ -82,7 +104,7 @@ export function Select({
     // in for no reason. Height-only changes are now ignored, and the field is
     // 16px on small screens so iOS has no reason to zoom at all.
     function onResize() {
-      if (Math.abs(window.innerWidth - openWidth.current) > 40) close();
+      if (Math.abs(window.innerWidth - openWidth.current) > 40) closeUnlessJustOpened();
     }
 
     document.addEventListener("mousedown", outside);
@@ -156,7 +178,16 @@ export function Select({
         createPortal(
           open && pos ? (
             <>
-              <div className="fixed inset-0 z-40" onClick={close} />
+              {/* Deliberately no full-screen click-away overlay here.
+                  One used to be rendered at `fixed inset-0` — i.e. directly
+                  under the finger that had just opened the list — and a tap on
+                  a touch screen dispatches a synthesized click after touchend,
+                  at the same coordinates. That click landed on the overlay that
+                  had appeared mid-tap and closed the list instantly, so the
+                  dropdown could not be opened on a phone at all. Click-away is
+                  handled by the document `mousedown` listener above, which is
+                  also all `ActionMenu` has ever used — and those menus never
+                  had this problem. */}
               <div
                 ref={panelRef}
                 style={{ position: "fixed", ...pos }}

@@ -214,6 +214,7 @@ function ActionMenu({ project, onRefresh, onAssign }: { project: Project; onRefr
         ref={btnRef}
         onClick={() => setRect(open ? null : (btnRef.current?.getBoundingClientRect() ?? null))}
         className="text-muted hover:text-ink hover:bg-canvas rounded-lg px-2 py-1 transition focus:outline-none focus:ring-2 focus:ring-brand"
+        aria-label={`Actions for ${project.name}`}
         aria-expanded={open}
       >
         ⋯
@@ -658,15 +659,15 @@ export default function ProjectsPage() {
             return (
               <div
                 key={p.id}
-                className={`border-b border-border/60 px-5 py-4 last:border-0 transition sm:flex sm:items-center sm:gap-3 ${
+                className={`flex flex-wrap items-center gap-x-3 gap-y-3 border-b border-border/60 px-5 py-4 last:border-0 transition sm:flex-nowrap ${
                   picked.has(p.id) ? "bg-brand/[0.06]" : "hover:bg-canvas/40"
                 }`}
               >
-                {/* Checkbox and identity share one line on a phone. They used to
-                    be siblings of a column flex, which put the checkbox on a
-                    line of its own above the project and left the row three
-                    stacked strips tall. */}
-                <div className="flex min-w-0 flex-1 items-center gap-3">
+                {/* Wrapping row, ordered so a phone reads: identity and the
+                    actions menu on the top line, then the progress bar across
+                    the full width beneath. `order` puts the bar back in the
+                    middle from `sm` up, where everything sits on one line. */}
+                <div className="order-1 flex min-w-0 flex-1 items-center gap-3">
                   {/* Outside the Link, or picking a row would navigate away. */}
                   <input
                     type="checkbox"
@@ -694,26 +695,29 @@ export default function ProjectsPage() {
                   </Link>
                 </div>
 
-                {/* Second line on a phone, indented to the project name and
-                    using the full width — the progress bar was boxed to 7rem
-                    with the rest of the row left empty beside it. */}
-                <div className="mt-3 flex w-full items-center gap-4 pl-7 sm:mt-0 sm:w-auto sm:shrink-0 sm:pl-0">
-                  <div className="flex flex-1 items-center gap-2 sm:w-32 sm:flex-none">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-border">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{
-                          width: `${progressPct}%`,
-                          backgroundColor: statusTone === "green" ? "var(--color-positive)" : statusTone === "accent" ? "var(--color-accent)" : "var(--color-brand)",
-                        }}
-                      />
-                    </div>
-                    <span className="w-8 shrink-0 text-[12px] font-semibold text-muted">{progressPct}%</span>
-                  </div>
+                {/* Top line on a phone (alongside the name), trailing the row
+                    from `sm` up. */}
+                <div className="order-2 flex shrink-0 items-center gap-4 sm:order-3">
                   <div className="hidden w-36 md:block">
                     <AssignedCluster userIds={p.assignedUserIds ?? []} members={members} />
                   </div>
                   <ActionMenu project={p} onRefresh={load} onAssign={() => setAssigningFor(p)} />
+                </div>
+
+                {/* `w-full` is what wraps this onto its own line on a phone, so
+                    the bar spans the whole card instead of being boxed into a
+                    7rem column with empty space beside it. */}
+                <div className="order-3 flex w-full items-center gap-2 sm:order-2 sm:w-32 sm:shrink-0">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-border">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${progressPct}%`,
+                        backgroundColor: statusTone === "green" ? "var(--color-positive)" : statusTone === "accent" ? "var(--color-accent)" : "var(--color-brand)",
+                      }}
+                    />
+                  </div>
+                  <span className="w-8 shrink-0 text-right text-[12px] font-semibold text-muted">{progressPct}%</span>
                 </div>
               </div>
             );

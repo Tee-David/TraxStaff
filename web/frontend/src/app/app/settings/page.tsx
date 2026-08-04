@@ -13,7 +13,7 @@ import { Toggle } from "@/components/Toggle";
 import { useTheme } from "@/lib/theme";
 import { useMotionPresets } from "@/lib/motion";
 import { toggleThemeWithTransition } from "@/lib/theme-transition";
-import { IconClock, IconFlag, IconImage, IconMoon, IconSun, IconUser, IconUsers } from "@/components/icons";
+import { IconChart, IconClock, IconFlag, IconImage, IconMoon, IconSun, IconUser, IconUsers } from "@/components/icons";
 
 interface OrgSettings {
   id: string;
@@ -22,11 +22,12 @@ interface OrgSettings {
   blurScreenshots: boolean;
   idleTimeoutMinutes: number;
   keepIdleDefault: boolean;
+  showWebsiteUsage: boolean;
   dailyTargetMinutes: number;
   weeklyTargetMinutes: number;
 }
 
-type SectionId = "account" | "appearance" | "screenshots" | "tracking" | "targets" | "organisation";
+type SectionId = "account" | "appearance" | "screenshots" | "tracking" | "reports" | "targets" | "organisation";
 
 type Section = SettingsNavItem & {
   id: SectionId;
@@ -66,6 +67,14 @@ const SECTIONS: Section[] = [
     icon: IconClock,
     title: "Tracking behaviour",
     subtitle: "How the desktop tracker handles idle time during a session.",
+    adminOnly: true,
+  },
+  {
+    id: "reports",
+    label: "Reports",
+    icon: IconChart,
+    title: "Reports",
+    subtitle: "Which breakdowns appear on the Reports page. Applies to everyone who can view reports.",
     adminOnly: true,
   },
   {
@@ -215,6 +224,7 @@ export default function SettingsPage() {
           blurScreenshots: settings.blurScreenshots,
           idleTimeoutMinutes: settings.idleTimeoutMinutes,
           keepIdleDefault: settings.keepIdleDefault,
+          showWebsiteUsage: settings.showWebsiteUsage,
           dailyTargetMinutes: settings.dailyTargetMinutes,
           weeklyTargetMinutes: settings.weeklyTargetMinutes,
         }),
@@ -406,6 +416,21 @@ export default function SettingsPage() {
             label="Keep idle time by default"
             checked={settings.keepIdleDefault}
             onChange={(v) => setSettings({ ...settings, keepIdleDefault: v })}
+          />
+        </SettingsRow>
+      </SettingsPanel>
+    ),
+
+    reports: (
+      <SettingsPanel title="Visible breakdowns">
+        <SettingsRow
+          label="Website usage"
+          hint="Show the per-domain breakdown of browsing time on the Reports page. Turning this off hides the panel for everyone, including admins. Tracking is unaffected — the history is kept and reappears if you turn this back on."
+        >
+          <Toggle
+            label="Show website usage"
+            checked={settings.showWebsiteUsage}
+            onChange={(v) => setSettings({ ...settings, showWebsiteUsage: v })}
           />
         </SettingsRow>
       </SettingsPanel>

@@ -193,7 +193,7 @@ export async function sendInviteEmail(to: string, inviteUrl: string, orgName: st
     <p style="margin:0 0 24px;">${emailButton(inviteUrl, "Accept invite", "→")}</p>
     <p class="muted" style="margin:0 0 6px;font-size:13px;color:${C.muted};">Or paste this link into your browser:</p>
     <p style="margin:0 0 18px;font-size:12px;word-break:break-all;"><a href="${inviteUrl}" style="color:${C.brand};">${inviteUrl}</a></p>
-    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">This link expires in 7 days. If you weren't expecting this, you can ignore this email.</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">This link expires in 24 hours. If you weren't expecting this, you can ignore this email.</p>
   `,
     `Set your password to join ${orgName} on TraxStaff.`
   );
@@ -202,7 +202,7 @@ export async function sendInviteEmail(to: string, inviteUrl: string, orgName: st
     to,
     `You've been invited to join ${orgName} on TraxStaff`,
     html,
-    `You've been invited to join ${orgName} on TraxStaff.\n\nAccept your invite: ${inviteUrl}\n\nThis link expires in 7 days.`,
+    `You've been invited to join ${orgName} on TraxStaff.\n\nAccept your invite: ${inviteUrl}\n\nThis link expires in 24 hours.`,
     "invite email"
   );
 }

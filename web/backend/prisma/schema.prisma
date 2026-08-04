@@ -67,6 +67,11 @@ model Organization {
   blurScreenshots     Boolean  @default(false)
   idleTimeoutMinutes  Int      @default(5)
   keepIdleDefault     Boolean  @default(true)
+  // Whether the Reports page surfaces the per-domain "Website usage" panel.
+  // Capture is unaffected either way — the desktop tracker keeps recording
+  // UrlUsage, so flipping this back on reveals the full history rather than
+  // starting from an empty panel.
+  showWebsiteUsage    Boolean  @default(true)
   // Org-wide work targets. Members inherit these unless given their own.
   dailyTargetMinutes  Int      @default(480)
   weeklyTargetMinutes Int      @default(2400)

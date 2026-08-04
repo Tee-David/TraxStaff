@@ -8,6 +8,7 @@ const settingsSchema = z.object({
   blurScreenshots: z.boolean().optional(),
   idleTimeoutMinutes: z.number().int().min(1).max(60).optional(),
   keepIdleDefault: z.boolean().optional(),
+  showWebsiteUsage: z.boolean().optional(),
   // Org-wide work targets, in minutes. Bounded by the real length of a day/week.
   dailyTargetMinutes: z.number().int().min(0).max(1440).optional(),
   weeklyTargetMinutes: z.number().int().min(0).max(10080).optional(),
@@ -20,6 +21,7 @@ const settingsSelect = {
   blurScreenshots: true,
   idleTimeoutMinutes: true,
   keepIdleDefault: true,
+  showWebsiteUsage: true,
   dailyTargetMinutes: true,
   weeklyTargetMinutes: true,
 } as const;

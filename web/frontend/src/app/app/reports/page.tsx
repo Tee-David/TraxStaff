@@ -21,6 +21,16 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<DateRangeValue>({ type: "preset", preset: "week" });
   const [member, setMember] = useState("");
+  // Admin-controlled (Settings → Reports). `null` while the setting is still in
+  // flight: the panel stays hidden until we know, so it can't flash into view
+  // for a workspace that has deliberately switched it off.
+  const [showUrls, setShowUrls] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api<{ showWebsiteUsage: boolean }>("/orgs/settings")
+      .then((s) => setShowUrls(s.showWebsiteUsage))
+      .catch(() => setShowUrls(false));
+  }, []);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -43,7 +53,9 @@ export default function ReportsPage() {
       api<TimesheetDay[]>(`/reports/timesheet${q}`),
       api<ByProjectRow[]>(`/reports/by-project${q}`),
       api<{ appName: string; seconds: number }[]>(`/reports/app-usage${q}`),
-      api<{ domain: string; seconds: number }[]>(`/reports/url-usage${q}`),
+      // Not requested at all when the panel is off — no point pulling a
+      // breakdown nothing will render (the backend withholds it regardless).
+      showUrls ? api<{ domain: string; seconds: number }[]>(`/reports/url-usage${q}`) : Promise.resolve([]),
     ])
       .then(([s, d, p, a, u]) => {
         setSummary(s);
@@ -54,7 +66,7 @@ export default function ReportsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [range, member, isPrivileged]);
+  }, [range, member, isPrivileged, showUrls]);
 
   useEffect(() => {
     load();
@@ -149,7 +161,10 @@ export default function ReportsPage() {
             )}
           </Card>
 
-          <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2" data-tour="reports-usage">
+          <div
+            className={`mb-6 grid grid-cols-1 gap-6 ${showUrls ? "lg:grid-cols-2" : ""}`}
+            data-tour="reports-usage"
+          >
             <Card className="p-5">
               <h2 className="mb-4 text-lg">App usage</h2>
               {apps.length === 0 ? (
@@ -179,34 +194,36 @@ export default function ReportsPage() {
               )}
             </Card>
 
-            <Card className="p-5">
-              <h2 className="mb-4 text-lg">Website usage</h2>
-              {urls.length === 0 ? (
-                <p className="text-sm text-muted">No website usage captured yet (the desktop tracker records this while tracking).</p>
-              ) : (
-                <div className="space-y-3">
-                  {urls.slice(0, 12).map((u) => {
-                    const maxUrl = Math.max(1, ...urls.map((x) => x.seconds));
-                    return (
-                      <div key={u.domain}>
-                        <div className="mb-1 flex items-center justify-between text-sm">
-                          <span className="font-medium">{u.domain}</span>
-                          <span className="text-muted">{formatDurationShort(u.seconds)}</span>
+            {showUrls && (
+              <Card className="p-5">
+                <h2 className="mb-4 text-lg">Website usage</h2>
+                {urls.length === 0 ? (
+                  <p className="text-sm text-muted">No website usage captured yet (the desktop tracker records this while tracking).</p>
+                ) : (
+                  <div className="space-y-3">
+                    {urls.slice(0, 12).map((u) => {
+                      const maxUrl = Math.max(1, ...urls.map((x) => x.seconds));
+                      return (
+                        <div key={u.domain}>
+                          <div className="mb-1 flex items-center justify-between text-sm">
+                            <span className="font-medium">{u.domain}</span>
+                            <span className="text-muted">{formatDurationShort(u.seconds)}</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-canvas">
+                            <motion.div
+                              className="h-full rounded-full bg-brand"
+                              initial={{ width: 0 }}
+                              animate={{ width: `${(u.seconds / maxUrl) * 100}%` }}
+                              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+                            />
+                          </div>
                         </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-canvas">
-                          <motion.div
-                            className="h-full rounded-full bg-brand"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${(u.seconds / maxUrl) * 100}%` }}
-                            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+            )}
           </div>
 
           <Card className="p-5" data-tour="reports-daily">

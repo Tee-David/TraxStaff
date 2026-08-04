@@ -253,6 +253,15 @@ export default async function reportRoutes(fastify: FastifyInstance) {
   // URL usage: total foreground seconds per domain across the caller's visible
   // sessions in range.
   fastify.get("/reports/url-usage", async (req, reply) => {
+    // Honoured here, not just in the dashboard: with the panel switched off the
+    // per-domain breakdown should not leave the server at all, or "hidden" is
+    // only true of the UI that happens to ask nicely.
+    const org = await prisma.organization.findUnique({
+      where: { id: req.user.orgId },
+      select: { showWebsiteUsage: true },
+    });
+    if (!org?.showWebsiteUsage) return reply.send([]);
+
     const sessions = await loadSessions(req);
     const ids = sessions.map((s) => s.id);
     if (ids.length === 0) return reply.send([]);

@@ -82,7 +82,11 @@ function AssignMembersDialog({
     });
   }
 
-  const assignable = members.filter((m) => m.status !== "disabled");
+  // Active staff only — a removed account can no longer sign in to track
+  // against a project, so offering it here just creates dead assignments.
+  // (AssignedCluster still renders every member, so existing assignments to
+  // someone since removed keep showing rather than turning into blanks.)
+  const assignable = members.filter((m) => m.status === "active");
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

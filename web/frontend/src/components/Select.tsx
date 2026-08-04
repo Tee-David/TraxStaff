@@ -69,15 +69,33 @@ export function Select({
   }, [open]);
 
   const estimatedHeight = (canSearch ? 46 : 0) + Math.min(Math.max(filtered.length, 1), 6) * 36 + 16;
+
+  /**
+   * Horizontal placement is clamped to the viewport, and the panel is given the
+   * width that is actually left over on the side it opens toward. Without the
+   * cap, `minWidth` plus a long option (a member's full email) pushed the panel
+   * past the right edge on a phone, where it simply could not be read or
+   * scrolled to. `maxWidth` + the options' own `truncate` keeps it on-screen at
+   * any width instead.
+   */
+  const GUTTER = 8;
   const pos = rect
-    ? {
-        ...(align === "right"
-          ? { right: Math.max(8, window.innerWidth - rect.right) }
-          : { left: Math.max(8, rect.left) }),
-        ...(rect.bottom + 6 + estimatedHeight > window.innerHeight
-          ? { bottom: window.innerHeight - rect.top + 6 }
-          : { top: rect.bottom + 6 }),
-      }
+    ? (() => {
+        const vw = window.innerWidth;
+        // Room from the panel's anchored edge to the opposite gutter.
+        const room = align === "right" ? rect.right - GUTTER : vw - rect.left - GUTTER;
+        const width = Math.max(120, Math.min(minWidth, vw - GUTTER * 2));
+        return {
+          ...(align === "right"
+            ? { right: Math.max(GUTTER, Math.min(vw - rect.right, vw - GUTTER - width)) }
+            : { left: Math.max(GUTTER, Math.min(rect.left, vw - GUTTER - width)) }),
+          ...(rect.bottom + 6 + estimatedHeight > window.innerHeight
+            ? { bottom: window.innerHeight - rect.top + 6 }
+            : { top: rect.bottom + 6 }),
+          minWidth: width,
+          maxWidth: Math.max(width, room),
+        };
+      })()
     : null;
 
   return (
@@ -104,7 +122,7 @@ export function Select({
               <div className="fixed inset-0 z-40" onClick={close} />
               <div
                 ref={panelRef}
-                style={{ position: "fixed", minWidth, ...pos }}
+                style={{ position: "fixed", ...pos }}
                 className="z-50 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-lift"
               >
                 {canSearch && (

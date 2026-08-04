@@ -384,7 +384,10 @@ export default function MembersPage() {
 
   const matches = (m: Member) => m.email.toLowerCase().includes(search.toLowerCase());
   const allVisible = members.filter(matches);
-  const active = allVisible.filter((m) => m.status !== "invited");
+  // Removed is permanent and one-way (see RemoveDialog) — the row survives in
+  // the database for tracked-time/screenshot history, but it must not keep
+  // showing up here, or "delete" looks like it did nothing.
+  const active = allVisible.filter((m) => m.status !== "invited" && m.status !== "removed");
   const pending = allVisible.filter((m) => m.status === "invited");
   // Deliberately "active" only, not "not disabled" — a removed account is
   // gone for good and must not inflate this the way a disabled one shouldn't

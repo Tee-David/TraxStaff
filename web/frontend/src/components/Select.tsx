@@ -37,6 +37,9 @@ export function Select({
   const [q, setQ] = useState("");
   const btnRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  // Viewport width at the moment the panel opened — see the resize handler.
+  const openWidth = useRef(0);
   const open = rect !== null;
   const canSearch = searchable ?? options.length > 6;
   const selected = options.find((o) => o.value === value);
@@ -47,6 +50,12 @@ export function Select({
     setQ("");
   }
 
+  function toggle() {
+    if (open) return close();
+    openWidth.current = window.innerWidth;
+    setRect(btnRef.current?.getBoundingClientRect() ?? null);
+  }
+
   useEffect(() => {
     if (!open) return;
     function outside(e: MouseEvent) {
@@ -54,19 +63,47 @@ export function Select({
       if (!btnRef.current?.contains(t) && !panelRef.current?.contains(t)) close();
     }
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    // Fixed coordinates go stale the moment anything scrolls, so close instead
-    // of leaving the panel stranded away from its trigger (see ActionMenu).
+
+    // Fixed coordinates go stale the moment the page scrolls, so close rather
+    // than leave the panel stranded away from its trigger (see ActionMenu).
+    // Scrolling *inside* the panel's own option list is not that, and used to
+    // dismiss the list the moment you tried to scroll it.
+    function onScroll(e: Event) {
+      const t = e.target as Node | null;
+      if (t && panelRef.current?.contains(t)) return;
+      close();
+    }
+
+    // Only a real width change (rotation, window resize) invalidates the
+    // position. On a phone the panel was closing the instant it opened: tapping
+    // the search field pops up the keyboard and — on iOS, for any field under
+    // 16px — zooms the page, both of which fire `resize`. So the dropdown
+    // appeared to "go off every time you click", and the page appeared to zoom
+    // in for no reason. Height-only changes are now ignored, and the field is
+    // 16px on small screens so iOS has no reason to zoom at all.
+    function onResize() {
+      if (Math.abs(window.innerWidth - openWidth.current) > 40) close();
+    }
+
     document.addEventListener("mousedown", outside);
     window.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
     return () => {
       document.removeEventListener("mousedown", outside);
       window.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
     };
   }, [open]);
+
+  // Focus the search field with a pointer, but never on touch: raising the
+  // keyboard unprompted covers the options the user opened the list to read.
+  useEffect(() => {
+    if (!open || !canSearch) return;
+    if (window.matchMedia("(pointer: coarse)").matches) return;
+    searchRef.current?.focus();
+  }, [open, canSearch]);
 
   const estimatedHeight = (canSearch ? 46 : 0) + Math.min(Math.max(filtered.length, 1), 6) * 36 + 16;
 
@@ -103,7 +140,7 @@ export function Select({
       <button
         ref={btnRef}
         type="button"
-        onClick={() => setRect(open ? null : (btnRef.current?.getBoundingClientRect() ?? null))}
+        onClick={toggle}
         className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-medium outline-none transition hover:border-border-strong focus:border-brand"
       >
         <span className={selected ? "" : "text-muted"}>{selected?.label ?? placeholder}</span>
@@ -127,13 +164,14 @@ export function Select({
               >
                 {canSearch && (
                   <div className="px-2 pb-1.5 pt-1">
-                    {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
+                    {/* 16px on small screens: iOS zooms the page whenever a
+                        focused field is smaller than that. */}
                     <input
-                      autoFocus
+                      ref={searchRef}
                       value={q}
                       onChange={(e) => setQ(e.target.value)}
                       placeholder="Search…"
-                      className="w-full rounded-lg border border-border bg-canvas px-2.5 py-1.5 text-sm outline-none focus:border-brand"
+                      className="w-full rounded-lg border border-border bg-canvas px-2.5 py-1.5 text-[16px] outline-none focus:border-brand sm:text-sm"
                     />
                   </div>
                 )}

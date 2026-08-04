@@ -658,38 +658,47 @@ export default function ProjectsPage() {
             return (
               <div
                 key={p.id}
-                className={`flex flex-col gap-3 border-b border-border/60 px-5 py-4 last:border-0 transition sm:flex-row sm:items-center ${
+                className={`border-b border-border/60 px-5 py-4 last:border-0 transition sm:flex sm:items-center sm:gap-3 ${
                   picked.has(p.id) ? "bg-brand/[0.06]" : "hover:bg-canvas/40"
                 }`}
               >
-                {/* Outside the Link, or picking a row would navigate away. */}
-                <input
-                  type="checkbox"
-                  aria-label={`Select ${p.name}`}
-                  checked={picked.has(p.id)}
-                  onChange={() => togglePick(p.id)}
-                  className="h-4 w-4 shrink-0 rounded border-border accent-brand"
-                />
-                <Link href={`/app/projects/${p.id}`} className="group flex min-w-0 flex-1 items-center gap-3">
-                  <div
-                    className="h-9 w-9 shrink-0 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-                    style={{ backgroundColor: dotColor }}
-                  >
-                    {p.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate font-semibold text-[14px] text-ink group-hover:text-brand transition">{p.name}</span>
-                      <Badge tone={statusTone}>{statusLabel}</Badge>
+                {/* Checkbox and identity share one line on a phone. They used to
+                    be siblings of a column flex, which put the checkbox on a
+                    line of its own above the project and left the row three
+                    stacked strips tall. */}
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  {/* Outside the Link, or picking a row would navigate away. */}
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${p.name}`}
+                    checked={picked.has(p.id)}
+                    onChange={() => togglePick(p.id)}
+                    className="h-4 w-4 shrink-0 rounded border-border accent-brand"
+                  />
+                  <Link href={`/app/projects/${p.id}`} className="group flex min-w-0 flex-1 items-center gap-3">
+                    <div
+                      className="h-9 w-9 shrink-0 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                      style={{ backgroundColor: dotColor }}
+                    >
+                      {p.name.charAt(0).toUpperCase()}
                     </div>
-                    <div className="truncate text-[12px] text-muted">
-                      {p.clientTag || "Internal"} · {total} task{total === 1 ? "" : "s"}
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate font-semibold text-[14px] text-ink group-hover:text-brand transition">{p.name}</span>
+                        <Badge tone={statusTone}>{statusLabel}</Badge>
+                      </div>
+                      <div className="truncate text-[12px] text-muted">
+                        {p.clientTag || "Internal"} · {total} task{total === 1 ? "" : "s"}
+                      </div>
                     </div>
-                  </div>
-                </Link>
+                  </Link>
+                </div>
 
-                <div className="flex items-center gap-4 sm:shrink-0">
-                  <div className="flex w-28 items-center gap-2 sm:w-32">
+                {/* Second line on a phone, indented to the project name and
+                    using the full width — the progress bar was boxed to 7rem
+                    with the rest of the row left empty beside it. */}
+                <div className="mt-3 flex w-full items-center gap-4 pl-7 sm:mt-0 sm:w-auto sm:shrink-0 sm:pl-0">
+                  <div className="flex flex-1 items-center gap-2 sm:w-32 sm:flex-none">
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-border">
                       <div
                         className="h-full rounded-full transition-all duration-500"
@@ -719,10 +728,10 @@ export default function ProjectsPage() {
         <button
           onClick={() => setTab("archived")}
           data-tour="projects-archives"
-          className="mt-4 flex w-full items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-left text-[13px] font-medium text-muted transition hover:border-border-strong hover:text-ink"
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-[13px] font-semibold text-ink shadow-[var(--shadow-soft)] transition hover:border-border-strong hover:bg-canvas active:scale-[0.99] sm:w-auto"
         >
-          <Chevron open={false} />
           Archives
+          <Chevron open={false} />
         </button>
       )}
 

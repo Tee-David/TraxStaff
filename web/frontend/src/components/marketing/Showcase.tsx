@@ -5,6 +5,7 @@ import { useMotionPresets } from "@/lib/motion";
 import { APP_URL } from "@/lib/site";
 import { Mark } from "./Mark";
 import { PhoneFrame, TabletFrame } from "./DeviceFrames";
+import { IconDownload, IconDashboard } from "@/components/icons";
 
 /**
  * The product, shown rather than described.
@@ -83,15 +84,17 @@ export function Showcase() {
             <motion.a
               {...press}
               href="#download"
-              className="cursor-target w-full rounded-full bg-field px-6 py-4 text-center text-sm font-semibold text-white transition-colors hover:bg-brand-600 sm:w-auto sm:py-3.5"
+              className="cursor-target inline-flex w-full items-center justify-center gap-2 rounded-full bg-field px-6 py-4 text-center text-sm font-semibold text-white transition-colors hover:bg-brand-600 sm:w-auto sm:py-3.5"
             >
+              <IconDownload width={17} height={17} aria-hidden />
               Download the app
             </motion.a>
             <motion.a
               {...press}
               href={`${APP_URL}/app`}
-              className="cursor-target w-full rounded-full border border-ink/15 bg-surface px-6 py-4 text-center text-sm font-semibold text-ink transition-colors hover:border-ink/30 sm:w-auto sm:py-3.5"
+              className="cursor-target inline-flex w-full items-center justify-center gap-2 rounded-full border border-ink/15 bg-surface px-6 py-4 text-center text-sm font-semibold text-ink transition-colors hover:border-ink/30 sm:w-auto sm:py-3.5"
             >
+              <IconDashboard width={17} height={17} aria-hidden />
               Open the dashboard
             </motion.a>
           </motion.div>
@@ -157,12 +160,15 @@ export function Showcase() {
               />
             </TabletFrame>
 
-            {/* Lifted clear of the panel's bottom crop. The desktop and tablet can
-                bleed off it — nothing load-bearing sits at their bottom edge —
-                but the phone's last row is its tab bar, and cropping that cuts
-                the labels in half. The reference sits its phone higher than the
-                laptop for the same reason. */}
-            <PhoneFrame className="z-30 mb-8 w-[13rem] shrink-0 sm:-ml-14 sm:mb-10 sm:w-[9rem] lg:-ml-16 lg:w-[8.5rem] xl:w-[10rem]">
+            {/* From `sm` up the phone stands on the same line as the frames
+                beside it: `items-end` on the row does the aligning, so it needs
+                no bottom margin of its own, and at these widths its full height
+                lands on the panel's bottom edge rather than through it — the tab
+                bar survives without lifting the frame off the group.
+
+                Below `sm` the phone is alone in here, with nothing to line up
+                against, so it keeps a margin and the panel closes under it. */}
+            <PhoneFrame className="z-30 mb-8 w-[13rem] shrink-0 sm:-ml-14 sm:mb-0 sm:w-[9rem] lg:-ml-16 lg:w-[8.5rem] xl:w-[10rem]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/screens/mobile-timer.webp"

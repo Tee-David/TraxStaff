@@ -30,11 +30,13 @@ export function PlatformRail() {
   const { revealStagger, item } = useMotionPresets();
 
   return (
-    <motion.div {...revealStagger()} className="relative z-10 shrink-0 border-t border-ink/10">
+    /* The hero it sits on is a dark stage in both themes (see `.mk-hero` in
+       globals.css), so the rule and every label here are written white. */
+    <motion.div {...revealStagger()} className="relative z-10 shrink-0 border-t border-white/12">
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-2 px-5 py-[clamp(0.625rem,1.7vh,1.25rem)] sm:flex-row sm:justify-between sm:gap-10 sm:px-8">
         <motion.p
           {...item}
-          className="text-center text-xs leading-snug text-muted sm:max-w-xs sm:text-left sm:text-sm"
+          className="text-center text-xs leading-snug text-white/80 sm:max-w-xs sm:text-left sm:text-sm"
         >
           One tracker, every machine your team works on
         </motion.p>
@@ -47,12 +49,14 @@ export function PlatformRail() {
             <motion.div
               key={label}
               {...item}
-              className={`flex shrink-0 items-center gap-1.5 sm:gap-2 ${available ? "text-ink" : "text-faint"}`}
+              className={`flex shrink-0 items-center gap-1.5 sm:gap-2 ${
+                available ? "text-white" : "text-white/55"
+              }`}
             >
               <Icon className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
               <span className="text-[11px] font-semibold tracking-tight sm:text-sm">{label}</span>
               {!available && (
-                <span className="rounded-full border border-border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-faint sm:px-2 sm:text-[10px]">
+                <span className="rounded-full border border-white/35 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-white/55 sm:px-2 sm:text-[10px]">
                   Soon
                 </span>
               )}

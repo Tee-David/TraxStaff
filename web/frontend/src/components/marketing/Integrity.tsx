@@ -15,31 +15,36 @@ import { Mark } from "./Mark";
  * layer covers what the one before it can't, and the last one isn't code at
  * all. Copy follows the project's internal positioning notes: tamper-evident
  * and hard-capped, never "tamper-proof".
+ *
+ * Written for whoever signs off on the tool, not for whoever integrates it.
+ * The mechanisms named here are real (a monotonic counter, a server-side cap,
+ * a hash chain), but the API names and the jargon belong in the docs — on this
+ * page each one is stated as the thing it stops someone doing.
  */
 const layers = [
   {
     where: "On the device",
-    title: "A counter the system clock can't touch",
+    title: "Changing the clock changes nothing",
     body:
-      "Credited duration comes from a hardware counter, not the OS clock — QueryUnbiasedInterruptTimePrecise on Windows, CLOCK_MONOTONIC on Linux. Winding the clock forward changes nothing.",
+      "The app doesn't read the date and time on the computer. It uses a separate counter that only ever moves forward, so nudging the clock ahead an hour doesn't add an hour to anyone's day.",
   },
   {
     where: "On the server",
-    title: "Capped against a clock the client never sees",
+    title: "Checked against a clock we hold",
     body:
-      "However much time a client reports, it's hard-capped against the server's own clock — which the machine being tracked can neither read nor influence.",
+      "However many hours a device sends in, we measure them against our own clock — one the tracked machine can't read or change. Nobody can log more time than has actually passed.",
   },
   {
     where: "In the record",
-    title: "Sessions are hash-chained",
+    title: "Every session is sealed to the last",
     body:
-      "Each session links to the one before it, so an edit after the fact breaks the chain. Skew and anomaly signals are recorded as flags for a human to review — never used to silently drop data.",
+      "Sessions are linked together like a chain, so altering an old one visibly breaks it. Anything that looks off gets flagged for a person to look at — never quietly deleted.",
   },
   {
     where: "In the org",
-    title: "The strongest control isn't code",
+    title: "The strongest safeguard isn't software",
     body:
-      "On a machine where someone has local admin, nothing client-side is unbeatable. The highest-leverage safeguard is organizational: staff not having local admin on the tracked machine.",
+      "If someone can install anything they like on their own machine, no tracker on earth is unbeatable — ours included. The best protection is a policy one: don't hand out admin rights on the computers you track.",
   },
 ];
 

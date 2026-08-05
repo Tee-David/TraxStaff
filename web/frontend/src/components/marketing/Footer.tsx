@@ -192,7 +192,15 @@ export function Footer({ currentYear }: { currentYear: number }) {
 
         <motion.div {...revealStagger()} className="mt-14 border-t border-white/10 pt-6">
           <motion.p {...revealItem} className="text-xs text-white/40">
-            &copy; {currentYear} TraxStaff. All rights reserved.
+            &copy; {currentYear} TraxStaff. All rights reserved. Powered by{" "}
+            <a
+              href="https://wendylovemedia.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="cursor-target font-medium text-white/60 underline decoration-white/25 underline-offset-2 transition hover:text-white hover:decoration-white/60"
+            >
+              Wendy Love Media
+            </a>
           </motion.p>
         </motion.div>
       </div>

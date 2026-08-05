@@ -54,16 +54,24 @@ export default async function memberRoutes(fastify: FastifyInstance) {
       if (target.role === "owner" && body.status && body.status !== "active") {
         return reply.code(400).send({ error: "Cannot disable or remove the owner" });
       }
-
-      // When transitioning to "removed" (permanent removal), tombstone the email so the
-      // address is freed for future invites/signups. Keep the row (and all tracking
-      // history) intact — only the identity (email) is permanently cleared.
-      const updateData: typeof body & { email?: string } = { ...body };
-      if (body.status === "removed" && target.status !== "removed") {
-        updateData.email = `removed-${target.id}@deleted.traxstaff.internal`;
+      // Removal is a one-way door (see the frontend's RemoveDialog copy) — once
+      // gone, nothing through this endpoint should bring the account back.
+      if (target.status === "removed") {
+        return reply.code(400).send({ error: "This account has been removed" });
       }
 
-      const updated = await prisma.user.update({ where: { id }, data: updateData, select: memberSelect });
+      const data: typeof body & { email?: string } = { ...body };
+      // `email` is unique, so a removed account would squat on its address
+      // forever — re-inviting that same person (or anyone else who wants it)
+      // would 409 with "already in use" for good. Free it the moment the
+      // account is actually removed; the row and its tracked-time history
+      // stay put under the new address, unaffected.
+      if (body.status === "removed") {
+        const [local, domain] = target.email.split("@");
+        data.email = `${local}+removed-${target.id.slice(0, 8)}@${domain}`;
+      }
+
+      const updated = await prisma.user.update({ where: { id }, data, select: memberSelect });
       return reply.send(updated);
     }
   );

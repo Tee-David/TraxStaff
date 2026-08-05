@@ -89,6 +89,7 @@ export function DateRange({ value, onChange }: { value: DateRangeValue; onChange
 interface Member {
   id: string;
   email: string;
+  status: "invited" | "active" | "disabled" | "removed";
 }
 
 /** Member selector for admins (returns userId or ""). Renders nothing for non-admins. */
@@ -109,12 +110,18 @@ export function MemberFilter({
       .catch(() => {});
   }, [enabled]);
   if (!enabled) return null;
+  // Active staff only. Pulling up a report for someone disabled or removed is
+  // not something to offer, and pending invitees have no tracked time at all —
+  // listing them just padded the picker with names that report nothing.
+  // Org-wide totals ("All members") still include everyone's history.
+  const selectable = members.filter((m) => m.status === "active");
   return (
     <Select
       value={value}
       onChange={onChange}
       searchable
-      options={[{ value: "", label: "All members" }, ...members.map((m) => ({ value: m.id, label: m.email }))]}
+      placeholder="All members"
+      options={[{ value: "", label: "All members" }, ...selectable.map((m) => ({ value: m.id, label: m.email }))]}
     />
   );
 }

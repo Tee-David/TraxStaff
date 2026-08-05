@@ -82,7 +82,11 @@ function AssignMembersDialog({
     });
   }
 
-  const assignable = members.filter((m) => m.status !== "disabled");
+  // Active staff only — a removed account can no longer sign in to track
+  // against a project, so offering it here just creates dead assignments.
+  // (AssignedCluster still renders every member, so existing assignments to
+  // someone since removed keep showing rather than turning into blanks.)
+  const assignable = members.filter((m) => m.status === "active");
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -210,6 +214,7 @@ function ActionMenu({ project, onRefresh, onAssign }: { project: Project; onRefr
         ref={btnRef}
         onClick={() => setRect(open ? null : (btnRef.current?.getBoundingClientRect() ?? null))}
         className="text-muted hover:text-ink hover:bg-canvas rounded-lg px-2 py-1 transition focus:outline-none focus:ring-2 focus:ring-brand"
+        aria-label={`Actions for ${project.name}`}
         aria-expanded={open}
       >
         ⋯
@@ -654,53 +659,65 @@ export default function ProjectsPage() {
             return (
               <div
                 key={p.id}
-                className={`flex flex-col gap-3 border-b border-border/60 px-5 py-4 last:border-0 transition sm:flex-row sm:items-center ${
+                className={`flex flex-wrap items-center gap-x-3 gap-y-3 border-b border-border/60 px-5 py-4 last:border-0 transition sm:flex-nowrap ${
                   picked.has(p.id) ? "bg-brand/[0.06]" : "hover:bg-canvas/40"
                 }`}
               >
-                {/* Outside the Link, or picking a row would navigate away. */}
-                <input
-                  type="checkbox"
-                  aria-label={`Select ${p.name}`}
-                  checked={picked.has(p.id)}
-                  onChange={() => togglePick(p.id)}
-                  className="h-4 w-4 shrink-0 rounded border-border accent-brand"
-                />
-                <Link href={`/app/projects/${p.id}`} className="group flex min-w-0 flex-1 items-center gap-3">
-                  <div
-                    className="h-9 w-9 shrink-0 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-                    style={{ backgroundColor: dotColor }}
-                  >
-                    {p.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate font-semibold text-[14px] text-ink group-hover:text-brand transition">{p.name}</span>
-                      <Badge tone={statusTone}>{statusLabel}</Badge>
+                {/* Wrapping row, ordered so a phone reads: identity and the
+                    actions menu on the top line, then the progress bar across
+                    the full width beneath. `order` puts the bar back in the
+                    middle from `sm` up, where everything sits on one line. */}
+                <div className="order-1 flex min-w-0 flex-1 items-center gap-3">
+                  {/* Outside the Link, or picking a row would navigate away. */}
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${p.name}`}
+                    checked={picked.has(p.id)}
+                    onChange={() => togglePick(p.id)}
+                    className="h-4 w-4 shrink-0 rounded border-border accent-brand"
+                  />
+                  <Link href={`/app/projects/${p.id}`} className="group flex min-w-0 flex-1 items-center gap-3">
+                    <div
+                      className="h-9 w-9 shrink-0 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                      style={{ backgroundColor: dotColor }}
+                    >
+                      {p.name.charAt(0).toUpperCase()}
                     </div>
-                    <div className="truncate text-[12px] text-muted">
-                      {p.clientTag || "Internal"} · {total} task{total === 1 ? "" : "s"}
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate font-semibold text-[14px] text-ink group-hover:text-brand transition">{p.name}</span>
+                        <Badge tone={statusTone}>{statusLabel}</Badge>
+                      </div>
+                      <div className="truncate text-[12px] text-muted">
+                        {p.clientTag || "Internal"} · {total} task{total === 1 ? "" : "s"}
+                      </div>
                     </div>
-                  </div>
-                </Link>
+                  </Link>
+                </div>
 
-                <div className="flex items-center gap-4 sm:shrink-0">
-                  <div className="flex w-28 items-center gap-2 sm:w-32">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-border">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{
-                          width: `${progressPct}%`,
-                          backgroundColor: statusTone === "green" ? "var(--color-positive)" : statusTone === "accent" ? "var(--color-accent)" : "var(--color-brand)",
-                        }}
-                      />
-                    </div>
-                    <span className="w-8 shrink-0 text-[12px] font-semibold text-muted">{progressPct}%</span>
-                  </div>
+                {/* Top line on a phone (alongside the name), trailing the row
+                    from `sm` up. */}
+                <div className="order-2 flex shrink-0 items-center gap-4 sm:order-3">
                   <div className="hidden w-36 md:block">
                     <AssignedCluster userIds={p.assignedUserIds ?? []} members={members} />
                   </div>
                   <ActionMenu project={p} onRefresh={load} onAssign={() => setAssigningFor(p)} />
+                </div>
+
+                {/* `w-full` is what wraps this onto its own line on a phone, so
+                    the bar spans the whole card instead of being boxed into a
+                    7rem column with empty space beside it. */}
+                <div className="order-3 flex w-full items-center gap-2 sm:order-2 sm:w-32 sm:shrink-0">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-border">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${progressPct}%`,
+                        backgroundColor: statusTone === "green" ? "var(--color-positive)" : statusTone === "accent" ? "var(--color-accent)" : "var(--color-brand)",
+                      }}
+                    />
+                  </div>
+                  <span className="w-8 shrink-0 text-right text-[12px] font-semibold text-muted">{progressPct}%</span>
                 </div>
               </div>
             );
@@ -715,10 +732,10 @@ export default function ProjectsPage() {
         <button
           onClick={() => setTab("archived")}
           data-tour="projects-archives"
-          className="mt-4 flex w-full items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-left text-[13px] font-medium text-muted transition hover:border-border-strong hover:text-ink"
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-[13px] font-semibold text-ink shadow-[var(--shadow-soft)] transition hover:border-border-strong hover:bg-canvas active:scale-[0.99] sm:w-auto"
         >
-          <Chevron open={false} />
           Archives
+          <Chevron open={false} />
         </button>
       )}
 

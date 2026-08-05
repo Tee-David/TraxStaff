@@ -321,10 +321,22 @@ pub fn tick() {
 
     // Suspend/resume: a big wall-clock jump between ticks means the machine
     // slept. Close the current block (the gap is naturally idle) and tell the UI.
+    // Emit both trax:resumed (informational) and trax:idle-ended (actionable)
+    // so the user gets the keep/discard prompt, just like with idle detection.
     let prev_tick = LAST_TICK_WALL.swap(now_ts, Ordering::Relaxed);
     if prev_tick > 0 && now_ts - prev_tick > SUSPEND_GAP_SECS {
         let gap = now_ts - prev_tick;
+        // Informational: let the UI know the machine woke from sleep
         emit("trax:resumed", serde_json::json!({ "gapSecs": gap }));
+        // Actionable: offer the keep/discard prompt for the sleep gap (just like idle)
+        emit(
+            "trax:idle-ended",
+            serde_json::json!({
+                "minutes": gap / 60,
+                "fromISO": iso_ts(prev_tick),
+                "toISO": iso_ts(now_ts),
+            }),
+        );
         finalize_block(false);
     }
 

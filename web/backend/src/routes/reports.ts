@@ -102,6 +102,31 @@ export type WeightedBlock = {
  * the block's wall-clock span. Blocks with no usable duration are skipped rather
  * than silently counted as one unit.
  */
+/**
+ * Actual seconds of measured activity — the sum of each block's own active
+ * portion, not a percentage applied to some other total.
+ *
+ * This exists because the obvious shortcut is wrong. Multiplying
+ * `weightedActivity()` by a worked-seconds total mixes two different
+ * denominators: the percentage is weighted over *block* seconds, while worked
+ * time is session wall-clock. Blocks only cover the stretches the tracker
+ * actually sampled, so block seconds are typically well short of wall-clock —
+ * and multiplying the block-weighted percentage by the larger wall-clock figure
+ * inflates the result, sometimes by a lot.
+ *
+ * Summing per block keeps one denominator throughout and yields a number that
+ * means what it says: how long input was actually detected.
+ */
+export function activitySeconds(blocks: WeightedBlock[]): number {
+  let total = 0;
+  for (const b of blocks) {
+    const secs = b.creditedSeconds ?? (b.blockEnd.getTime() - b.blockStart.getTime()) / 1000;
+    if (!Number.isFinite(secs) || secs <= 0) continue;
+    total += (b.activityPct / 100) * secs;
+  }
+  return Math.round(total);
+}
+
 export function weightedActivity(blocks: WeightedBlock[]): number | null {
   let num = 0;
   let den = 0;
@@ -277,6 +302,10 @@ export default async function reportRoutes(fastify: FastifyInstance) {
     return reply.send({
       totalSeconds: Math.round(totalSeconds),
       avgActivityPct: weightedActivity(blocks),
+      // Measured directly rather than left for the client to derive as
+      // `totalSeconds * avgActivityPct`. That derivation is wrong — see
+      // activitySeconds() — and both clients were doing it.
+      activitySeconds: activitySeconds(blocks),
       sessions: sessions.length,
       flaggedSessions: sessions.filter((s) => s.tamperSuspected).length,
     });

@@ -55,7 +55,15 @@ export default async function memberRoutes(fastify: FastifyInstance) {
         return reply.code(400).send({ error: "Cannot disable or remove the owner" });
       }
 
-      const updated = await prisma.user.update({ where: { id }, data: body, select: memberSelect });
+      // When transitioning to "removed" (permanent removal), tombstone the email so the
+      // address is freed for future invites/signups. Keep the row (and all tracking
+      // history) intact — only the identity (email) is permanently cleared.
+      const updateData: typeof body & { email?: string } = { ...body };
+      if (body.status === "removed" && target.status !== "removed") {
+        updateData.email = `removed-${target.id}@deleted.traxstaff.internal`;
+      }
+
+      const updated = await prisma.user.update({ where: { id }, data: updateData, select: memberSelect });
       return reply.send(updated);
     }
   );

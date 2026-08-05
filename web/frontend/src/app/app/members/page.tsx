@@ -33,6 +33,16 @@ function tintIndex(email: string) {
   return h % AVATAR_PALETTE.length;
 }
 
+// Display the email, or a placeholder if the member has been removed.
+// (Removed members have their email tombstoned to free it for reuse, so the original
+// email is no longer stored/visible on the row.)
+function displayEmail(member: Member): string {
+  if (member.status === "removed") {
+    return "(removed)";
+  }
+  return member.email;
+}
+
 function MemberAvatar({ email, disabled }: { email: string; disabled?: boolean }) {
   const initials = email.substring(0, 2).toUpperCase();
   const colorClass = disabled ? "bg-faint" : AVATAR_PALETTE[tintIndex(email)];
@@ -507,8 +517,8 @@ export default function MembersPage() {
                           <div className="flex items-center gap-3">
                             <MemberAvatar email={m.email} disabled={m.status !== "active"} />
                             <div className="min-w-0">
-                              <div className="font-semibold text-[13px] text-ink truncate">{m.email.split("@")[0]}</div>
-                              <div className="text-[11px] text-muted truncate sm:hidden">{m.email}</div>
+                              <div className="font-semibold text-[13px] text-ink truncate">{displayEmail(m).split("@")[0]}</div>
+                              <div className="text-[11px] text-muted truncate sm:hidden">{displayEmail(m)}</div>
                             </div>
                           </div>
                         </td>
@@ -518,7 +528,7 @@ export default function MembersPage() {
                         </td>
                         {/* Email */}
                         <td className="px-4 py-4 hidden sm:table-cell">
-                          <span className="text-[12px] text-muted truncate">{m.email}</span>
+                          <span className="text-[12px] text-muted truncate">{displayEmail(m)}</span>
                         </td>
                         {/* Joined */}
                         <td className="px-4 py-4 hidden md:table-cell">
@@ -598,13 +608,13 @@ export default function MembersPage() {
                           <div className="flex items-center gap-3">
                             <MemberAvatar email={m.email} disabled />
                             <div className="min-w-0">
-                              <div className="font-semibold text-[13px] text-ink truncate">{m.email.split("@")[0]}</div>
-                              <div className="text-[11px] sm:hidden text-muted truncate">{m.email}</div>
+                              <div className="font-semibold text-[13px] text-ink truncate">{displayEmail(m).split("@")[0]}</div>
+                              <div className="text-[11px] sm:hidden text-muted truncate">{displayEmail(m)}</div>
                             </div>
                           </div>
                         </td>
                         <td className="px-4 py-4 hidden sm:table-cell">
-                          <span className="text-[12px] text-muted">{m.email}</span>
+                          <span className="text-[12px] text-muted">{displayEmail(m)}</span>
                         </td>
                         <td className="px-4 py-4 hidden md:table-cell">
                           <span className="text-[12px] text-muted">{formatDate(m.createdAt)}</span>

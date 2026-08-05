@@ -567,6 +567,9 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   // Latest active session, readable from event listeners that register once.
   const activeRef = useRef<Session | null>(null);
   activeRef.current = active;
+  // Auto-resolve unanswered idle prompts to "Keep" after 60 minutes (matching Hubstaff
+  // crash-recovery timeout). Cleared when the user responds to avoid late fires.
+  const idlePromptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // "Not tracking" reminder: within work hours (Mon–Fri 9–17 local), if the app
   // is open but no timer is running, nudge once an hour.
@@ -666,11 +669,23 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         setIdleBanner(e.payload.minutes);
         if (reminders.current.idle) notify("TraxStaff", `You've been idle for ~${e.payload.minutes} min while tracking.`);
       }),
-      listen<{ minutes: number; fromISO: string; toISO: string }>("trax:idle-ended", (e) => {
+      listen<{ minutes: number; fromISO: string; toISO: string }>("trax:idle-ended", async (e) => {
         setIdleBanner(null);
         if (e.payload.minutes >= 1) {
           setIdlePrompt(e.payload);
           if (reminders.current.idle) notify("TraxStaff", `You were away for ~${e.payload.minutes} min — keep or discard that time?`);
+          // Pop the window to the foreground so the user sees the prompt immediately.
+          // This matches Hubstaff's behavior: the idle prompt draws attention even if
+          // the app was minimized or hidden. Non-blocking if not under Tauri.
+          try {
+            const { getCurrentWindow } = await import("@tauri-apps/api/window");
+            const w = getCurrentWindow();
+            if (!await w.isFocused()) {
+              await w.show();
+              await w.unminimize();
+              await w.setFocus();
+            }
+          } catch { /* not under Tauri / window ops failed — ignore */ }
         }
       }),
     ];
@@ -678,6 +693,32 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     return () => { uns.forEach((u) => u.then((f) => f())); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-resolve unanswered idle prompts to "Keep" after 60 minutes (matching Hubstaff's
+  // crash-recovery window). If the user responds before the timeout fires, the timer is
+  // cleared so it never fires late. This ensures a long-dormant prompt doesn't silently
+  // discard time — the safe default is to keep it.
+  useEffect(() => {
+    if (idlePrompt) {
+      // Clear any existing timer (e.g. if a second prompt appears before the first resolves)
+      if (idlePromptTimer.current) clearTimeout(idlePromptTimer.current);
+      // Start a new 60-minute timeout to auto-keep
+      idlePromptTimer.current = setTimeout(() => {
+        setIdlePrompt(null);
+        setResumed(null);
+      }, 60 * 60 * 1000);
+      return () => {
+        // Cleanup: clear timer if this effect re-runs or the component unmounts
+        if (idlePromptTimer.current) clearTimeout(idlePromptTimer.current);
+      };
+    } else {
+      // Prompt was dismissed — clear the timer if it's still running
+      if (idlePromptTimer.current) {
+        clearTimeout(idlePromptTimer.current);
+        idlePromptTimer.current = null;
+      }
+    }
+  }, [idlePrompt]);
 
   // Exit flow: Rust holds the window open while a session is live or the sync
   // queue isn't empty, and emits "app-closing" with { capturing, pending }. We
@@ -965,10 +1006,12 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   }
 
   // Discard an idle stretch server-side (subtracts from worked time; never
-  // touches the activity hash-chain). Keep = just dismiss.
+  // touches the activity hash-chain). Keep = just dismiss. Also clears the
+  // "woke from sleep" banner so they don't stack.
   async function resolveIdle(discard: boolean) {
     const p = idlePrompt;
     setIdlePrompt(null);
+    setResumed(null); // dismiss the associated wake-from-sleep banner if any
     if (!discard || !p || !activeRef.current) return;
     try {
       await api("/sync/discard-idle", { method: "POST", body: JSON.stringify({ sessionId: activeRef.current.id, fromISO: p.fromISO, toISO: p.toISO }) });
@@ -1077,7 +1120,9 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         </div>
       )}
 
-      {/* Idle keep/discard prompt on return from being away. */}
+      {/* Idle keep/discard prompt on return from being away or waking from sleep.
+          Prioritize this over the informational "woke from sleep" banner since
+          this one is actionable and covers both idle + sleep scenarios. */}
       {idlePrompt && active && (
         <div className="idle-banner">
           <span>You were away for ~{idlePrompt.minutes} min. Keep that time or discard it?</span>
@@ -1088,8 +1133,10 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         </div>
       )}
 
-      {/* Machine woke from sleep. */}
-      {resumed !== null && active && (
+      {/* Machine woke from sleep (informational only — the actionable keep/discard
+          prompt above handles the accounting decision). Hidden when the idle prompt
+          is showing to avoid duplicate alerts. */}
+      {resumed !== null && active && !idlePrompt && (
         <div className="idle-banner">
           <span>Your computer was asleep for ~{resumed} min.</span>
           <div className="idle-actions">
@@ -1353,11 +1400,17 @@ const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 function DesktopDashboard({ projects, week, workedWeek, weekTarget, onViewActivity }: { projects: Project[]; week: Session[]; workedWeek: number; weekTarget: number; onViewActivity: () => void }) {
   const [name, setName] = useState("");
   const [avgActivity, setAvgActivity] = useState<number | null>(null);
+  const [activeSecs, setActiveSecs] = useState<number | null>(null);
   const [shots, setShots] = useState<{ id: string; url: string | null; activityPct: number; project: string }[]>([]);
 
   useEffect(() => {
     api<{ email: string }>("/auth/me").then((u) => setName(u.email.split("@")[0])).catch(() => {});
-    api<{ avgActivityPct: number | null }>(`/reports/summary?from=${startOfWeek().toISOString()}`).then((s) => setAvgActivity(s.avgActivityPct)).catch(() => {});
+    api<{ avgActivityPct: number | null; activitySeconds: number }>(`/reports/summary?from=${startOfWeek().toISOString()}`)
+      .then((s) => {
+        setAvgActivity(s.avgActivityPct);
+        setActiveSecs(s.activitySeconds);
+      })
+      .catch(() => {});
     // Ask for exactly the six tiles this strip shows — the endpoint is paginated,
     // so there's no reason to pull (and presign) a whole week of URLs for them.
     api<{ items: typeof shots }>(`/screenshots?from=${startOfWeek().toISOString()}&limit=6`)
@@ -1391,7 +1444,16 @@ function DesktopDashboard({ projects, week, workedWeek, weekTarget, onViewActivi
     return all.sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3)).slice(0, 6);
   }, [projects]);
 
-  const activitySecs = avgActivity != null ? workedWeek * (avgActivity / 100) : workedWeek;
+  /* Straight from the server, which sums each activity block's own active
+     portion. This used to be `workedWeek * (avgActivity / 100)`, which mixed two
+     denominators: `avgActivity` is weighted over the seconds the tracker actually
+     sampled, while `workedWeek` is session wall-clock computed here on the
+     client. Blocks cover less ground than wall-clock, so applying the
+     block-weighted percentage to the wall-clock total overstated activity time —
+     that's why this tile could read higher than the time actually worked at the
+     keyboard. Falls back to nothing rather than to `workedWeek`, which would
+     claim 100% active. */
+  const activitySecs = activeSecs;
   const activeProjects = projects.filter((p) => !p.archivedAt).length;
   const doneTasks = projects.reduce((a, p) => a + (p.tasks?.filter((t) => t.status === "done").length ?? 0), 0);
 

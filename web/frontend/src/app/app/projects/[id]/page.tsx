@@ -302,6 +302,8 @@ function TaskLists({ project, onChange, archived }: { project: Project; onChange
   const [adding, setAdding] = useState(false);
   const [view, setView] = useState<ViewMode>("list");
   const [sortKey, setSortKey] = useState<SortKey>("created");
+  const [deleteConfirm, setDeleteConfirm] = useState<Task | null>(null); // Task pending confirmation to delete
+  const [deleting, setDeleting] = useState(false);
 
   async function addTask(e: React.FormEvent) {
     e.preventDefault();
@@ -331,9 +333,19 @@ function TaskLists({ project, onChange, archived }: { project: Project; onChange
     await api(`/tasks/${t.id}`, { method: "PATCH", body: JSON.stringify({ priority: next }) });
     await onChange();
   }
+  async function confirmDelete(t: Task) {
+    setDeleting(true);
+    try {
+      await api(`/tasks/${t.id}`, { method: "DELETE" });
+      await onChange();
+    } finally {
+      setDeleting(false);
+      setDeleteConfirm(null);
+    }
+  }
+  // Request confirmation before deleting (don't delete immediately).
   async function delTask(t: Task) {
-    await api(`/tasks/${t.id}`, { method: "DELETE" });
-    await onChange();
+    setDeleteConfirm(t);
   }
 
   const priorityOrder: Record<Task["priority"], number> = { urgent: 0, normal: 1, lowest: 2 };
@@ -424,6 +436,30 @@ function TaskLists({ project, onChange, archived }: { project: Project; onChange
         />
       ) : (
         <Board tasks={tasks} onMove={move} onCyclePriority={cyclePriority} onDelete={delTask} />
+      )}
+
+      {/* Delete task confirmation dialog */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="rounded-lg bg-surface border border-border shadow-lg max-w-sm w-full">
+            <div className="px-6 py-4 border-b border-border/60">
+              <h2 className="font-semibold text-ink">Delete task?</h2>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-sm text-muted">
+                Delete "{deleteConfirm.title}"? This action cannot be undone. Any sessions assigned to this task will keep their tracked time but lose the task reference.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-border/60 flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDeleteConfirm(null)} disabled={deleting}>
+                Cancel
+              </Button>
+              <Button variant="danger" onClick={() => confirmDelete(deleteConfirm)} disabled={deleting}>
+                {deleting ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

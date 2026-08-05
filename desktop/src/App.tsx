@@ -1471,7 +1471,7 @@ function DesktopDashboard({ projects, week, workedWeek, weekTarget, onViewActivi
 
       <div className="dash-stats">
         <DashStat label="Total working hours" value={fmtShort(workedWeek)} accent="brand" bars={daily} />
-        <DashStat label="Activity time" value={fmtShort(activitySecs)} accent="accent" sub={avgActivity != null ? `${avgActivity}% active` : undefined} />
+        <DashStat label="Activity time" value={activitySecs != null ? fmtShort(activitySecs) : "—"} accent="accent" sub={avgActivity != null ? `${avgActivity}% active` : undefined} />
         <DashStat label="Active projects" value={String(activeProjects)} accent="teal" />
         <DashStat label="Tasks completed" value={String(doneTasks)} accent="brand" />
       </div>
@@ -1484,7 +1484,7 @@ function DesktopDashboard({ projects, week, workedWeek, weekTarget, onViewActivi
         </div>
         <div className="dash-gauge">
           <div className="dc-label mb">Weekly activity</div>
-          <Gauge value={activitySecs} max={weekTarget} centerLabel={fmtShort(activitySecs)} />
+          <Gauge value={activitySecs ?? 0} max={weekTarget} centerLabel={activitySecs != null ? fmtShort(activitySecs) : "—"} />
           <div className="muted small center">of {fmtShort(weekTarget)} target</div>
         </div>
       </div>

@@ -84,6 +84,81 @@ export async function ensureAuditLogTable(log: Logger): Promise<void> {
   }
 }
 
+/**
+ * Makes the three `userId` foreign keys nullable and `ON DELETE SET NULL`, so a
+ * member can be hard-deleted without destroying the work they tracked.
+ *
+ * Verified against the dev cluster before shipping: `TrackingSession.userId`,
+ * `Device.userId` and `TimeNote.userId` are all NOT NULL / RESTRICT, which is
+ * why `prisma.user.delete()` throws today. (`Notification.userId` and
+ * `Screenshot.deletedById` were already SET NULL in the database despite
+ * schema.prisma not saying so — one of this database's known drifts, and here a
+ * harmless one, so they need no DDL.)
+ *
+ * CockroachDB cannot alter an existing FK's action in place, hence the
+ * drop-and-recreate. `TrackingSession` is one of the schema_locked tables, so
+ * the unlock/re-lock escalation is mandatory there; the other two are handled
+ * by the same optimistic-then-escalate path in case they are locked too.
+ */
+export async function ensureNullableUserFks(log: Logger): Promise<void> {
+  try {
+    const rows = await prisma.$queryRaw<{ is_nullable: string }[]>`
+      SELECT is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'TrackingSession' AND column_name = 'userId'
+    `;
+    if (rows[0]?.is_nullable === "YES") return; // already applied
+  } catch {
+    // Could not read the catalogue — fall through and let the DDL decide.
+  }
+
+  log.info("[schema] making userId foreign keys nullable + SET NULL");
+
+  for (const table of ["TrackingSession", "Device", "TimeNote"]) {
+    const fk = `${table}_userId_fkey`;
+    // Order matters: the column must accept NULL before a constraint is allowed
+    // to write one into it.
+    const steps = [
+      `ALTER TABLE "${table}" ALTER COLUMN "userId" DROP NOT NULL`,
+      `ALTER TABLE "${table}" DROP CONSTRAINT IF EXISTS "${fk}"`,
+      `ALTER TABLE "${table}" ADD CONSTRAINT "${fk}" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL`,
+    ];
+    const run = async () => {
+      for (const sql of steps) await prisma.$executeRawUnsafe(sql);
+    };
+
+    try {
+      await run();
+      log.info(`[schema] ${table}.userId is now nullable + SET NULL`);
+      continue;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/schema_locked|is locked/i.test(msg)) {
+        log.warn(`[schema] could not alter ${table}.userId: ${msg}`);
+        continue;
+      }
+      log.info(`[schema] ${table} is schema_locked — unlocking to alter it`);
+    }
+
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" SET (schema_locked = false)`);
+      try {
+        await run();
+        log.info(`[schema] ${table}.userId is now nullable + SET NULL`);
+      } finally {
+        await prisma
+          .$executeRawUnsafe(`ALTER TABLE "${table}" SET (schema_locked = true)`)
+          .catch(() => {});
+      }
+    } catch (err) {
+      log.warn(
+        `[schema] could not alter ${table}.userId (${
+          err instanceof Error ? err.message : err
+        }). Deleting a member with tracked work will fail until this is applied.`
+      );
+    }
+  }
+}
+
 export async function ensureWebsiteUsageColumn(log: Logger): Promise<void> {
   try {
     await prisma.$queryRaw`SELECT "showWebsiteUsage" FROM "Organization" LIMIT 1`;

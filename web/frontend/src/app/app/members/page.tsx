@@ -250,24 +250,32 @@ function RemoveDialog({
 }) {
   const [confirmText, setConfirmText] = useState("");
   const [saving, setSaving] = useState(false);
-  const matches = confirmText.trim().toLowerCase() === member.email.toLowerCase();
+  // Match against the address as DISPLAYED, not as stored. A legacy `removed`
+  // row carries a tombstoned email the UI never shows, so comparing with the raw
+  // value would demand a string the admin has no way of knowing.
+  const shown = displayEmail(member);
+  const matches = confirmText.trim().toLowerCase() === shown.toLowerCase();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <Card className="relative z-10 w-full max-w-sm p-6">
-        <h2 className="font-heading text-[15px] font-semibold text-ink">Remove user</h2>
+        <h2 className="font-heading text-[15px] font-semibold text-ink">Delete user</h2>
         <p className="mt-1 text-[12px] text-muted">
-          This permanently revokes {member.email}&rsquo;s access. Unlike disabling, there is no
-          re-enable path afterward — their tracked time, screenshots, and history are kept, but
-          the account itself cannot sign in or be restored from here.
+          This permanently deletes {shown}&rsquo;s account. It cannot be undone, and unlike
+          disabling there is no way back.
+        </p>
+        <p className="mt-2 text-[12px] text-muted">
+          Their tracked time, screenshots and activity are <strong className="text-ink">kept</strong> and
+          stay in your reports, shown as &ldquo;Deleted user&rdquo;. The action is recorded in the
+          audit log, and {shown} becomes free to invite again.
         </p>
         <div className="mt-4">
-          <Label>Type {member.email} to confirm</Label>
+          <Label>Type {shown} to confirm</Label>
           <Input
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
-            placeholder={member.email}
+            placeholder={shown}
             autoFocus
           />
         </div>
@@ -286,7 +294,7 @@ function RemoveDialog({
             }}
             disabled={saving || !matches}
           >
-            {saving ? "Removing…" : "Remove user"}
+            {saving ? "Deleting…" : "Delete user"}
           </Button>
         </div>
       </Card>
@@ -375,9 +383,19 @@ export default function MembersPage() {
     await api(`/members/${m.id}`, { method: "PATCH", body: JSON.stringify({ role: next }) }).catch(() => load());
   }
 
-  async function setStatus(m: Member, status: "active" | "disabled" | "removed") {
-    if (status === "disabled") await api(`/members/${m.id}`, { method: "DELETE" }).catch(() => {});
-    else await api(`/members/${m.id}`, { method: "PATCH", body: JSON.stringify({ status }) }).catch(() => {});
+  // Status changes are reversible and always go through PATCH. This used to
+  // route "disabled" to DELETE — harmless while DELETE merely disabled, and
+  // catastrophic now that it really deletes.
+  async function setStatus(m: Member, status: "active" | "disabled") {
+    await api(`/members/${m.id}`, { method: "PATCH", body: JSON.stringify({ status }) }).catch(() => {});
+    await load();
+  }
+
+  // Permanent: the row is gone. Their tracked time, screenshots and activity
+  // stay in the org's reports, attributed to "Deleted user", and the address is
+  // free to invite again.
+  async function deleteMember(m: Member) {
+    await api(`/members/${m.id}`, { method: "DELETE" }).catch(() => {});
     await load();
   }
 
@@ -557,21 +575,24 @@ export default function MembersPage() {
                         </td>
                         {/* Actions */}
                         <td className="px-4 py-4 text-center">
-                          {/* Owner: no menu at all. Removed: no menu either — the
-                              account is gone for good and there is nothing left
-                              to do from here (crucially, no Re-enable). */}
-                          {m.role !== "owner" && m.status !== "removed" && (
+                          {/* Owner: never any menu. A legacy `removed` row (from
+                              before removal became a real delete) gets exactly
+                              one action — finish the job — and crucially still
+                              no Re-enable. */}
+                          {m.role !== "owner" && (
                             <ActionMenu
                               items={
-                                m.status === "disabled"
+                                m.status === "removed"
+                                  ? [{ label: "Delete permanently", danger: true, onClick: () => setRemoveFor(m) }]
+                                  : m.status === "disabled"
                                   ? [
                                       { label: "Re-enable", onClick: () => setStatus(m, "active") },
-                                      { label: "Remove user", danger: true, onClick: () => setRemoveFor(m) },
+                                      { label: "Delete user", danger: true, onClick: () => setRemoveFor(m) },
                                     ]
                                   : [
                                       { label: "Set work targets", onClick: () => setTargetFor(m) },
                                       { label: "Disable access", danger: true, onClick: () => setStatus(m, "disabled") },
-                                      { label: "Remove user", danger: true, onClick: () => setRemoveFor(m) },
+                                      { label: "Delete user", danger: true, onClick: () => setRemoveFor(m) },
                                     ]
                               }
                             />
@@ -657,7 +678,7 @@ export default function MembersPage() {
         <RemoveDialog
           member={removeFor}
           onClose={() => setRemoveFor(null)}
-          onConfirm={() => setStatus(removeFor, "removed")}
+          onConfirm={() => deleteMember(removeFor)}
         />
       )}
     </div>

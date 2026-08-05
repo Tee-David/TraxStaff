@@ -5,7 +5,11 @@ import { auditLog } from "../lib/audit";
 
 const updateMemberSchema = z.object({
   role: z.enum(["owner", "admin", "member"]).optional(),
-  status: z.enum(["invited", "active", "disabled", "removed"]).optional(),
+  // `removed` is deliberately not settable any more: removing a member is now a
+  // real DELETE (see the DELETE handler below), not a status. The enum value
+  // survives in the schema only so the handful of rows predating that change
+  // still read back.
+  status: z.enum(["invited", "active", "disabled"]).optional(),
   // Nullable on purpose: null clears the override so the member goes back to
   // inheriting the org default. That is a different thing from 0, which is a
   // real target of no hours.
@@ -55,24 +59,13 @@ export default async function memberRoutes(fastify: FastifyInstance) {
       if (target.role === "owner" && body.status && body.status !== "active") {
         return reply.code(400).send({ error: "Cannot disable or remove the owner" });
       }
-      // Removal is a one-way door (see the frontend's RemoveDialog copy) — once
-      // gone, nothing through this endpoint should bring the account back.
+      // Legacy `removed` rows predate the hard delete and are inert: nothing can
+      // be done to them through this endpoint.
       if (target.status === "removed") {
         return reply.code(400).send({ error: "This account has been removed" });
       }
 
-      const data: typeof body & { email?: string } = { ...body };
-      // `email` is unique, so a removed account would squat on its address
-      // forever — re-inviting that same person (or anyone else who wants it)
-      // would 409 with "already in use" for good. Free it the moment the
-      // account is actually removed; the row and its tracked-time history
-      // stay put under the new address, unaffected.
-      if (body.status === "removed") {
-        const [local, domain] = target.email.split("@");
-        data.email = `${local}+removed-${target.id.slice(0, 8)}@${domain}`;
-      }
-
-      const updated = await prisma.user.update({ where: { id }, data, select: memberSelect });
+      const updated = await prisma.user.update({ where: { id }, data: body, select: memberSelect });
 
       // One PATCH can carry several changes; record each as its own entry so the
       // log filters cleanly by action. Target email is captured from `target`
@@ -87,8 +80,7 @@ export default async function memberRoutes(fastify: FastifyInstance) {
         await auditLog({ ...base, action: "member.role_changed", details: { from: target.role, to: body.role } });
       }
       if (body.status && body.status !== target.status) {
-        if (body.status === "removed") await auditLog({ ...base, action: "member.removed" });
-        else if (body.status === "disabled") await auditLog({ ...base, action: "member.disabled" });
+        if (body.status === "disabled") await auditLog({ ...base, action: "member.disabled" });
         else if (body.status === "active") await auditLog({ ...base, action: "member.reenabled" });
       }
 
@@ -108,15 +100,34 @@ export default async function memberRoutes(fastify: FastifyInstance) {
       if (target.role === "owner") {
         return reply.code(400).send({ error: "Cannot remove the owner" });
       }
+      if (target.id === req.user.userId) {
+        return reply.code(400).send({ error: "You cannot delete your own account" });
+      }
 
-      await prisma.user.update({ where: { id }, data: { status: "disabled" } });
+      // Audit BEFORE the delete: once the row is gone we can no longer read the
+      // email, and an entry saying only "some user was deleted" is worthless.
+      // The identity is denormalised into the payload, so it survives.
       await auditLog({
         orgId: req.user.orgId,
         actorId: req.user.userId,
-        action: "member.disabled",
+        action: "member.deleted",
         targetId: target.id,
         targetLabel: target.email,
+        details: { role: target.role, previousStatus: target.status },
       });
+
+      // A real DELETE, not a status change. Everything the person tracked
+      // survives with `userId` set to NULL (see the SetNull FKs in
+      // schema.prisma) and stays reachable org-wide through its project. Only
+      // the rows that mean nothing without them are removed outright:
+      // project assignments and any outstanding password-reset tokens, both of
+      // which are required FKs and would otherwise block the delete.
+      await prisma.$transaction([
+        prisma.projectMember.deleteMany({ where: { userId: id } }),
+        prisma.passwordResetToken.deleteMany({ where: { userId: id } }),
+        prisma.user.delete({ where: { id } }),
+      ]);
+
       return reply.code(204).send();
     }
   );

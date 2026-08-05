@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { orgScoped } from "../lib/org-scope";
 
 const rangeSchema = z.object({
   from: z.string().datetime({ offset: true }).optional(),
@@ -155,13 +156,18 @@ export default async function reportRoutes(fastify: FastifyInstance) {
     const privileged = req.user.role === "owner" || req.user.role === "admin";
     const where: Record<string, unknown> = {};
     if (privileged) {
-      where.user = { orgId: req.user.orgId };
+      // OR rather than `user: { orgId }` alone: a session whose owner has been
+      // hard-deleted has userId IS NULL, and Prisma compiles a relation filter
+      // as an inner join, so those rows would drop out of every org-wide report
+      // entirely. They reach the org through their project instead.
+      where.OR = orgScoped(req.user.orgId);
       if (q.userId) {
         where.userId = q.userId;
       } else if (q.scope !== "team") {
         where.userId = req.user.userId;
       }
-      // scope === "team" and no userId: leave where.userId unset → whole org.
+      // scope === "team" and no userId: leave where.userId unset → whole org,
+      // orphaned work included.
     } else {
       where.userId = req.user.userId;
     }

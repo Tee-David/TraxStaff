@@ -2,6 +2,12 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { weightedActivity, type WeightedBlock } from "./reports";
+import {
+  DELETED_USER_KEY,
+  DELETED_USER_LABEL,
+  orgScoped,
+  orgScopedViaSession,
+} from "../lib/org-scope";
 
 const PRESENCE_WINDOW_MS = 3 * 60 * 1000; // "online" if a device beat within 3 min
 
@@ -57,7 +63,7 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
   fastify.get("/insights/unusual-activity", async (req, reply) => {
     if (!requireAdmin(req, reply)) return;
     const flags = await prisma.unusualActivityFlag.findMany({
-      where: { session: { user: { orgId: req.user.orgId } } },
+      where: { OR: orgScopedViaSession(req.user.orgId) },
       include: {
         session: {
           select: {
@@ -82,7 +88,10 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
       to: z.string().datetime({ offset: true }).optional(),
     }).parse(req.query);
 
-    const where: Record<string, unknown> = { user: { orgId: req.user.orgId } };
+    // Orphaned sessions (owner hard-deleted) have no user to reach the org
+    // through, so they are admitted via their project instead — otherwise a
+    // deleted member's tracked work silently disappears from the leaderboard.
+    const where: Record<string, unknown> = { OR: orgScoped(req.user.orgId) };
     if (q.from || q.to) {
       where.startedAt = {
         ...(q.from ? { gte: new Date(q.from) } : {}),
@@ -98,12 +107,21 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
         activityBlocks: { select: { activityPct: true, creditedSeconds: true, blockStart: true, blockEnd: true } },
       },
     });
-    const byUser = new Map<string, { userId: string; email: string; totalSeconds: number; blocks: WeightedBlock[] }>();
+    // Orphaned sessions all collapse into one "Deleted user" entry rather than
+    // being dropped: the hours were really worked and still belong in the org's
+    // totals, even though nobody owns them any more.
+    const byUser = new Map<string, { userId: string | null; email: string; totalSeconds: number; blocks: WeightedBlock[] }>();
     for (const s of sessions) {
-      const u = byUser.get(s.userId) ?? { userId: s.userId, email: s.user.email, totalSeconds: 0, blocks: [] as WeightedBlock[] };
+      const key = s.userId ?? DELETED_USER_KEY;
+      const u = byUser.get(key) ?? {
+        userId: s.userId,
+        email: s.user?.email ?? DELETED_USER_LABEL,
+        totalSeconds: 0,
+        blocks: [] as WeightedBlock[],
+      };
       u.totalSeconds += seconds(s.startedAt, s.endedAt);
       u.blocks.push(...s.activityBlocks);
-      byUser.set(s.userId, u);
+      byUser.set(key, u);
     }
     const board = [...byUser.values()]
       .map((u) => ({
@@ -122,9 +140,16 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
     const { id } = req.params as { id: string };
     const flag = await prisma.unusualActivityFlag.findUnique({
       where: { id },
-      include: { session: { select: { user: { select: { orgId: true } } } } },
+      include: {
+        session: {
+          select: { user: { select: { orgId: true } }, project: { select: { orgId: true } } },
+        },
+      },
     });
-    if (!flag || flag.session.user.orgId !== req.user.orgId) {
+    // An orphaned session has no user, so fall back to the project's org rather
+    // than dereferencing null (which used to throw a 500 here).
+    const flagOrgId = flag?.session.user?.orgId ?? flag?.session.project.orgId;
+    if (!flag || flagOrgId !== req.user.orgId) {
       return reply.code(404).send({ error: "Not found" });
     }
     await prisma.unusualActivityFlag.update({ where: { id }, data: { acknowledgedAt: new Date() } });

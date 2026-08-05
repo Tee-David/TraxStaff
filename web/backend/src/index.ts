@@ -14,7 +14,11 @@ import reportRoutes from "./routes/reports";
 import insightsRoutes from "./routes/insights";
 import screenshotRoutes from "./routes/screenshots";
 import orgRoutes from "./routes/orgs";
-import { ensureAuditLogTable, ensureWebsiteUsageColumn } from "./lib/ensure-schema";
+import {
+  ensureAuditLogTable,
+  ensureNullableUserFks,
+  ensureWebsiteUsageColumn,
+} from "./lib/ensure-schema";
 
 async function main() {
   const fastify = Fastify({ logger: true });
@@ -61,6 +65,7 @@ async function main() {
   // Neither blocks startup: they log and move on if the database refuses.
   await ensureWebsiteUsageColumn(fastify.log);
   await ensureAuditLogTable(fastify.log);
+  await ensureNullableUserFks(fastify.log);
 
   await fastify.listen({ port: env.PORT, host: "0.0.0.0" });
 }

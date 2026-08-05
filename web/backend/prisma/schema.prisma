@@ -17,11 +17,16 @@ enum UserStatus {
   invited
   active
   disabled
-  // Distinct from `disabled`: a deliberate, harder action with no Re-enable
-  // path in the UI. Never a real DELETE of the row - every table with
-  // tracking/audit history (sessions, screenshots, timesheets, project
-  // assignments) references userId, and this account must keep meaning
-  // something to all of that history after the person is gone.
+  // DEPRECATED — no longer settable, and nothing produces it.
+  //
+  // This used to be the way a member was "removed": the row stayed forever so
+  // its tracking history kept an owner, and the email was tombstoned to free
+  // the address. Removing a member is now a real DELETE of the row; the history
+  // survives because every userId FK is nullable + ON DELETE SET NULL, and
+  // org-wide queries reach an orphaned session through its project instead (see
+  // lib/org-scope.ts). Who removed whom lives in AuditLog.
+  //
+  // Kept only so the rows written before that change still read back.
   removed
 }
 
@@ -182,8 +187,13 @@ model Task {
 
 model Device {
   id         String            @id @default(uuid()) @db.Uuid
-  userId     String            @db.Uuid
-  user       User              @relation(fields: [userId], references: [id])
+  // Nullable + SetNull so deleting a member does not have to destroy the
+  // hardware record its sessions still point at. Note a device has no path to
+  // an org except through its user, so an orphaned row is unanchored — that is
+  // tolerable because only /insights/presence reads devices, and it reads them
+  // off User, so a deleted person's devices correctly stop appearing.
+  userId     String?           @db.Uuid
+  user       User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
   platform   String
   appVersion String
   lastSeenAt DateTime          @default(now())
@@ -195,8 +205,14 @@ model Device {
 
 model TrackingSession {
   id              String            @id @default(uuid()) @db.Uuid
-  userId          String            @db.Uuid
-  user            User              @relation(fields: [userId], references: [id])
+  // Nullable + SetNull: hard-deleting a member must not destroy the work they
+  // tracked. An orphaned session keeps every field except its owner, and is
+  // reached org-wide through `project.orgId` instead (TrackingSession carries
+  // no orgId of its own) — see the org-scope clauses in reports/screenshots/
+  // insights, which admit `{ userId: null, project: { orgId } }` for exactly
+  // this reason.
+  userId          String?           @db.Uuid
+  user            User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
   projectId       String            @db.Uuid
   project         Project           @relation(fields: [projectId], references: [id])
   taskId          String?           @db.Uuid
@@ -269,8 +285,10 @@ model TimeNote {
   id        String          @id @default(uuid()) @db.Uuid
   sessionId String          @db.Uuid
   session   TrackingSession @relation(fields: [sessionId], references: [id])
-  userId    String          @db.Uuid
-  user      User            @relation(fields: [userId], references: [id])
+  // Nullable + SetNull for the same reason as TrackingSession: the note is part
+  // of the tracked record and outlives its author.
+  userId    String?         @db.Uuid
+  user      User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
   body      String
   createdAt DateTime        @default(now())
 
@@ -317,7 +335,10 @@ model Screenshot {
   blurred         Boolean       @default(false)
   deletedAt       DateTime?
   deletedById     String?       @db.Uuid
-  deletedBy       User?         @relation("ScreenshotDeletedBy", fields: [deletedById], references: [id])
+  // Optional already, but an unspecified action still defaults to Restrict —
+  // so without this an admin who had ever deleted a screenshot could not
+  // themselves be deleted.
+  deletedBy       User?         @relation("ScreenshotDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
   createdAt       DateTime      @default(now())
 
   @@index([sessionId])
@@ -344,7 +365,9 @@ model Notification {
   orgId     String       @db.Uuid
   org       Organization @relation(fields: [orgId], references: [id])
   userId    String?      @db.Uuid
-  user      User?        @relation(fields: [userId], references: [id])
+  // Same trap as Screenshot.deletedBy: optional, but Restrict by default, so a
+  // member with any notification about them could not be deleted.
+  user      User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   type      String
   payload   Json?
   readAt    DateTime?

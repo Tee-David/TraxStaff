@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { presignPut, presignGet, deleteObject, r2Configured } from "../lib/r2";
 import { auditLog } from "../lib/audit";
+import { DELETED_USER_LABEL, orgScoped } from "../lib/org-scope";
 
 const presignSchema = z.object({
   sessionId: z.string().uuid(),
@@ -121,14 +122,17 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
 
     const sessionWhere: Record<string, unknown> = {};
     if (privileged) {
-      sessionWhere.user = { orgId: req.user.orgId };
+      // OR rather than a plain `user: { orgId }`, so a session whose owner has
+      // been hard-deleted (userId IS NULL) is still reachable through its
+      // project. Without this the org-wide view silently loses that work.
+      sessionWhere.OR = orgScoped(req.user.orgId);
       if (q.userId) {
         sessionWhere.userId = q.userId;
       } else if (q.scope !== "team") {
         sessionWhere.userId = req.user.userId;
       }
       // scope === "team" and no userId: leave sessionWhere.userId unset →
-      // whole org.
+      // whole org, orphans included.
     } else {
       sessionWhere.userId = req.user.userId;
     }
@@ -187,7 +191,7 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
         monitorIndex: s.monitorIndex,
         blurred: s.blurred,
         activityPct: s.activityBlock.activityPct,
-        member: s.session.user.email,
+        member: s.session.user?.email ?? DELETED_USER_LABEL,
         project: s.session.project.name,
         url: privileged && r2Configured ? await presignGet(s.r2Key) : null,
         /** False for staff: the image is withheld, not merely obscured. */
@@ -210,9 +214,16 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
     const { id } = req.params as { id: string };
     const shot = await prisma.screenshot.findUnique({
       where: { id },
-      include: { session: { select: { user: { select: { orgId: true } } } } },
+      include: {
+        session: {
+          select: { user: { select: { orgId: true } }, project: { select: { orgId: true } } },
+        },
+      },
     });
-    if (!shot || shot.session.user.orgId !== req.user.orgId) {
+    // Orphaned session → no user; fall back to the project's org rather than
+    // dereferencing null, which would 500 instead of returning 404.
+    const shotOrgId = shot?.session.user?.orgId ?? shot?.session.project.orgId;
+    if (!shot || shotOrgId !== req.user.orgId) {
       return reply.code(404).send({ error: "Not found" });
     }
     await deleteObject(shot.r2Key).catch(() => {});

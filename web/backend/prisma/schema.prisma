@@ -79,6 +79,7 @@ model Organization {
   projects      Project[]
   invites       InviteToken[]
   notifications Notification[]
+  auditLogs     AuditLog[]
 }
 
 model User {
@@ -104,6 +105,7 @@ model User {
   deletedScreenshots Screenshot[]      @relation("ScreenshotDeletedBy")
   passwordResets     PasswordResetToken[]
   projectMemberships ProjectMember[]
+  auditLogs          AuditLog[]        @relation("AuditLogActor")
 
   @@index([orgId])
 }
@@ -350,4 +352,32 @@ model Notification {
 
   @@index([orgId])
   @@index([userId])
+}
+
+// Org-wide trail of destructive and membership actions: who did what, to whom,
+// when. Deliberately shaped like Notification — a required `orgId` as the
+// durable anchor and an optional actor — because the whole point of this table
+// is to outlive the people in it.
+//
+// The readable identity of both sides lives in `payload` (actorEmail,
+// targetEmail, targetLabel), NEVER read back through the `actor` relation. That
+// is what keeps an entry meaningful after the account it describes has been
+// hard-deleted, and it mirrors what notifyOrg() already does with
+// Notification.payload.memberEmail.
+model AuditLog {
+  id        String       @id @default(uuid()) @db.Uuid
+  orgId     String       @db.Uuid
+  org       Organization @relation(fields: [orgId], references: [id])
+  // SetNull, not the implicit Restrict: an audit row must never be the reason a
+  // user delete fails, and must never be removed alongside them.
+  actorId   String?      @db.Uuid
+  actor     User?        @relation("AuditLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  payload   Json?
+  createdAt DateTime     @default(now())
+
+  // Every read is org-scoped and ordered by createdAt desc (cursor paging);
+  // the second index serves the action filter.
+  @@index([orgId, createdAt])
+  @@index([orgId, action])
 }

@@ -9,7 +9,7 @@ import { SUPPORT_EMAIL } from "@/lib/site";
 import { useTheme } from "@/lib/theme";
 import { toggleThemeWithTransition } from "@/lib/theme-transition";
 import {
-  IconBell, IconChart, IconChevron, IconClock, IconDashboard, IconHelp, IconImage,
+  IconAudit, IconBell, IconChart, IconChevron, IconClock, IconDashboard, IconHelp, IconImage,
   IconKanban, IconLogout, IconMoon, IconSearch, IconSettings, IconSidebar, IconSun, IconTrend, IconUsers,
 } from "@/components/icons";
 
@@ -27,6 +27,9 @@ const MENU: Item[] = [
   // Every role gets this: a member has their own notifications even though the
   // org-wide flags are admin-only (the API scopes the list per role).
   { href: "/app/notifications", label: "Notifications", icon: IconBell, roles: ["owner", "admin", "member"], tourId: "notifications" },
+  // Admin-only, and the API enforces that independently — an audit log a member
+  // could read (or narrow to their own actions) is not an audit log.
+  { href: "/app/audit", label: "Audit log", icon: IconAudit, roles: ["owner", "admin"], tourId: "audit" },
 ];
 const SECONDARY: Item[] = [
   { href: "/app/settings", label: "Settings", icon: IconSettings, roles: ["owner", "admin", "member"], tourId: "settings" },

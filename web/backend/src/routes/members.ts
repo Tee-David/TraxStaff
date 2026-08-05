@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { auditLog } from "../lib/audit";
 
 const updateMemberSchema = z.object({
   role: z.enum(["owner", "admin", "member"]).optional(),
@@ -72,6 +73,25 @@ export default async function memberRoutes(fastify: FastifyInstance) {
       }
 
       const updated = await prisma.user.update({ where: { id }, data, select: memberSelect });
+
+      // One PATCH can carry several changes; record each as its own entry so the
+      // log filters cleanly by action. Target email is captured from `target`
+      // (pre-update), which is the address a reader would recognise.
+      const base = {
+        orgId: req.user.orgId,
+        actorId: req.user.userId,
+        targetId: target.id,
+        targetLabel: target.email,
+      } as const;
+      if (body.role && body.role !== target.role) {
+        await auditLog({ ...base, action: "member.role_changed", details: { from: target.role, to: body.role } });
+      }
+      if (body.status && body.status !== target.status) {
+        if (body.status === "removed") await auditLog({ ...base, action: "member.removed" });
+        else if (body.status === "disabled") await auditLog({ ...base, action: "member.disabled" });
+        else if (body.status === "active") await auditLog({ ...base, action: "member.reenabled" });
+      }
+
       return reply.send(updated);
     }
   );
@@ -90,6 +110,13 @@ export default async function memberRoutes(fastify: FastifyInstance) {
       }
 
       await prisma.user.update({ where: { id }, data: { status: "disabled" } });
+      await auditLog({
+        orgId: req.user.orgId,
+        actorId: req.user.userId,
+        action: "member.disabled",
+        targetId: target.id,
+        targetLabel: target.email,
+      });
       return reply.code(204).send();
     }
   );

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { auditLog } from "../lib/audit";
 
 const createTaskSchema = z.object({
   title: z.string().min(1),
@@ -81,6 +82,14 @@ export default async function taskRoutes(fastify: FastifyInstance) {
     }
 
     await prisma.task.delete({ where: { id } });
+    await auditLog({
+      orgId: req.user.orgId,
+      actorId: req.user.userId,
+      action: "task.deleted",
+      targetId: task.id,
+      targetLabel: task.title,
+      details: { project: task.project.name },
+    });
     return reply.code(204).send();
   });
 }

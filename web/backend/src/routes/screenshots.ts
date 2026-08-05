@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { presignPut, presignGet, deleteObject, r2Configured } from "../lib/r2";
+import { auditLog } from "../lib/audit";
 
 const presignSchema = z.object({
   sessionId: z.string().uuid(),
@@ -218,6 +219,14 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
     await prisma.screenshot.update({
       where: { id },
       data: { deletedAt: new Date(), deletedById: req.user.userId },
+    });
+    await auditLog({
+      orgId: req.user.orgId,
+      actorId: req.user.userId,
+      action: "screenshot.deleted",
+      targetId: shot.id,
+      targetLabel: shot.takenAt.toISOString(),
+      details: { sessionId: shot.sessionId },
     });
     return reply.send({ ok: true });
   });

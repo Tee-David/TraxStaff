@@ -14,7 +14,7 @@ import reportRoutes from "./routes/reports";
 import insightsRoutes from "./routes/insights";
 import screenshotRoutes from "./routes/screenshots";
 import orgRoutes from "./routes/orgs";
-import { ensureWebsiteUsageColumn } from "./lib/ensure-schema";
+import { ensureAuditLogTable, ensureWebsiteUsageColumn } from "./lib/ensure-schema";
 
 async function main() {
   const fastify = Fastify({ logger: true });
@@ -58,8 +58,9 @@ async function main() {
   await fastify.register(screenshotRoutes);
   await fastify.register(orgRoutes);
 
-  // Never blocks startup: it logs and moves on if the database refuses.
+  // Neither blocks startup: they log and move on if the database refuses.
   await ensureWebsiteUsageColumn(fastify.log);
+  await ensureAuditLogTable(fastify.log);
 
   await fastify.listen({ port: env.PORT, host: "0.0.0.0" });
 }

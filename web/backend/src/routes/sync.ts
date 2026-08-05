@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { GENESIS, verifyChain, type ChainBlock } from "../lib/hashchain";
 import { detectAnomalies } from "../lib/anomaly";
+import { auditLog } from "../lib/audit";
 
 const blockSchema = z.object({
   blockStart: z.string().datetime({ offset: true }),
@@ -281,6 +282,14 @@ export default async function syncRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: "Discard window must be positive" });
     }
     await prisma.idleDiscard.create({ data: { sessionId: body.sessionId, from, to, seconds } });
+    await auditLog({
+      orgId: req.user.orgId,
+      actorId: req.user.userId,
+      action: "idle.discarded",
+      targetId: body.sessionId,
+      targetLabel: `${Math.round(seconds / 60)} min`,
+      details: { seconds, from: body.fromISO, to: body.toISO },
+    });
     return reply.send({ ok: true, seconds });
   });
 }

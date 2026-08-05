@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { hashPassword, verifyPassword } from "../lib/password";
 import { sendInviteEmail, sendPasswordResetEmail } from "../lib/mailer";
+import { auditLog } from "../lib/audit";
 import { env } from "../env";
 
 // Tokens must expire. Without a TTL a copied token stays valid forever, and
@@ -158,6 +159,14 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
       const inviteUrl = `${env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/accept-invite?token=${token}`;
       const emailed = await sendInviteEmail(body.email, inviteUrl, org.name);
+
+      await auditLog({
+        orgId: req.user.orgId,
+        actorId: req.user.userId,
+        action: "member.invited",
+        targetLabel: body.email,
+        details: { role: body.role, emailed },
+      });
 
       // The token is already valid whether or not the mail got out, so this stays
       // a 201 — but the admin has to be told when nothing was delivered, or they

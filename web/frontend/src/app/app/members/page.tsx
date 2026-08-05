@@ -33,12 +33,14 @@ function tintIndex(email: string) {
   return h % AVATAR_PALETTE.length;
 }
 
-// Display the email, or a placeholder if the member has been removed.
-// (Removed members have their email tombstoned to free it for reuse, so the original
-// email is no longer stored/visible on the row.)
+// Removing a member tombstones their address server-side so the original is freed
+// for re-invite (see PATCH /members/:id): jane@acme.com -> jane+removed-1a2b3c4d@acme.com.
+// The tag is stripped for display, so the row still shows who the account belonged
+// to — the Removed status pill already conveys the state, and an admin looking at
+// this table needs to know *which* person was removed.
 function displayEmail(member: Member): string {
   if (member.status === "removed") {
-    return "(removed)";
+    return member.email.replace(/\+removed-[0-9a-f]{8}@/i, "@");
   }
   return member.email;
 }
@@ -518,7 +520,7 @@ export default function MembersPage() {
                         {/* User */}
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <MemberAvatar email={m.email} disabled={m.status !== "active"} />
+                            <MemberAvatar email={displayEmail(m)} disabled={m.status !== "active"} />
                             <div className="min-w-0">
                               <div className="font-semibold text-[13px] text-ink truncate">{displayEmail(m).split("@")[0]}</div>
                               <div className="text-[11px] text-muted truncate sm:hidden">{displayEmail(m)}</div>
@@ -609,7 +611,7 @@ export default function MembersPage() {
                       <tr key={m.id} className="hover:bg-canvas/40 transition">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <MemberAvatar email={m.email} disabled />
+                            <MemberAvatar email={displayEmail(m)} disabled />
                             <div className="min-w-0">
                               <div className="font-semibold text-[13px] text-ink truncate">{displayEmail(m).split("@")[0]}</div>
                               <div className="text-[11px] sm:hidden text-muted truncate">{displayEmail(m)}</div>

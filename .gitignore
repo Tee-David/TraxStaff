@@ -13,6 +13,13 @@ plans/
 # local agent guidance — kept out of the repo deliberately
 CLAUDE.md
 
+# agent tooling — machine-local, not part of the product. These were committed
+# once by an over-broad `git add -A` (~12.7k lines of skill definitions); the
+# tracked copies still need removing with `git rm -r --cached`.
+.claude/
+.agents/
+skills-lock.json
+
 # node
 node_modules/
 .pnpm-store/

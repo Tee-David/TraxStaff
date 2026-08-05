@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { auditLog } from "../lib/audit";
 
 const createProjectSchema = z.object({
   name: z.string().min(1),
@@ -108,6 +109,19 @@ export default async function projectRoutes(fastify: FastifyInstance) {
           archivedAt: body.archived === undefined ? undefined : body.archived ? new Date() : null,
         },
       });
+
+      // Only the archive toggle is auditable here — a rename is not destructive.
+      // Compare against `existing` so a no-op PATCH records nothing.
+      if (body.archived !== undefined && body.archived !== Boolean(existing.archivedAt)) {
+        await auditLog({
+          orgId: req.user.orgId,
+          actorId: req.user.userId,
+          action: body.archived ? "project.archived" : "project.unarchived",
+          targetId: project.id,
+          targetLabel: project.name,
+        });
+      }
+
       return reply.send(project);
     }
   );
@@ -149,6 +163,16 @@ export default async function projectRoutes(fastify: FastifyInstance) {
           where: { id: { in: owned.map((p) => p.id) }, orgId: req.user.orgId },
           data: { archivedAt },
         });
+        for (const p of owned) {
+          await auditLog({
+            orgId: req.user.orgId,
+            actorId: req.user.userId,
+            action: body.action === "archive" ? "project.archived" : "project.unarchived",
+            targetId: p.id,
+            targetLabel: p.name,
+            details: { bulk: true },
+          });
+        }
         return reply.send({ action: body.action, updated: count, deleted: [], blocked: [] });
       }
 
@@ -166,6 +190,17 @@ export default async function projectRoutes(fastify: FastifyInstance) {
           prisma.task.deleteMany({ where: { projectId: { in: ids } } }),
           prisma.project.deleteMany({ where: { id: { in: ids }, orgId: req.user.orgId } }),
         ]);
+        // After the transaction commits — an audit write must never be the thing
+        // that rolls back a delete that already succeeded.
+        for (const p of deletable) {
+          await auditLog({
+            orgId: req.user.orgId,
+            actorId: req.user.userId,
+            action: "project.deleted",
+            targetId: p.id,
+            targetLabel: p.name,
+          });
+        }
       }
 
       return reply.send({

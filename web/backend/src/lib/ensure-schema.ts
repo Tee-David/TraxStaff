@@ -28,9 +28,63 @@ import { prisma } from "./prisma";
  *
  * Delete this once migrations run as part of the deploy.
  */
-export async function ensureWebsiteUsageColumn(
-  log: { info: (msg: string) => void; warn: (msg: string) => void }
-): Promise<void> {
+type Logger = { info: (msg: string) => void; warn: (msg: string) => void };
+
+/**
+ * Creates the `AuditLog` table if it is missing.
+ *
+ * Same reasoning as `ensureWebsiteUsageColumn` below — `prisma migrate deploy`
+ * is not safe against this database, so the targeted DDL is applied over the
+ * connection the API already holds. No `schema_locked` dance is needed here:
+ * that parameter guards ALTERs on existing tables, and this only ever CREATEs a
+ * new one.
+ *
+ * Safe on every boot: the probe returns early once the table exists, and every
+ * statement is `IF NOT EXISTS`. Failure is logged and swallowed — an API that
+ * cannot write audit rows should still serve traffic, and `auditLog()` is
+ * itself best-effort for the same reason.
+ */
+export async function ensureAuditLogTable(log: Logger): Promise<void> {
+  try {
+    await prisma.$queryRaw`SELECT "id" FROM "AuditLog" LIMIT 1`;
+    return; // already there — nothing to do
+  } catch {
+    // fall through and create it
+  }
+
+  log.info("[schema] AuditLog table is missing — creating it");
+
+  // Separate statements on purpose: CockroachDB will not take the table and its
+  // indexes in one implicit transaction, and $executeRawUnsafe is one-per-call.
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS "AuditLog" (
+       "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+       "orgId" UUID NOT NULL,
+       "actorId" UUID,
+       "action" STRING NOT NULL,
+       "payload" JSONB,
+       "createdAt" TIMESTAMP(3) NOT NULL DEFAULT current_timestamp(),
+       CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id"),
+       CONSTRAINT "AuditLog_orgId_fkey" FOREIGN KEY ("orgId") REFERENCES "Organization"("id"),
+       CONSTRAINT "AuditLog_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE SET NULL
+     )`,
+    `CREATE INDEX IF NOT EXISTS "AuditLog_orgId_createdAt_idx" ON "AuditLog" ("orgId", "createdAt")`,
+    `CREATE INDEX IF NOT EXISTS "AuditLog_orgId_action_idx" ON "AuditLog" ("orgId", "action")`,
+  ];
+
+  try {
+    for (const sql of statements) await prisma.$executeRawUnsafe(sql);
+    log.info("[schema] AuditLog table created");
+  } catch (err) {
+    log.warn(
+      `[schema] could not create AuditLog (${
+        err instanceof Error ? err.message : err
+      }). Actions will not be recorded until this table exists.`
+    );
+  }
+}
+
+export async function ensureWebsiteUsageColumn(log: Logger): Promise<void> {
   try {
     await prisma.$queryRaw`SELECT "showWebsiteUsage" FROM "Organization" LIMIT 1`;
     return; // already there — nothing to do

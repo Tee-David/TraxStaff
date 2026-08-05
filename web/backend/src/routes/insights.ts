@@ -133,6 +133,76 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
 
   // Notifications for the current user's org (admins) or the user themself.
   //
+  // Org-wide trail of destructive + membership actions. Admin-only and always
+  // org-scoped — unlike notifications there is no self-scoped variant, because
+  // an audit log a member could narrow to "just my actions" is not an audit log.
+  //
+  // Same keyset cursor as /notifications (createdAt of the last row seen), for
+  // the same reason: an action landing mid-scroll must not shift the page
+  // boundary and hide a row. Filters are applied server-side so the page never
+  // has to hold the whole history to narrow it.
+  fastify.get("/audit-log", async (req, reply) => {
+      if (!requireAdmin(req, reply)) return;
+      const q = z
+        .object({
+          limit: z.coerce.number().int().min(1).max(200).optional(),
+          before: z.string().datetime({ offset: true }).optional(),
+          action: z.string().min(1).optional(),
+          actorId: z.string().uuid().optional(),
+          from: z.string().datetime({ offset: true }).optional(),
+          to: z.string().datetime({ offset: true }).optional(),
+          q: z.string().min(1).max(200).optional(),
+        })
+        .parse(req.query);
+
+      // `before` is the pagination cursor and `from`/`to` are the user's date
+      // filter; all three constrain createdAt, so they merge into one clause
+      // rather than overwriting each other.
+      const createdAt: Record<string, Date> = {};
+      if (q.from) createdAt.gte = new Date(q.from);
+      const upper = [q.to ? new Date(q.to) : null, q.before ? new Date(q.before) : null]
+        .filter((d): d is Date => d !== null)
+        .sort((a, b) => a.getTime() - b.getTime())[0];
+      if (upper) createdAt.lt = upper;
+
+      const take = q.limit ?? 50;
+      const rows = await prisma.auditLog.findMany({
+        where: {
+          orgId: req.user.orgId,
+          ...(q.action ? { action: q.action } : {}),
+          ...(q.actorId ? { actorId: q.actorId } : {}),
+          ...(Object.keys(createdAt).length ? { createdAt } : {}),
+          // Free-text search runs against the denormalised payload, not the
+          // actor relation — the whole point is that deleted people stay findable.
+          ...(q.q
+            ? {
+                OR: [
+                  { payload: { path: ["actorEmail"], string_contains: q.q } },
+                  { payload: { path: ["targetLabel"], string_contains: q.q } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        take,
+      });
+
+      return reply.send({ rows, more: rows.length === take });
+  });
+
+  // The distinct actions present in this org, so the filter dropdown offers only
+  // values that will actually match something.
+  fastify.get("/audit-log/actions", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return;
+    const rows = await prisma.auditLog.findMany({
+      where: { orgId: req.user.orgId },
+      distinct: ["action"],
+      select: { action: true },
+      orderBy: { action: "asc" },
+    });
+    return reply.send(rows.map((r) => r.action));
+  });
+
   // `limit` and `before` exist for the full Notifications page, which pages back
   // through the whole history; the bell in the header just takes the default.
   // Cursor is the createdAt of the last row seen rather than an offset, so a

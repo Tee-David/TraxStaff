@@ -74,6 +74,34 @@ function getCachedOrgSettings(): OrgCaptureSettings {
   try { const v = JSON.parse(localStorage.getItem("trax_org_settings") || ""); if (v && typeof v.perBlock === "number") return v; } catch { /* ignore */ }
   return { perBlock: 1, blur: false, idleMinutes: 5 };
 }
+
+// The signed-in role, cached for the same offline-first reason as the capture
+// policy above. Needed by the local gallery, which decides whether to show an
+// image without being able to ask the server.
+function cacheRole(role: string) {
+  try { localStorage.setItem("trax_role", role); } catch { /* ignore */ }
+}
+/** Owner/admin see every capture regardless of the org's blur setting. */
+function isPrivilegedCached(): boolean {
+  try { const r = localStorage.getItem("trax_role"); return r === "owner" || r === "admin"; } catch { return false; }
+}
+
+/**
+ * Whether the person at this machine may look at a capture taken on it.
+ *
+ * Mirrors the server's rule for /screenshots exactly — `privileged || !blur` —
+ * because the local gallery reads .webp files straight off disk and never asks
+ * the server, so nothing else would apply the org's blur policy to it.
+ *
+ * Note what this can and cannot do: it withholds the image from the app's own
+ * UI. The file is still on this disk, because the capture happened here; a
+ * determined user can open it in a file browser. That is inherent to capturing
+ * on someone's own machine and is the same reason blur is a display policy
+ * rather than a guarantee — see the comment on the server's list handler.
+ */
+function canViewOwnCaptures(): boolean {
+  return isPrivilegedCached() || !getCachedOrgSettings().blur;
+}
 // Locally-tracked sessions, persisted so the total survives an app restart
 // before they've synced. Pruned to the last ~8 days.
 const LOCAL_SESSIONS_KEY = "trax_local_sessions";
@@ -842,8 +870,16 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         api<Me>("/auth/me").catch(() => null),
       ]);
       setProjects(p); setWeek(s);
+      if (me?.role) cacheRole(me.role);
       if (me?.dailyTargetMinutes != null) setDayTarget(me.dailyTargetMinutes * 60);
       if (me?.weeklyTargetMinutes != null) setWeekTarget(me.weeklyTargetMinutes * 60);
+      // Refresh the capture policy here too, not only after a session registers.
+      // Previously the only refresh lived in registerSession(), so a change an
+      // admin made (blur, capture frequency) did not reach this client until the
+      // session AFTER next — and never at all for someone who stopped tracking.
+      api<{ screenshotsPerBlock: number; blurScreenshots: boolean; idleTimeoutMinutes: number }>("/orgs/settings")
+        .then(cacheOrgSettings)
+        .catch(() => { /* offline — the cached policy stands */ });
       setLastUpdated(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
       if (p[0] && !projectId) setProjectId(p[0].id);
       // Resume a genuinely-open session (e.g. after a crash) — but never when we
@@ -1945,6 +1981,9 @@ function ActivityPage() {
   // no waiting for a block boundary or upload.
   const [localShots, setLocalShots] = useState<{ takenAt: string; monitorIndex: number; dataUrl: string; status?: ShotStatus }[]>([]);
   const [lightbox, setLightbox] = useState<string | null>(null); // full-size image src
+  // Re-read per render rather than captured once: load() refreshes the cached
+  // policy, so an admin turning blur on takes effect here without a restart.
+  const localsViewable = canViewOwnCaptures();
 
   const reduce = useReducedMotion();
 
@@ -2045,12 +2084,22 @@ function ActivityPage() {
 
           {localShots.length > 0 && (
             <div className="shot-block">
-              <div className="shot-block-head"><span className="shot-block-time">On this device</span><span className="muted small">{localShots.length} recent · not yet uploaded shown here too</span></div>
+              <div className="shot-block-head">
+                <span className="shot-block-time">On this device</span>
+                <span className="muted small">
+                  {localShots.length} recent · not yet uploaded shown here too
+                  {!localsViewable && " · hidden while your organisation has blur on"}
+                </span>
+              </div>
               <div className="shot-grid" style={gridStyle}>
                 {localShots.map((s, i) => (
-                  <div className="shot" key={`local-${i}`} onClick={() => setLightbox(s.dataUrl)}>
+                  // Only clickable when the image is actually shown — opening a
+                  // lightbox onto a withheld capture would defeat the point.
+                  <div className="shot" key={`local-${i}`} onClick={() => localsViewable && setLightbox(s.dataUrl)}>
                     <UploadTag status={s.status} />
-                    <img src={s.dataUrl} alt="" loading="lazy" decoding="async" />
+                    {localsViewable
+                      ? <img src={s.dataUrl} alt="" loading="lazy" decoding="async" />
+                      : <div className="shot-empty">Hidden — blur is on</div>}
                     <div className="shot-foot"><span>{fmtT(s.takenAt)}</span><span className="muted small">mon {s.monitorIndex + 1}</span></div>
                   </div>
                 ))}

@@ -163,7 +163,9 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
     const rows = await prisma.screenshot.findMany({
       where,
       include: {
-        session: { select: { id: true, user: { select: { email: true } }, project: { select: { name: true } } } },
+        session: {
+          select: { id: true, userId: true, user: { select: { email: true } }, project: { select: { name: true } } },
+        },
         activityBlock: { select: { activityPct: true } },
       },
       orderBy: [{ takenAt: "desc" }, { id: "desc" }],
@@ -173,30 +175,60 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
     const hasMore = rows.length > q.limit;
     const shots = hasMore ? rows.slice(0, q.limit) : rows;
 
-    // Only admins get a viewable URL.
+    // Who gets a presigned URL — i.e. who can actually see the image.
     //
-    // Enforced here rather than in the UI because a presigned URL IS the image:
-    // once it is in the payload, a CSS blur or a hidden button is decoration —
-    // the recipient can read it straight out of the network tab and open it. So
-    // staff are simply never handed one.
+    // Blur is a POLICY FLAG, not a pixel operation: the desktop client uploads
+    // the raw capture and merely tags it (see upload_shot in sync.rs), and the
+    // blur is CSS in the browser. A presigned URL therefore IS the image — hand
+    // one over and the recipient can pull the unblurred original straight out of
+    // the network tab, whatever the UI draws on top.
     //
-    // The rows themselves are still returned. Someone is entitled to know that a
-    // screenshot of their screen exists, when it was taken and against which
-    // project; withholding the list as well would make the capture covert, which
-    // is the one thing this product does not do.
+    // That is exactly why the rule is tied to the org's blur setting:
+    //   • blur ON  → no URL for staff. A CSS blur would be decoration, so the
+    //                only honest way to honour the setting is to withhold it.
+    //   • blur OFF → staff see their OWN captures, immediately. There is nothing
+    //                left to protect, and hiding someone's own screen from them
+    //                contradicts the product's own promise that "the person
+    //                tracked sees their own captures in the same gallery their
+    //                admin does".
+    //
+    // Read from the current org setting rather than the per-row `blurred` tag so
+    // switching the toggle off reveals existing captures at once, which is the
+    // behaviour an admin flipping it expects.
+    const org = await prisma.organization.findUnique({
+      where: { id: req.user.orgId },
+      select: { blurScreenshots: true },
+    });
+    const blurOn = org?.blurScreenshots ?? false;
+
+    // The rows themselves are always returned, viewable or not. Someone is
+    // entitled to know that a screenshot of their screen exists, when it was
+    // taken and against which project; withholding the list as well would make
+    // the capture covert, which is the one thing this product does not do.
     const items = await Promise.all(
-      shots.map(async (s) => ({
-        id: s.id,
-        takenAt: s.takenAt,
-        monitorIndex: s.monitorIndex,
-        blurred: s.blurred,
-        activityPct: s.activityBlock.activityPct,
-        member: s.session.user?.email ?? DELETED_USER_LABEL,
-        project: s.session.project.name,
-        url: privileged && r2Configured ? await presignGet(s.r2Key) : null,
-        /** False for staff: the image is withheld, not merely obscured. */
-        viewable: privileged,
-      }))
+      shots.map(async (s) => {
+        // Ownership is re-checked per row rather than inferred from the query's
+        // self-only scoping. Defence in depth on a privacy-critical path: if a
+        // future change ever widens that filter, this does not silently start
+        // handing staff other people's captures.
+        const ownsIt = s.session.userId != null && s.session.userId === req.user.userId;
+        const canSee = privileged || (!blurOn && ownsIt);
+        return {
+          id: s.id,
+          takenAt: s.takenAt,
+          monitorIndex: s.monitorIndex,
+          // Reflects current policy, not the tag recorded at capture time — with
+          // blur off there is no reason to draw a blur over an image the viewer
+          // is already entitled to see in full.
+          blurred: blurOn && s.blurred,
+          activityPct: s.activityBlock.activityPct,
+          member: s.session.user?.email ?? DELETED_USER_LABEL,
+          project: s.session.project.name,
+          url: canSee && r2Configured ? await presignGet(s.r2Key) : null,
+          /** False means the image is withheld, not merely obscured. */
+          viewable: canSee,
+        };
+      })
     );
 
     const last = shots[shots.length - 1];

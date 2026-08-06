@@ -381,7 +381,7 @@ export default function SettingsPage() {
         <SettingsPanel title="Privacy">
           <SettingsRow
             label="Blur screenshots"
-            hint="Apply a privacy blur to every capture. Admins can still toggle blur off per screenshot."
+            hint="Blurs captures in the dashboard, and hides them from the member they belong to. Turn it off and members can see their own screenshots immediately. Note this affects display only — the stored image is never altered, and admins always see it in full."
           >
             <Toggle
               label="Blur screenshots"

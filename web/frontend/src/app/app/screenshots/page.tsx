@@ -31,23 +31,31 @@ interface Shot {
   member: string;
   project: string;
   url: string | null;
-  /** Admins only. Staff are sent the row but never the image. */
+  /**
+   * Whether the server sent an actual image. Admins always. Staff get their own
+   * captures too, unless the org has blur switched on — blur is a policy flag
+   * rather than a pixel operation, so honouring it means withholding the URL
+   * outright (a presigned URL is the unblurred original).
+   */
   viewable: boolean;
 }
 
 /**
- * Staff see that a capture happened — time, project, activity — but not the
- * picture. The server withholds the URL entirely, so this is a truthful
- * placeholder rather than a blur over data the browser already holds.
+ * Shown where an image is withheld rather than merely obscured.
+ *
+ * The label has to name the real reason. A member only ever lists their own
+ * captures, so if one is locked for them it is because the org has blur turned
+ * on — not because of their role. Saying "Admin only" there was simply untrue,
+ * and it hid the fact that an admin can lift it with one setting.
  */
-function LockedTile({ className = "" }: { className?: string }) {
+function LockedTile({ className = "", reason = "Admin only" }: { className?: string; reason?: string }) {
   return (
     <div className={`flex h-full w-full flex-col items-center justify-center gap-1 bg-canvas ${className}`}>
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-faint">
         <rect x="3" y="7" width="10" height="6.5" rx="1.5" />
         <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
       </svg>
-      <span className="text-[9px] font-medium text-faint">Admin only</span>
+      <span className="text-[9px] font-medium text-faint text-center leading-tight">{reason}</span>
     </div>
   );
 }
@@ -210,7 +218,7 @@ export default function ScreenshotsPage() {
                       ) : s.viewable ? (
                         <div className="flex h-full items-center justify-center text-xs text-faint">No image</div>
                       ) : (
-                        <LockedTile />
+                        <LockedTile reason={isAdmin ? "Admin only" : "Hidden — blur is on"} />
                       )}
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 opacity-0 group-hover:opacity-100 transition">
                         <ActivityBar pct={Math.round(s.activityPct)} />
@@ -264,7 +272,7 @@ export default function ScreenshotsPage() {
                             ) : s.viewable ? (
                               <div className="flex h-full items-center justify-center text-[9px] text-faint">N/A</div>
                             ) : (
-                              <LockedTile />
+                              <LockedTile reason={isAdmin ? "Admin only" : "Hidden — blur is on"} />
                             )}
                           </button>
                         </td>

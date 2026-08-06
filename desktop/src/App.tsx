@@ -47,8 +47,12 @@ interface ReminderPrefs {
   timer: boolean;
   /** OS notification when syncing to the backend starts failing / recovers. */
   sync: boolean;
+  /** OS notification when a new version is available. On by default — the app
+   *  lives in the tray, so without this an update is only ever discovered by
+   *  opening the window. */
+  updates: boolean;
 }
-const REMINDER_DEFAULTS: ReminderPrefs = { idle: true, notTracking: false, screenshots: true, timer: true, sync: true };
+const REMINDER_DEFAULTS: ReminderPrefs = { idle: true, notTracking: false, screenshots: true, timer: true, sync: true, updates: true };
 function loadReminders(): ReminderPrefs {
   try { return { ...REMINDER_DEFAULTS, ...JSON.parse(localStorage.getItem("trax_reminders") || "{}") }; }
   catch { return { ...REMINDER_DEFAULTS }; }
@@ -257,12 +261,31 @@ function skipVersion(v: string) {
   } catch { /* storage unavailable — worst case we offer it again */ }
 }
 
-let updateCheckStarted = false;
+// How often to re-check for a new release while the app is running. This is a
+// tray app that stays open for days at a time, so a one-shot check at launch
+// meant a release published after startup went unnoticed until the next
+// restart — which for some users is never.
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+// Process-lifetime timer, deliberately never cleared: the check should keep
+// running for as long as the app does. Also acts as the "already scheduled"
+// guard, replacing a plain boolean that React 18 StrictMode's double-invoke
+// could otherwise leave set with no interval actually running.
+let updateTimer: ReturnType<typeof setInterval> | null = null;
+// Versions we've already raised an OS notification for, so a repeating check
+// doesn't re-notify about the same release every 6 hours.
+const notifiedVersions = new Set<string>();
+
 function useUpdateCheck(onFound: (u: PendingUpdate) => void) {
+  // The interval outlives any given render, so it reads the callback through a
+  // ref rather than capturing a stale one from the first closure.
+  const cb = useRef(onFound);
+  cb.current = onFound;
+
   useEffect(() => {
-    if (updateCheckStarted) return;
-    updateCheckStarted = true;
-    (async () => {
+    if (updateTimer !== null) return;
+
+    const runCheck = async () => {
       const current = await getAppVersion();
       try {
         const { check } = await import("@tauri-apps/plugin-updater");
@@ -280,10 +303,18 @@ function useUpdateCheck(onFound: (u: PendingUpdate) => void) {
         // Ask rather than install silently. An unannounced restart mid-session is
         // alarming, and users deserve to see what changed before it happens.
         console.info(`[updater] ${next} available (running ${current})`);
-        // The prompt below is an in-app dialog — invisible if the window is
-        // minimised to the tray, which is where the tracker usually lives.
-        notify("TraxStaff", `Version ${next} is available (you're on ${current})`);
-        onFound({
+        // The in-app dialog below is invisible when the window is minimised to
+        // the tray, which is where the tracker usually lives — so the OS
+        // notification is the part that actually reaches the user. Raised once
+        // per version, and read from storage each time so toggling the pref
+        // takes effect without a restart.
+        if (!notifiedVersions.has(next)) {
+          notifiedVersions.add(next);
+          if (loadReminders().updates) {
+            notify("TraxStaff", `Version ${next} is available — you're on ${current}. Open TraxStaff to install it.`);
+          }
+        }
+        cb.current({
           version: next,
           current,
           notes: update.body?.trim() || "",
@@ -293,11 +324,13 @@ function useUpdateCheck(onFound: (u: PendingUpdate) => void) {
             await relaunch();
           },
         });
-        return;
       } catch (e) {
         console.warn("[updater] check failed:", e);
       }
-    })();
+    };
+
+    void runCheck();
+    updateTimer = setInterval(() => { void runCheck(); }, UPDATE_CHECK_INTERVAL_MS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }
@@ -1322,6 +1355,10 @@ function TrackingWidget(props: {
               <label className="foot-toggle">
                 <input type="checkbox" checked={reminders.sync} onChange={(e) => onUpdateReminders({ sync: e.target.checked })} />
                 <span>Notify me about sync / connection problems</span>
+              </label>
+              <label className="foot-toggle">
+                <input type="checkbox" checked={reminders.updates} onChange={(e) => onUpdateReminders({ updates: e.target.checked })} />
+                <span>Notify me when an update is available</span>
               </label>
             </div>
           )}

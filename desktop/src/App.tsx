@@ -10,11 +10,13 @@ import { Select } from "./Select";
 import { useInfiniteList } from "./useInfinite";
 import {
   api,
+  ApiError,
   API_BASE,
   clearToken,
   getToken,
   setToken,
   CONSENT_VERSION,
+  UNAUTHORIZED_EVENT,
   type Me,
   type Project,
   type Session,
@@ -125,6 +127,27 @@ function saveLocalSessions(list: Session[]) {
 function clearLocalSessionsCache() {
   try { localStorage.removeItem(LOCAL_SESSIONS_KEY); } catch { /* ignore */ }
 }
+// Sessions this device has finished but the server may still think are open,
+// because our token was rejected before we could post the stop.
+//
+// Persisted rather than kept only in the in-memory `stoppedIds` set, which dies
+// with the component when a rejected token drops us to the login screen. Without
+// it the next sign-in sees a still-open row, treats it as a crash to recover
+// from, and silently resumes this morning's clock — counting every signed-out
+// hour as tracked. Capped because it only has to outlive a re-login.
+const STOPPED_IDS_KEY = "trax_stopped_ids";
+function loadStoppedIds(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(STOPPED_IDS_KEY) || "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch { return []; }
+}
+function rememberStoppedId(id: string) {
+  try {
+    const next = [...new Set([...loadStoppedIds(), id])].slice(-20);
+    localStorage.setItem(STOPPED_IDS_KEY, JSON.stringify(next));
+  } catch { /* ignore */ }
+}
 // Merge server + local sessions, de-duplicated by id (client & server share the
 // id, so a synced session is never counted twice). Prefer whichever copy is
 // marked ended: a stale still-open server row must not override a locally-closed
@@ -200,14 +223,41 @@ type DashTab = "dashboard" | "timesheets" | "activity" | "reports" | "projects";
 
 export default function App() {
   const [authed, setAuthed] = useState(Boolean(getToken()));
+  // Set when we were signed out *for* the user rather than by them, so the login
+  // screen can explain itself instead of just appearing.
+  const [signedOutReason, setSignedOutReason] = useState<string | null>(null);
   const [pendingUpdate, setPendingUpdate] = useState<PendingUpdate | null>(null);
   useUpdateCheck(setPendingUpdate);
+
+  // The server rejected our token (expired, or signed with a key that has since
+  // changed). api() has already cleared it; drop to the login screen rather than
+  // leaving a signed-in-looking tracker that can't load anything. Also clear the
+  // sync engine's copy so it stops retrying uploads with a credential the server
+  // will never accept — it treats 401 as retryable and would loop forever.
+  useEffect(() => {
+    const onUnauthorized = (e: Event) => {
+      pushSyncAuth();
+      const detail = (e as CustomEvent<{ message?: string }>).detail;
+      setSignedOutReason(detail?.message ?? "Please sign in again.");
+      setAuthed(false);
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
+
   return (
     <>
       {pendingUpdate && (
         <UpdateDialog update={pendingUpdate} onDismiss={() => setPendingUpdate(null)} />
       )}
-      {!authed ? <Login onLogin={() => setAuthed(true)} /> : <ConsentGate onLogout={() => setAuthed(false)} />}
+      {!authed ? (
+        <Login
+          notice={signedOutReason}
+          onLogin={() => { setSignedOutReason(null); setAuthed(true); }}
+        />
+      ) : (
+        <ConsentGate onLogout={() => setAuthed(false)} />
+      )}
     </>
   );
 }
@@ -223,9 +273,19 @@ function ConsentGate({ onLogout }: { onLogout: () => void }) {
     // gallery as soon as it mounts.
     pushSyncAuth()
       .then(() => api<Me>("/auth/me"))
-      .then((me) => setState(me.consentVersion != null && me.consentVersion >= CONSENT_VERSION ? "ok" : "needed"))
-      // Offline: if we've accepted before on this device, don't block; else ask.
-      .catch(() => setState(localStorage.getItem("trax_consent_v") === String(CONSENT_VERSION) ? "ok" : "needed"));
+      .then((me) => {
+        if (me.token) { setToken(me.token); pushSyncAuth(); } // sliding renewal
+        setState(me.consentVersion != null && me.consentVersion >= CONSENT_VERSION ? "ok" : "needed");
+      })
+      .catch((e) => {
+        // A rejected token is not "offline" — reading it that way is what let a
+        // dead session fall through this gate into a tracker that could never
+        // load a project. App has already been told to show the login screen;
+        // stay in "checking" so we don't render the tracker on the way out.
+        if (e instanceof ApiError && e.status === 401) return;
+        // Genuinely offline: if we've accepted before on this device, don't block; else ask.
+        setState(localStorage.getItem("trax_consent_v") === String(CONSENT_VERSION) ? "ok" : "needed");
+      });
   }, []);
 
   function signOut() {
@@ -510,7 +570,7 @@ function EyeOffIcon() {
   );
 }
 
-function Login({ onLogin }: { onLogin: () => void }) {
+function Login({ onLogin, notice }: { onLogin: () => void; notice?: string | null }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -539,7 +599,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
       <div className="login-card">
         <img src="/brand/icon-badge.svg" alt="TraxStaff" className="login-badge" />
         <h1 className="login-title">Welcome back</h1>
-        <p className="login-sub">Sign in to start tracking.</p>
+        <p className="login-sub">{notice ?? "Sign in to start tracking."}</p>
         <form onSubmit={submit} className="stack">
           <input type="email" placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
           <div className="pw-wrap">
@@ -618,7 +678,9 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const registerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Ids we've stopped locally — so a `load()` that races the stop POST doesn't
   // re-adopt the just-stopped session and restart the timer with no capture.
-  const stoppedIds = useRef<Set<string>>(new Set());
+  // Seeded from disk so a session we closed on the way out of a rejected-token
+  // sign-out is still recognised as stopped after the user signs back in.
+  const stoppedIds = useRef<Set<string>>(new Set(loadStoppedIds()));
   const reminders = useRef<ReminderPrefs>(loadReminders());
   // Alerts we've already raised at OS level, so a health/sync event that repeats
   // every tick notifies once per transition instead of once per second.
@@ -631,6 +693,31 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   // Auto-resolve unanswered idle prompts to "Keep" after 60 minutes (matching Hubstaff
   // crash-recovery timeout). Cleared when the user responds to avoid late fires.
   const idlePromptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Our token was rejected, so this component is about to be replaced by the
+  // login screen. Two things must happen first, and neither can wait for a
+  // render: the time already on the clock has to be banked, and the native
+  // capture engine has to stop — otherwise it keeps screenshotting for someone
+  // the app has just signed out.
+  //
+  // Written straight to localStorage rather than through preserveOnExit(): that
+  // one banks the session inside a setLocalSessions updater, and React may never
+  // run an updater on a component that is unmounting, which would silently throw
+  // away the tracked time.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      const cur = activeRef.current;
+      if (!cur) return;
+      stoppedIds.current.add(cur.id);
+      rememberStoppedId(cur.id);
+      const finished: Session = { ...cur, endedAt: new Date().toISOString() };
+      saveLocalSessions(mergeSessions([], [...loadLocalSessions(), finished]));
+      invoke("end_capture").catch(() => {});
+      invoke("set_tracking_indicator", { active: false }).catch(() => {});
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
 
   // "Not tracking" reminder: within work hours (Mon–Fri 9–17 local), if the app
   // is open but no timer is running, nudge once an hour.
@@ -870,6 +957,11 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         api<Me>("/auth/me").catch(() => null),
       ]);
       setProjects(p); setWeek(s);
+      // Sliding renewal: the server hands back a fresh token once the current
+      // one is over halfway through its life, so an app left running in the tray
+      // never reaches the 7-day expiry. Push it to the sync engine too, or the
+      // queue keeps draining with the older (eventually dead) credential.
+      if (me?.token) { setToken(me.token); pushSyncAuth(); }
       if (me?.role) cacheRole(me.role);
       if (me?.dailyTargetMinutes != null) setDayTarget(me.dailyTargetMinutes * 60);
       if (me?.weeklyTargetMinutes != null) setWeekTarget(me.weeklyTargetMinutes * 60);

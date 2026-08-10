@@ -2068,7 +2068,7 @@ function ActivityPage() {
 
   const [apps, setApps] = useState<{ appName: string; seconds: number }[]>([]);
   const [urls, setUrls] = useState<{ domain: string; seconds: number }[]>([]);
-  const [summary, setSummary] = useState<{ totalSeconds: number; avgActivityPct: number | null } | null>(null);
+  const [summary, setSummary] = useState<{ totalSeconds: number; avgActivityPct: number | null; trackedSeconds?: number; discardedSeconds?: number } | null>(null);
   // Screenshots captured on THIS device, shown instantly from the local cache —
   // no waiting for a block boundary or upload.
   const [localShots, setLocalShots] = useState<{ takenAt: string; monitorIndex: number; dataUrl: string; status?: ShotStatus }[]>([]);
@@ -2147,7 +2147,20 @@ function ActivityPage() {
       {sub === "screenshots" && (
         <>
           <div className="act-bench">
-            <div><div className="dc-label">Worked time</div><div className="act-bench-val">{summary ? fmtShort(summary.totalSeconds) : "—"}</div></div>
+            {/* "Worked time" and the timer's "Tracked today" are not the same
+                quantity, and side by side with no explanation they read as the
+                same number disagreeing with itself. Worked time is the clock
+                MINUS idle you discarded, so it is legitimately smaller — say so
+                inline, with the arithmetic, instead of leaving people to guess. */}
+            <div>
+              <div className="dc-label">Worked time</div>
+              <div className="act-bench-val">{summary ? fmtShort(summary.totalSeconds) : "—"}</div>
+              {summary && summary.discardedSeconds != null && summary.discardedSeconds > 0 && (
+                <div className="dc-label act-bench-sub">
+                  {fmtShort(summary.trackedSeconds ?? 0)} tracked − {fmtShort(summary.discardedSeconds)} idle removed
+                </div>
+              )}
+            </div>
             <div><div className="dc-label">Avg. activity</div><div className="act-bench-val">{summary?.avgActivityPct != null ? `${summary.avgActivityPct}%` : "—"}</div></div>
             <div className="act-toggle">
               <SubTabs tabs={[{ id: "ten", label: "Every 10 min" }, { id: "all", label: "All screenshots" }]} value={freq} onChange={setFreq} />

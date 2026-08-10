@@ -319,13 +319,23 @@ export default async function reportRoutes(fastify: FastifyInstance) {
   fastify.get("/reports/summary", async (req, reply) => {
     const sessions = await loadSessions(req);
     let totalSeconds = 0;
+    let trackedSeconds = 0;
+    let discardedSeconds = 0;
     const blocks: WeightedBlock[] = [];
     for (const s of sessions) {
       totalSeconds += workedSeconds(s);
+      // Gross clock and the idle taken off it, reported alongside the net so a
+      // client can show why "worked" is smaller than the time on the timer.
+      // Without these the two numbers look like synonyms that disagree, and the
+      // only way to reconcile them was to read this file.
+      trackedSeconds += seconds(s.startedAt, s.endedAt);
+      discardedSeconds += s.idleDiscards.reduce((sum, d) => sum + d.seconds, 0);
       blocks.push(...s.activityBlocks);
     }
     return reply.send({
       totalSeconds: Math.round(totalSeconds),
+      trackedSeconds: Math.round(trackedSeconds),
+      discardedSeconds: Math.round(discardedSeconds),
       avgActivityPct: weightedActivity(blocks),
       // Measured directly rather than left for the client to derive as
       // `totalSeconds * avgActivityPct`. That derivation is wrong — see

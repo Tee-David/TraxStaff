@@ -7,6 +7,8 @@ export interface AuthUser {
   name?: string | null;
   role: "owner" | "admin" | "member";
   orgId?: string;
+  /** Present only when /auth/me rolled the token forward (sliding renewal). */
+  token?: string;
 }
 
 const TOKEN_KEY = "trax_token";
@@ -52,6 +54,19 @@ export async function api<T = unknown>(
       message = body.error ?? message;
     } catch {
       /* ignore */
+    }
+    // The token we sent was rejected — it's expired or no longer valid. Drop it
+    // and send the user to sign in, rather than leaving a signed-in-looking page
+    // whose every request fails. Guarded on `token`: a failed /auth/login is a
+    // 401 too, and that one has to stay put and say "invalid credentials".
+    if (res.status === 401 && token) {
+      clearToken();
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+        // Carry `next` the same way middleware.ts does, so signing back in
+        // returns to the page they were on rather than the dashboard root.
+        const next = encodeURIComponent(window.location.pathname);
+        window.location.href = `/login?next=${next}`;
+      }
     }
     throw new ApiError(res.status, message);
   }

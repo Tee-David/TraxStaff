@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, clearToken, getToken, type AuthUser } from "./api";
+import { api, clearToken, getToken, setToken, type AuthUser } from "./api";
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -31,6 +31,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       const me = await api<AuthUser>("/auth/me");
+      // Sliding renewal — the server hands back a fresh token once the current
+      // one is past halfway through its life, so an open tab doesn't get logged
+      // out mid-week. Refreshes the cookie's 7-day max-age at the same time.
+      if (me.token) setToken(me.token);
       setUser(me);
     } catch {
       clearToken();

@@ -10,6 +10,36 @@ import { env } from "../env";
 // Tokens must expire. Without a TTL a copied token stays valid forever, and
 // disabling a member has no effect on any session they already hold.
 const TOKEN_TTL = "7d";
+const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * How much life a token has left before GET /auth/me hands back a fresh one.
+ *
+ * A hard 7-day expiry with no renewal logged people out mid-week. The desktop
+ * app lives in the tray and treats "I have a token" as "I am signed in", so an
+ * expired one left it stuck showing a bare "Unauthorized" and an empty project
+ * list, with no prompt to sign in again — the bug this constant exists to end.
+ *
+ * This does NOT weaken why tokens expire. Renewal is reachable only from
+ * /auth/me and only *below* its status check, so a disabled or removed member
+ * is refused and their token simply runs out. A client that stops calling in
+ * still expires on the original 7-day clock. If anything it tightens things:
+ * today's token is unrevokable for its full life no matter what happens to the
+ * account, whereas a renewing client re-checks its standing every time.
+ */
+const TOKEN_RENEW_AFTER_MS = TOKEN_TTL_MS / 2;
+
+/**
+ * Whether a verified token is far enough through its life to be replaced.
+ *
+ * `exp` is the standard JWT claim, in SECONDS. A token with no `exp` is never
+ * renewed — we can't tell how much life it has, and minting a fresh 7-day token
+ * off an unbounded one would be the one way this could genuinely weaken expiry.
+ */
+export function shouldRenewToken(exp: number | undefined, now: number = Date.now()): boolean {
+  if (exp == null || !Number.isFinite(exp)) return false;
+  return exp * 1000 - now < TOKEN_RENEW_AFTER_MS;
+}
 
 const registerSchema = z.object({
   orgName: z.string().min(1),
@@ -276,7 +306,22 @@ export default async function authRoutes(fastify: FastifyInstance) {
     if (user.status !== "active") {
       return reply.code(401).send({ error: "Account disabled" });
     }
+
+    // Sliding renewal — see TOKEN_RENEW_AFTER_MS. Signed from the database row
+    // rather than the presented payload, so a role change takes effect on the
+    // next renewal instead of staying frozen for the rest of the token's life.
+    // Returned only when there's actually a new token, so clients don't rewrite
+    // their stored credential on every poll; clients that don't know the field
+    // ignore it and keep working.
+    const renewedToken = shouldRenewToken(req.user.exp)
+      ? fastify.jwt.sign(
+          { userId: user.id, orgId: user.orgId, role: user.role },
+          { expiresIn: TOKEN_TTL }
+        )
+      : null;
+
     return reply.send({
+      ...(renewedToken ? { token: renewedToken } : {}),
       id: user.id,
       email: user.email,
       name: user.name,

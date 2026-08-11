@@ -42,6 +42,19 @@ function initials(email: string) {
   return email.substring(0, 2).toUpperCase();
 }
 
+/** Short display name for an email-ish label. "Deleted user" has no @, so this
+ *  leaves it alone rather than producing an empty string. */
+function shortName(email: string) {
+  return email.split("@")[0] || email;
+}
+
+/** Who a flag belongs to. Flags are org-scoped through the session's project, so
+ *  one outlives the member who earned it: a hard-deleted owner leaves the
+ *  session with no user at all. */
+function flagOwner(f: UnusualFlag) {
+  return shortName(f.session.user?.email ?? "Deleted user");
+}
+
 function Avatar({ email, online, size = 8 }: { email: string; online?: boolean; size?: number }) {
   const colors = ["bg-blue-700", "bg-orange-600", "bg-teal-600", "bg-violet-600", "bg-rose-600"];
   let h = 0;
@@ -210,12 +223,12 @@ export default function InsightsPage() {
                   const barPct = (r.totalSeconds / maxSecs) * 100;
                   const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
                   return (
-                    <div key={r.userId} className="group rounded-xl px-3 py-2.5 hover:bg-canvas transition">
+                    <div key={r.userId ?? r.email} className="group rounded-xl px-3 py-2.5 hover:bg-canvas transition">
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2.5">
                           <span className="text-[13px] w-5 text-center">{medal ?? <span className="text-[11px] font-semibold text-faint">{i + 1}</span>}</span>
                           <Avatar email={r.email} size={7} />
-                          <span className="text-sm font-medium truncate max-w-[120px]">{r.email.split("@")[0]}</span>
+                          <span className="text-sm font-medium truncate max-w-[120px]">{shortName(r.email)}</span>
                         </div>
                         <div className="text-right shrink-0">
                           <span className="text-sm font-semibold">{formatDurationShort(r.totalSeconds)}</span>
@@ -336,7 +349,7 @@ export default function InsightsPage() {
                 <div className="h-52">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
-                      data={board.slice(0, 10).map((r) => ({ name: r.email.split("@")[0], pct: r.avgActivityPct }))}
+                      data={board.slice(0, 10).map((r) => ({ name: shortName(r.email), pct: r.avgActivityPct }))}
                       margin={{ top: 4, right: 4, bottom: 24, left: -20 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
@@ -395,7 +408,7 @@ export default function InsightsPage() {
                             {FLAG_LABELS[f.type] ?? f.type}
                           </Badge>
                         </div>
-                        <div className="text-[12px] text-ink font-medium truncate">{f.session.user.email.split("@")[0]}</div>
+                        <div className="text-[12px] text-ink font-medium truncate">{flagOwner(f)}</div>
                         <div className="text-[11px] text-muted">{f.session.project.name} · {new Date(f.detectedAt).toLocaleDateString()}</div>
                       </div>
                       <div className="shrink-0 pt-0.5">

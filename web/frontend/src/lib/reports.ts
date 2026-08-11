@@ -35,7 +35,9 @@ export interface PresenceRow {
 }
 
 export interface LeaderRow {
-  userId: string;
+  /** Null for the row that collects work whose owner was hard-deleted — the
+   *  hours stay in the org's totals, so the row has an email label but no id. */
+  userId: string | null;
   email: string;
   totalSeconds: number;
   avgActivityPct: number;
@@ -50,7 +52,12 @@ export interface UnusualFlag {
   session: {
     id: string;
     startedAt: string;
-    user: { id: string; email: string };
+    /** A flag is org-scoped through its session's project, so it outlives the
+     *  member who earned it: once the owner is hard-deleted there is no user to
+     *  read an email off. The API substitutes a "Deleted user" label, but this
+     *  stays nullable so a caller can't dereference it blind — doing exactly
+     *  that used to take the whole Insights page down. */
+    user: { id: string | null; email: string } | null;
     project: { name: string };
   };
 }

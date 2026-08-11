@@ -77,7 +77,23 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
       orderBy: { detectedAt: "desc" },
       take: 200,
     });
-    return reply.send(flags);
+    // The org-scope clause deliberately admits flags on orphaned sessions (owner
+    // hard-deleted, reached through the project instead), and those have no user
+    // to read an email off. Normalise the owner to the same "Deleted user" label
+    // the leaderboard and Screenshots already use, rather than handing the client
+    // a null it has to remember to check.
+    return reply.send(
+      flags.map((f) => ({
+        ...f,
+        session: {
+          ...f.session,
+          user: {
+            id: f.session.user?.id ?? null,
+            email: f.session.user?.email ?? DELETED_USER_LABEL,
+          },
+        },
+      }))
+    );
   });
 
   // Leaderboard: rank members by tracked hours and average activity over range.

@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { Session } from "@/lib/types";
+import { sessionEnd } from "@/lib/format";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const HOURS = Array.from({ length: 11 }, (_, i) => 8 + i); // 8:00–18:00
@@ -21,7 +22,9 @@ export function WorkHeatmap({ sessions }: { sessions: Session[] }) {
     const base = startOfWeek().getTime();
     for (const s of sessions) {
       let cur = new Date(s.startedAt);
-      const end = s.endedAt ? new Date(s.endedAt) : new Date();
+      // Bounded by the server's decision, not by `now` — an abandoned session
+      // would otherwise paint every hour since it was left open.
+      const end = sessionEnd(s);
       while (cur < end) {
         const next = new Date(cur);
         next.setMinutes(60, 0, 0);

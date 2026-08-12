@@ -74,3 +74,16 @@ export async function api<T = unknown>(
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
+
+/**
+ * Coerce a list response into an array before it reaches `.map`/`.filter`.
+ *
+ * `api<T[]>()` is a cast, not a check — a 200 whose body isn't an array (an error
+ * envelope, a shape change, a proxy's HTML) sails through the type system and
+ * then throws inside render. Because the dashboard is one client tree with no
+ * error boundary between pages, that throw took every page down at once. An empty
+ * list renders the page's own "nothing here" state instead.
+ */
+export function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}

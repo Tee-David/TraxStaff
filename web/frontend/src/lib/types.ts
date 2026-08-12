@@ -32,16 +32,41 @@ export interface Member {
 
 export interface Session {
   id: string;
-  userId: string;
+  /** null once the owner has been hard-deleted — see `user` below. */
+  userId: string | null;
   projectId: string;
   taskId: string | null;
   startedAt: string;
   endedAt: string | null;
+  /**
+   * Where this session effectively ends, decided server-side (backend
+   * lib/duration.ts). Equal to `endedAt` when closed; for an open session it is
+   * "now" while the device is still heartbeating and the last evidence of life
+   * once it isn't. Read this, never `endedAt ?? now` — see sessionEnd() in
+   * lib/format.ts for why.
+   */
+  effectiveEndAt?: string;
+  /** Bounded wall clock minus idle the member discarded. The canonical duration. */
+  workedSeconds?: number;
+  /** Open, but no longer proving it is alive — i.e. left behind, not running. */
+  abandoned?: boolean;
+  /**
+   * Stretches deducted from this session, with their real spans. Needed to charge a
+   * deduction to the day it happened in rather than spreading it over the session.
+   */
+  idleSpans?: { from: string; to: string; seconds: number }[];
   endReason: "stopped" | "idle_timeout" | "abrupt_exit" | null;
   isManual: boolean;
   manualReason: string | null;
   tamperSuspected: boolean;
   project: { id: string; name: string; clientTag: string | null };
   task: { id: string; title: string } | null;
-  user: { id: string; email: string };
+  /**
+   * null once the owner has been hard-deleted (TrackingSession.userId is
+   * SetNull so their tracked work survives). Today GET /sessions always pins
+   * `where.userId` to a concrete id so an orphan can't come back through it —
+   * but that is one scope change away from being untrue, and the type must not
+   * be the thing that hides it.
+   */
+  user: { id: string; email: string } | null;
 }

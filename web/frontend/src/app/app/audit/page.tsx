@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { api } from "@/lib/api";
+import { api, asArray } from "@/lib/api";
 import { Badge, Card, EmptyState, Input, PageHeader, Skeleton } from "@/components/ui";
 import { Select } from "@/components/Select";
 import {
@@ -67,7 +67,7 @@ export default function AuditLogPage() {
   // offers a filter that returns nothing.
   useEffect(() => {
     api<string[]>("/audit-log/actions")
-      .then(setActions)
+      .then((a) => setActions(asArray<string>(a)))
       .catch(() => setActions([]));
   }, []);
 
@@ -89,8 +89,10 @@ export default function AuditLogPage() {
     setError(null);
     api<{ rows: AuditRow[]; more: boolean }>(`/audit-log?${buildQs()}`)
       .then((r) => {
-        setRows(r.rows);
-        setMore(r.more);
+        // `rows` is mapped over directly below — a 200 that isn't the expected
+        // envelope must render the empty state, not throw during render.
+        setRows(asArray<AuditRow>(r?.rows));
+        setMore(Boolean(r?.more));
       })
       .catch(() => setError("Couldn't load the audit log."))
       .finally(() => setLoading(false));
@@ -106,8 +108,8 @@ export default function AuditLogPage() {
     setLoadingMore(true);
     try {
       const r = await api<{ rows: AuditRow[]; more: boolean }>(`/audit-log?${buildQs(last.createdAt)}`);
-      setRows((s) => [...s, ...r.rows]);
-      setMore(r.more);
+      setRows((s) => [...s, ...asArray<AuditRow>(r?.rows)]);
+      setMore(Boolean(r?.more));
     } catch {
       setError("Couldn't load more.");
     } finally {

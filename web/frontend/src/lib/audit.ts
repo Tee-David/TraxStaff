@@ -35,6 +35,8 @@ const ACTION_LABELS: Record<string, string> = {
   "task.deleted": "Task deleted",
   "screenshot.deleted": "Screenshot deleted",
   "idle.discarded": "Idle time discarded",
+  "idle.kept": "Away time kept",
+  "session.end_corrected": "Session end corrected",
 };
 
 export function actionLabel(action: string): string {
@@ -44,7 +46,16 @@ export function actionLabel(action: string): string {
 /** Destructive actions read red; reversible ones read amber; the rest are quiet. */
 export function actionTone(action: string): "red" | "accent" | "muted" {
   if (action.endsWith(".deleted") || action === "member.removed") return "red";
-  if (action === "member.disabled" || action === "project.archived" || action === "idle.discarded") return "accent";
+  // Amber for anything that adjusts recorded time or access without destroying it.
+  // `session.end_corrected` belongs here rather than in "quiet": it changes hours
+  // somebody may already have been paid for, and should never scroll past unnoticed.
+  if (
+    action === "member.disabled" ||
+    action === "project.archived" ||
+    action === "idle.discarded" ||
+    action === "idle.kept" ||
+    action === "session.end_corrected"
+  ) return "accent";
   return "muted";
 }
 

@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card } from "@/components/ui";
-import { formatDurationShort, sessionSeconds } from "@/lib/format";
+import { formatDurationShort, sessionSeconds, type TimedSession } from "@/lib/format";
 
 export interface WeekdayHours {
   /** "Sun" .. "Sat" */
@@ -17,11 +17,11 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * client-side — no backend change needed. Each session's own weekday (in the
  * viewer's local time) determines its bucket, regardless of which date range
  * was used to fetch the sessions. */
-export function weekdayHoursFromSessions(sessions: { startedAt: string; endedAt: string | null }[]): WeekdayHours[] {
+export function weekdayHoursFromSessions(sessions: TimedSession[]): WeekdayHours[] {
   const secondsByDay = new Array(7).fill(0);
   for (const s of sessions) {
     const day = new Date(s.startedAt).getDay(); // 0=Sun..6=Sat
-    secondsByDay[day] += sessionSeconds(s.startedAt, s.endedAt);
+    secondsByDay[day] += sessionSeconds(s);
   }
   return WEEKDAY_LABELS.map((day, i) => ({ day, hours: secondsByDay[i] / 3600 }));
 }

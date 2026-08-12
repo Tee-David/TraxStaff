@@ -32,9 +32,9 @@ export default function TimesheetsPage() {
     load();
   }, [load]);
 
-  const totalSecs = useMemo(() => sessions.reduce((a, s) => a + sessionSeconds(s.startedAt, s.endedAt), 0), [sessions]);
+  const totalSecs = useMemo(() => sessions.reduce((a, s) => a + sessionSeconds(s), 0), [sessions]);
   const manualSecs = useMemo(
-    () => sessions.filter((s) => s.isManual).reduce((a, s) => a + sessionSeconds(s.startedAt, s.endedAt), 0),
+    () => sessions.filter((s) => s.isManual).reduce((a, s) => a + sessionSeconds(s), 0),
     [sessions]
   );
   const flagged = sessions.filter((s) => s.tamperSuspected).length;
@@ -51,8 +51,8 @@ export default function TimesheetsPage() {
     { key: "time", header: "Work hour", render: (s) => (
       <span className="tnum text-muted">{formatTime(s.startedAt)}{s.endedAt ? ` – ${formatTime(s.endedAt)}` : ""}</span>
     ) },
-    { key: "duration", header: "Duration", sortValue: (s) => sessionSeconds(s.startedAt, s.endedAt), render: (s) => (
-      <span className="tnum font-medium">{formatDurationShort(sessionSeconds(s.startedAt, s.endedAt))}{!s.endedAt && <span className="ml-1 text-xs text-[var(--color-positive)]">live</span>}</span>
+    { key: "duration", header: "Duration", sortValue: (s) => sessionSeconds(s), render: (s) => (
+      <span className="tnum font-medium">{formatDurationShort(sessionSeconds(s))}{!s.endedAt && <span className="ml-1 text-xs text-[var(--color-positive)]">live</span>}</span>
     ) },
     { key: "type", header: "Type", render: (s) => (
       <span className="space-x-1">

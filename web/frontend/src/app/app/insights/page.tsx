@@ -5,11 +5,11 @@ import {
   BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, PieChart, Pie,
 } from "recharts";
-import { api } from "@/lib/api";
-import type { LeaderRow, PresenceRow, UnusualFlag, ByProjectRow, TimesheetDay } from "@/lib/reports";
+import { api, asArray } from "@/lib/api";
+import { DELETED_USER_KEY, type LeaderRow, type PresenceRow, type UnusualFlag, type ByProjectRow, type TimesheetDay } from "@/lib/reports";
 import { Badge, Card, PageHeader, Skeleton, StatTile } from "@/components/ui";
 import { DateRange, FilterBar, rangeToParams, type DateRangeValue } from "@/components/filters";
-import { formatDurationShort } from "@/lib/format";
+import { formatDurationShort, ownerName } from "@/lib/format";
 
 const FLAG_LABELS: Record<string, string> = {
   sustained_high_activity: "Sustained high activity",
@@ -67,6 +67,11 @@ export default function InsightsPage() {
   const [projects, setProjects] = useState<ByProjectRow[]>([]);
   const [timesheet, setTimesheet] = useState<TimesheetDay[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Why the page is empty, when it is. Previously every failure across all five
+   *  endpoints was swallowed and rendered as a page of zeroes, which made a 403
+   *  or a 500 indistinguishable from "a quiet week" — and left a crash as the
+   *  only failure anyone could actually see. */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [range, setRange] = useState<DateRangeValue>({ type: "preset", preset: "week" });
   /** How many flags the list is currently showing — see the More button below. */
   const [flagsShown, setFlagsShown] = useState(FLAGS_PAGE);
@@ -94,13 +99,18 @@ export default function InsightsPage() {
       api<TimesheetDay[]>(`/reports/timesheet?${teamStr}`),
     ])
       .then(([p, f, b, proj, ts]) => {
-        setPresence(p);
-        setFlags(f);
-        setBoard(b);
-        setProjects(proj);
-        setTimesheet(ts.slice(0, 14).reverse());
+        setLoadError(null);
+        // Every one of these is fed straight to `.map`/`.slice` below, and
+        // `api<T[]>` only casts. Coerce rather than trust.
+        setPresence(asArray<PresenceRow>(p));
+        setFlags(asArray<UnusualFlag>(f));
+        setBoard(asArray<LeaderRow>(b));
+        setProjects(asArray<ByProjectRow>(proj));
+        setTimesheet(asArray<TimesheetDay>(ts).slice(0, 14).reverse());
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        setLoadError(e instanceof Error ? e.message : "Couldn't load insights.");
+      })
       .finally(() => setLoading(false));
   }, [range]);
 
@@ -152,6 +162,19 @@ export default function InsightsPage() {
         <StatTile icon="📊" tone="teal" label="Avg activity" value={`${avgActivity}%`} />
         <StatTile icon="🚨" tone={openFlags > 0 ? "accent" : "muted"} label="Open flags" value={String(openFlags)} />
       </div>
+
+      {loadError && !loading && (
+        <Card className="mb-5 p-5">
+          <p className="text-sm font-medium text-ink">Couldn&apos;t load insights</p>
+          <p className="mt-1 text-xs text-muted">{loadError}</p>
+          <button
+            onClick={load}
+            className="mt-3 text-xs font-semibold text-brand hover:underline"
+          >
+            Try again
+          </button>
+        </Card>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
@@ -210,7 +233,9 @@ export default function InsightsPage() {
                   const barPct = (r.totalSeconds / maxSecs) * 100;
                   const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : null;
                   return (
-                    <div key={r.userId} className="group rounded-xl px-3 py-2.5 hover:bg-canvas transition">
+                    // The orphaned-work bucket has no user id — key off the
+                    // grouping key the backend used instead of a null.
+                    <div key={r.userId ?? DELETED_USER_KEY} className="group rounded-xl px-3 py-2.5 hover:bg-canvas transition">
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2.5">
                           <span className="text-[13px] w-5 text-center">{medal ?? <span className="text-[11px] font-semibold text-faint">{i + 1}</span>}</span>
@@ -395,7 +420,11 @@ export default function InsightsPage() {
                             {FLAG_LABELS[f.type] ?? f.type}
                           </Badge>
                         </div>
-                        <div className="text-[12px] text-ink font-medium truncate">{f.session.user.email.split("@")[0]}</div>
+                        {/* A flag hangs off the session, not the member, so it
+                            outlives a hard-deleted owner and arrives here with a
+                            null user. Dereferencing it threw, and with no error
+                            boundary that blanked the whole dashboard. */}
+                        <div className="text-[12px] text-ink font-medium truncate">{ownerName(f.session.user)}</div>
                         <div className="text-[11px] text-muted">{f.session.project.name} · {new Date(f.detectedAt).toLocaleDateString()}</div>
                       </div>
                       <div className="shrink-0 pt-0.5">

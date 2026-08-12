@@ -3,15 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Reorder } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { api } from "@/lib/api";
+import { api, asArray } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Project, Session } from "@/lib/types";
-import type { ReportSummary } from "@/lib/reports";
+import { DELETED_USER_LABEL, type ReportSummary } from "@/lib/reports";
 import { Badge, EmptyState, PageHeader, Section, Skeleton, StatTile } from "@/components/ui";
 import { Donut } from "@/components/Donut";
 import { WorkHeatmap } from "@/components/WorkHeatmap";
 import CountUp from "@/components/CountUp";
-import { formatDurationShort, formatTime, sessionSeconds } from "@/lib/format";
+import { formatDurationShort, formatTime, overlapSeconds, ownerName, sessionEnd, sessionSeconds } from "@/lib/format";
 
 function startOfToday(): Date {
   const d = new Date();
@@ -91,28 +91,46 @@ export default function DashboardPage() {
       api<ReportSummary>(`/reports/summary?from=${startOfToday().toISOString()}`),
     ])
       .then(([p, s, sum]) => {
-        setProjects(p);
-        setWeek(s);
+        // Both feed `.map`/`.reduce` below; `api<T[]>` only casts the type.
+        setProjects(asArray<Project>(p));
+        setWeek(asArray<Session>(s));
         setSummary(sum);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const today = useMemo(() => week.filter((s) => new Date(s.startedAt) >= startOfToday()), [week]);
+  // Windows re-read each render so the day boundary is respected, and membership
+  // is decided by OVERLAP rather than by start instant: a session that began
+  // before midnight still owns time today, and filtering on `startedAt` showed
+  // nothing at all to someone who started their shift the previous evening.
+  const nowMs = Date.now();
+  const dayStartMs = startOfToday().getTime();
+  const weekStartMs = startOfWeek().getTime();
+  const today = useMemo(
+    () => week.filter((s) => overlapSeconds(s, dayStartMs, nowMs) > 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [week, dayStartMs]
+  );
   const activeProjects = projects.filter((p) => !p.archivedAt).length;
   const ongoingTasks = projects.reduce((a, p) => a + (p.tasks?.filter((t) => t.status !== "done").length ?? 0), 0);
   const completedTasks = projects.reduce((a, p) => a + (p.tasks?.filter((t) => t.status === "done").length ?? 0), 0);
-  const workedWeek = week.reduce((a, s) => a + sessionSeconds(s.startedAt, s.endedAt), 0);
-  const workedToday = today.reduce((a, s) => a + sessionSeconds(s.startedAt, s.endedAt), 0);
-  const running = today.find((s) => !s.endedAt);
+  // By overlap, not whole sessions: /sessions now returns anything that overlaps
+  // the requested window, so a session that started last week would otherwise add
+  // its pre-week hours to this week's total.
+  const workedWeek = week.reduce((a, s) => a + overlapSeconds(s, weekStartMs, nowMs), 0);
+  const workedToday = today.reduce((a, s) => a + overlapSeconds(s, dayStartMs, nowMs), 0);
+  // "Running" means still tracking, which an open row alone does not prove: a
+  // session abandoned by a crash stays open forever and used to be reported here
+  // as live. The server marks those `abandoned`.
+  const running = today.find((s) => !s.endedAt && !s.abandoned);
   const firstStart = today.length ? today[today.length - 1].startedAt : null;
 
   const hourly = useMemo(() => {
     const mins = new Array(24).fill(0);
     for (const s of today) {
       let cur = new Date(s.startedAt);
-      const end = s.endedAt ? new Date(s.endedAt) : new Date();
+      const end = sessionEnd(s);
       while (cur < end) {
         const next = new Date(cur);
         next.setMinutes(60, 0, 0);
@@ -127,21 +145,23 @@ export default function DashboardPage() {
     const by = new Map<string, { name: string; secs: number }>();
     for (const s of today) {
       const e = by.get(s.projectId) ?? { name: s.project.name, secs: 0 };
-      e.secs += sessionSeconds(s.startedAt, s.endedAt);
+      e.secs += overlapSeconds(s, dayStartMs, nowMs);
       by.set(s.projectId, e);
     }
     return [...by.values()].sort((a, b) => b.secs - a.secs).slice(0, 4);
-  }, [today]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [today, dayStartMs]);
 
   const topWeek = useMemo(() => {
     const by = new Map<string, { name: string; secs: number }>();
     for (const s of week) {
       const e = by.get(s.projectId) ?? { name: s.project.name, secs: 0 };
-      e.secs += sessionSeconds(s.startedAt, s.endedAt);
+      e.secs += overlapSeconds(s, weekStartMs, nowMs);
       by.set(s.projectId, e);
     }
     return [...by.values()].sort((a, b) => b.secs - a.secs).slice(0, 5);
-  }, [week]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [week, weekStartMs]);
 
   const daysActive = useMemo(() => new Set(week.map((s) => new Date(s.startedAt).toDateString())).size, [week]);
   const weekGoalPct = Math.min(100, Math.round((workedWeek / WEEK_TARGET_SECONDS) * 100));
@@ -156,10 +176,13 @@ export default function DashboardPage() {
     return today
       .map((s) => {
         const st = new Date(s.startedAt);
-        const en = s.endedAt ? new Date(s.endedAt) : new Date();
+        const en = sessionEnd(s);
+        const live = !s.endedAt && !s.abandoned;
         const a = Math.max(DAY_START, toH(st));
         const b = Math.min(DAY_END, toH(en));
-        return { id: s.id, name: s.project.name, start: st, end: s.endedAt ? en : null, running: !s.endedAt, left: ((a - DAY_START) / span) * 100, width: ((b - a) / span) * 100 };
+        // An abandoned session gets a definite end like any closed one — drawing it
+        // as still running stretched the bar to the right edge of the day.
+        return { id: s.id, name: s.project.name, start: st, end: live ? null : en, running: live, left: ((a - DAY_START) / span) * 100, width: ((b - a) / span) * 100 };
       })
       .filter((g) => g.width > 0);
   }, [today]);
@@ -392,8 +415,12 @@ export default function DashboardPage() {
                         {s.task && <span className="ml-2 text-xs text-muted">{s.task.title}</span>}
                       </td>
                       <td className="px-5 py-3">
-                        <Badge tone={chipTone(s.user.email)} dot>
-                          {s.user.email.split("@")[0]}
+                        {/* GET /sessions pins where.userId today, so an orphaned
+                            session can't reach this table — but the relation is
+                            nullable and one scope change away from arriving here,
+                            and this is a render path with no boundary above it. */}
+                        <Badge tone={chipTone(s.user?.email ?? DELETED_USER_LABEL)} dot>
+                          {ownerName(s.user)}
                         </Badge>
                       </td>
                       <td className="px-5 py-3 text-muted">{new Date(s.startedAt).toLocaleDateString()}</td>
@@ -401,7 +428,7 @@ export default function DashboardPage() {
                         {formatTime(s.startedAt)}
                         {s.endedAt ? ` – ${formatTime(s.endedAt)}` : ""}
                       </td>
-                      <td className="px-5 py-3 tnum font-medium">{formatDurationShort(sessionSeconds(s.startedAt, s.endedAt))}</td>
+                      <td className="px-5 py-3 tnum font-medium">{formatDurationShort(sessionSeconds(s))}</td>
                     </tr>
                   ))}
                 </tbody>

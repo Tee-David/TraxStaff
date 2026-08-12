@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, asArray } from "@/lib/api";
 import { Select } from "@/components/Select";
 import { DateRangePicker, type DateRangeValue, type PresetKey } from "./DateRangePicker";
 
@@ -105,9 +105,11 @@ export function MemberFilter({
   const [members, setMembers] = useState<Member[]>([]);
   useEffect(() => {
     if (!enabled) return;
+    // Mounted on Reports *and* Screenshots, and `members` is filtered during
+    // render — a non-array 200 here would blank both pages.
     api<Member[]>("/members")
-      .then(setMembers)
-      .catch(() => {});
+      .then((m) => setMembers(asArray<Member>(m)))
+      .catch(() => setMembers([]));
   }, [enabled]);
   if (!enabled) return null;
   // Active staff only. Pulling up a report for someone disabled or removed is

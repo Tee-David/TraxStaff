@@ -14,7 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../src/api/client";
 import type { Session } from "../../src/api/types";
 import { DayTimeline } from "../../src/charts";
-import { clampSeconds, dayLabel, fmtShort, fmtTime, localDayKey } from "../../src/format";
+import { dayLabel, fmtShort, fmtTime, localDayKey, sessionEndMs, sessionSeconds } from "../../src/format";
 import { ScreenFade } from "../../src/motion";
 import { useTheme } from "../../src/ThemeProvider";
 import { Colors, fonts, radius, spacing } from "../../src/theme";
@@ -132,13 +132,24 @@ export default function SessionDetail() {
 
               <View style={{ gap: spacing.sm }}>
                 <Row label="Started" value={fmtTime(session.startedAt)} />
-                <Row label="Ended" value={session.endedAt ? fmtTime(session.endedAt) : "Still running"} />
+                <Row
+                  label="Ended"
+                  value={
+                    session.endedAt
+                      ? fmtTime(session.endedAt)
+                      : session.abandoned
+                        ? `${fmtTime(sessionEndMs(session))} (unfinished)`
+                        : "Still running"
+                  }
+                />
                 <Row
                   label="How it ended"
                   value={
                     session.endedAt
                       ? (session.endReason ? END_REASON[session.endReason] : null) ?? "Stopped"
-                      : "—"
+                      : session.abandoned
+                        ? "TraxStaff closed before it could stop"
+                        : "—"
                   }
                 />
                 <Row label="Entered" value={session.isManual ? "Added by hand" : "Tracked by a timer"} />
@@ -198,16 +209,14 @@ export default function SessionDetail() {
   );
 }
 
+// Bounded by the server's effective end rather than `now` — an abandoned session
+// would otherwise draw a bar that grows every time this screen is opened.
+// sessionSeconds lives in src/format.ts, shared with the timesheets list.
 function spanOf(session: Session) {
   return {
     start: new Date(session.startedAt).getTime(),
-    end: session.endedAt ? new Date(session.endedAt).getTime() : Date.now(),
+    end: sessionEndMs(session),
   };
-}
-
-function sessionSeconds(session: Session): number {
-  const span = spanOf(session);
-  return clampSeconds((span.end - span.start) / 1000);
 }
 
 function Row({ label, value }: { label: string; value: string }) {

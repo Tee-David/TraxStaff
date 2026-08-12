@@ -25,6 +25,40 @@ export function fmtShort(totalSeconds: number | null | undefined): string {
   return `${h}h ${String(m).padStart(2, "0")}m`;
 }
 
+/** The minimum a session row needs for the two helpers below. */
+export type TimedSession = {
+  startedAt: string;
+  endedAt: string | null;
+  effectiveEndAt?: string;
+  workedSeconds?: number;
+};
+
+/**
+ * When a session effectively ended.
+ *
+ * NOT `endedAt ?? Date.now()`. Nothing in the system used to close a session
+ * abandoned by a crash, a shutdown or a rejected token, so an open row read as
+ * "still running" indefinitely — one forgotten session displayed as tens of hours
+ * of work. The server now decides where an open session stops and sends it as
+ * `effectiveEndAt`; falling back to `now` is only right for a session that really
+ * is live and has no server opinion yet.
+ */
+export function sessionEndMs(s: TimedSession): number {
+  if (s.effectiveEndAt) return new Date(s.effectiveEndAt).getTime();
+  if (s.endedAt) return new Date(s.endedAt).getTime();
+  return Date.now();
+}
+
+/**
+ * How long a session lasted, in seconds. Prefers the server's `workedSeconds`,
+ * which is the only figure that also nets off idle the member discarded — the
+ * phone cannot see IdleDiscard rows at all.
+ */
+export function sessionSeconds(s: TimedSession): number {
+  if (typeof s.workedSeconds === "number") return clampSeconds(s.workedSeconds);
+  return clampSeconds((sessionEndMs(s) - new Date(s.startedAt).getTime()) / 1000);
+}
+
 export function fmtTime(iso: string | number): string {
   const d = typeof iso === "number" ? new Date(iso) : new Date(iso);
   return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });

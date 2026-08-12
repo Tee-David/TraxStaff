@@ -6,7 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../src/api/client";
 import type { Session } from "../../src/api/types";
 import { DayTimeline, MeterRow } from "../../src/charts";
-import { clampSeconds, dayLabel, fmtShort, fmtTime, localDayKey } from "../../src/format";
+import { dayLabel, fmtShort, fmtTime, localDayKey, sessionEndMs, sessionSeconds } from "../../src/format";
 import { ScreenFade, StaggerItem, useListEntrance } from "../../src/motion";
 import { useTheme } from "../../src/ThemeProvider";
 import { Colors, fonts, radius, spacing } from "../../src/theme";
@@ -18,10 +18,8 @@ const DAYS_BACK = 30;
 // into a second screen; anything past this is rolled into "Other".
 const BREAKDOWN_ROWS = 5;
 
-function sessionSeconds(s: Session): number {
-  const end = s.endedAt ? new Date(s.endedAt).getTime() : Date.now();
-  return clampSeconds((end - new Date(s.startedAt).getTime()) / 1000);
-}
+// sessionSeconds / sessionEndMs now live in src/format.ts, shared with the session
+// detail screen and bounded by the server's `effectiveEndAt` — see the note there.
 
 export default function TimesheetsScreen() {
   const router = useRouter();
@@ -47,10 +45,11 @@ export default function TimesheetsScreen() {
         key,
         title: dayLabel(key),
         total: data.reduce((sum, s) => sum + sessionSeconds(s), 0),
-        // A running session has no endedAt; the timeline draws it up to now.
+        // A running session has no endedAt; the timeline draws it up to the
+        // server's effective end, which is "now" only while it is genuinely live.
         spans: data.map((s) => ({
           start: new Date(s.startedAt).getTime(),
-          end: s.endedAt ? new Date(s.endedAt).getTime() : Date.now(),
+          end: sessionEndMs(s),
         })),
         data: data.sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
       }));
@@ -144,7 +143,14 @@ export default function TimesheetsScreen() {
                   {item.task ? ` · ${item.task.title}` : ""}
                 </Text>
                 <Text style={s.rowMeta}>
-                  {fmtTime(item.startedAt)} — {item.endedAt ? fmtTime(item.endedAt) : "running"}
+                  {/* An open row is only "running" if it is still proving it; one
+                      the tracker abandoned gets its real end from the server. */}
+                  {fmtTime(item.startedAt)} —{" "}
+                  {item.endedAt
+                    ? fmtTime(item.endedAt)
+                    : item.abandoned
+                      ? `${fmtTime(sessionEndMs(item))} · unfinished`
+                      : "running"}
                   {item.endReason === "abrupt_exit" ? " · interrupted" : ""}
                 </Text>
                 {item.notes.length > 0 ? (

@@ -54,6 +54,25 @@ export type Session = {
   deviceId: string;
   startedAt: string;
   endedAt: string | null;
+  /**
+   * Where the session effectively ends, decided server-side. Equals `endedAt` when
+   * closed; for an open one it is "now" while the device is still heartbeating and
+   * the last evidence of life once it isn't.
+   *
+   * Read this instead of `endedAt ?? Date.now()`: nothing used to close a session
+   * abandoned by a crash or a shutdown, so an open row grew forever and one
+   * forgotten session showed up as tens of hours of work.
+   */
+  effectiveEndAt?: string;
+  /** Bounded wall clock minus idle the member discarded. The canonical duration. */
+  workedSeconds?: number;
+  /** Open, but no longer proving it is alive — left behind, not running. */
+  abandoned?: boolean;
+  /**
+   * Stretches deducted from this session, with their real spans. Needed to charge a
+   * deduction to the day it happened in rather than spreading it over the session.
+   */
+  idleSpans?: { from: string; to: string; seconds: number }[];
   endReason: SessionEndReason | null;
   isManual: boolean;
   manualReason: string | null;
@@ -61,7 +80,8 @@ export type Session = {
   createdAt: string;
   project: { id: string; name: string; clientTag: string | null };
   task: { id: string; title: string } | null;
-  user: { id: string; email: string };
+  /** null once the owner has been hard-deleted — their work outlives them. */
+  user: { id: string; email: string } | null;
   notes: { id: string; body: string; createdAt: string }[];
 };
 

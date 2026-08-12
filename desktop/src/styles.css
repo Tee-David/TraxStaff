@@ -132,6 +132,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .foot-actions { display: flex; align-items: center; gap: 4px; }
 .foot-icon { background: transparent; color: var(--muted); font-size: 16px; padding: 4px 8px; border-radius: 8px; }
 .foot-icon:hover { background: var(--canvas); }
+/* Update check in flight. The arrow nudges downward on a loop rather than spinning:
+   it reads as "fetching" and, unlike a spinner, still points the way the icon means. */
+.foot-icon.is-busy { color: var(--brand); cursor: default; }
+.foot-icon.is-busy svg { animation: foot-fetch 1s ease-in-out infinite; }
+@keyframes foot-fetch { 0%, 100% { transform: translateY(-1px); } 50% { transform: translateY(2px); } }
+@media (prefers-reduced-motion: reduce) { .foot-icon.is-busy svg { animation: none; } }
 
 /* project search + list (hover-to-play) */
 .proj-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--canvas); border-radius: 12px; padding: 8px 12px; margin-bottom: 6px; }

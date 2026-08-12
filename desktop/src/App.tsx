@@ -327,6 +327,18 @@ export default function App() {
   const [pendingUpdate, setPendingUpdate] = useState<PendingUpdate | null>(null);
   useUpdateCheck(setPendingUpdate);
 
+  // A manual check from the footer button shows the same dialog as the automatic
+  // one — same "what's new", same explicit choice — rather than a second, thinner
+  // path to installing.
+  useEffect(() => {
+    const onFound = (e: Event) => {
+      const found = (e as CustomEvent<PendingUpdate>).detail;
+      if (found) setPendingUpdate(found);
+    };
+    window.addEventListener(UPDATE_FOUND_EVENT, onFound);
+    return () => window.removeEventListener(UPDATE_FOUND_EVENT, onFound);
+  }, []);
+
   // The server rejected our token (expired, or signed with a key that has since
   // changed). api() has already cleared it; drop to the login screen rather than
   // leaving a signed-in-looking tracker that can't load anything. Also clear the
@@ -465,6 +477,65 @@ let updateTimer: ReturnType<typeof setInterval> | null = null;
 // doesn't re-notify about the same release every 6 hours.
 const notifiedVersions = new Set<string>();
 
+/**
+ * Raised when a manual check finds an update, so the footer button can reuse the
+ * same prompt the automatic check shows.
+ *
+ * A window event rather than props threaded down: `pendingUpdate` lives in App(),
+ * and Tracker() sits two components below it behind ConsentGate. Matches the
+ * UNAUTHORIZED_EVENT convention already used to reach across that gap.
+ */
+export const UPDATE_FOUND_EVENT = "trax:update-found";
+
+export type UpdateCheck =
+  | { status: "available"; update: PendingUpdate }
+  | { status: "current"; version: string }
+  /** No opinion — not running under Tauri, offline, or the updater threw. */
+  | { status: "unknown" };
+
+/**
+ * Ask the updater what's out there. One implementation, three callers: the 6-hourly
+ * background check, the tray menu, and the footer button.
+ *
+ * `respectSkips` is false for a manual check — someone who has just clicked "check
+ * for updates" is asking about the version they previously skipped too, and
+ * silently telling them they're up to date would be a lie.
+ */
+async function findUpdate(respectSkips: boolean): Promise<UpdateCheck> {
+  const current = await getAppVersion();
+  try {
+    const { check } = await import("@tauri-apps/plugin-updater");
+    const update = await check();
+    if (!update?.available) return { status: "current", version: current };
+    const next = update.version;
+    // A "newer" version that isn't newer is a broken manifest, not an update.
+    if (cmpVersion(next, current) <= 0) {
+      console.warn(`[updater] refusing ${current} → ${next} (not newer)`);
+      return { status: "current", version: current };
+    }
+    if (respectSkips && isSkipped(next)) {
+      console.info(`[updater] ${next} was skipped by the user`);
+      return { status: "current", version: current };
+    }
+    return {
+      status: "available",
+      update: {
+        version: next,
+        current,
+        notes: update.body?.trim() || "",
+        install: async () => {
+          await update.downloadAndInstall();
+          const { relaunch } = await import("@tauri-apps/plugin-process");
+          await relaunch();
+        },
+      },
+    };
+  } catch (e) {
+    console.warn("[updater] check failed:", e);
+    return { status: "unknown" };
+  }
+}
+
 function useUpdateCheck(onFound: (u: PendingUpdate) => void) {
   // The interval outlives any given render, so it reads the callback through a
   // ref rather than capturing a stale one from the first closure.
@@ -475,47 +546,24 @@ function useUpdateCheck(onFound: (u: PendingUpdate) => void) {
     if (updateTimer !== null) return;
 
     const runCheck = async () => {
-      const current = await getAppVersion();
-      try {
-        const { check } = await import("@tauri-apps/plugin-updater");
-        const update = await check();
-        if (!update?.available) return;
-        const next = update.version;
-        if (cmpVersion(next, current) <= 0) {
-          console.warn(`[updater] refusing ${current} → ${next} (not newer)`);
-          return;
+      const found = await findUpdate(true);
+      if (found.status !== "available") return;
+      const { version: next, current } = found.update;
+      // Ask rather than install silently. An unannounced restart mid-session is
+      // alarming, and users deserve to see what changed before it happens.
+      console.info(`[updater] ${next} available (running ${current})`);
+      // The in-app dialog is invisible when the window is minimised to the tray,
+      // which is where the tracker usually lives — so the OS notification is the
+      // part that actually reaches the user. Raised once per version, and read
+      // from storage each time so toggling the pref takes effect without a
+      // restart.
+      if (!notifiedVersions.has(next)) {
+        notifiedVersions.add(next);
+        if (loadReminders().updates) {
+          notify("TraxStaff", `Version ${next} is available — you're on ${current}. Open TraxStaff to install it.`);
         }
-        if (isSkipped(next)) {
-          console.info(`[updater] ${next} was skipped by the user`);
-          return;
-        }
-        // Ask rather than install silently. An unannounced restart mid-session is
-        // alarming, and users deserve to see what changed before it happens.
-        console.info(`[updater] ${next} available (running ${current})`);
-        // The in-app dialog below is invisible when the window is minimised to
-        // the tray, which is where the tracker usually lives — so the OS
-        // notification is the part that actually reaches the user. Raised once
-        // per version, and read from storage each time so toggling the pref
-        // takes effect without a restart.
-        if (!notifiedVersions.has(next)) {
-          notifiedVersions.add(next);
-          if (loadReminders().updates) {
-            notify("TraxStaff", `Version ${next} is available — you're on ${current}. Open TraxStaff to install it.`);
-          }
-        }
-        cb.current({
-          version: next,
-          current,
-          notes: update.body?.trim() || "",
-          install: async () => {
-            await update.downloadAndInstall();
-            const { relaunch } = await import("@tauri-apps/plugin-process");
-            await relaunch();
-          },
-        });
-      } catch (e) {
-        console.warn("[updater] check failed:", e);
       }
+      cb.current(found.update);
     };
 
     void runCheck();
@@ -624,6 +672,17 @@ function ChevronIcon({ dir }: { dir: "left" | "right" }) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       {dir === "right" ? <path d="M9 6l6 6-6 6" /> : <path d="M15 6l-6 6 6 6" />}
+    </svg>
+  );
+}
+
+/** Check-for-updates: a download arrow onto a tray, matching the footer's stroke icons. */
+function UpdateIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 3v11" />
+      <path d="m7.5 9.5 4.5 4.5 4.5-4.5" />
+      <path d="M4 19h16" />
     </svg>
   );
 }
@@ -813,6 +872,8 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const alerted = useRef({ hook: false, shots: false, sync: false });
   const [remPrefs, setRemPrefs] = useState<ReminderPrefs>(reminders.current);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** True while a manual update check is in flight, so the button can say so. */
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
   // Latest active session, readable from event listeners that register once.
   const activeRef = useRef<Session | null>(null);
   activeRef.current = active;
@@ -1283,6 +1344,33 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   }
 
   /**
+   * Check for an update because the user asked, from the footer button.
+   *
+   * Unlike the tray path this raises the normal prompt instead of installing on the
+   * spot — the window is by definition open and focused here, so there is somewhere
+   * to show "what's new" and the choice belongs to them. Always answers something:
+   * an update check that appears to do nothing is indistinguishable from a broken
+   * one, which is how people end up stranded on old builds.
+   */
+  async function checkForUpdates() {
+    if (checkingUpdate) return; // double-click guard; the check takes a moment
+    setCheckingUpdate(true);
+    setError(null);
+    try {
+      const found = await findUpdate(false);
+      if (found.status === "available") {
+        window.dispatchEvent(new CustomEvent(UPDATE_FOUND_EVENT, { detail: found.update }));
+      } else if (found.status === "current") {
+        showToast(`You're on the latest version (${found.version})`);
+      } else {
+        setError("Couldn't check for updates. Check your connection.");
+      }
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  /**
    * Post the stops we owe from a 401, oldest first.
    *
    * `abrupt_exit`, not `stopped`: the app was signed out from under the session
@@ -1512,18 +1600,13 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     note: () => { if (activeRef.current) setNoteOpen(true); },
     signout: () => { signOut(); },
     dashboard: () => { if (!expanded) toggleExpand(); },
-    // Tray "Check for updates" is an explicit user request, so install directly
-    // rather than routing back through the prompt.
+    // Tray "Check for updates" installs directly: the window is usually hidden
+    // when the tray is used, so a dialog nobody can see would be a dead end.
     updates: async () => {
-      try {
-        const { check } = await import("@tauri-apps/plugin-updater");
-        const u = await check();
-        if (u?.available) await installUpdateNow();
-        else setError("You're on the latest version.");
-      } catch (e) {
-        console.warn("[updater] manual check failed:", e);
-        setError("Couldn't check for updates. Check your connection.");
-      }
+      const found = await findUpdate(false);
+      if (found.status === "available") await installUpdateNow();
+      else if (found.status === "current") setError("You're on the latest version.");
+      else setError("Couldn't check for updates. Check your connection.");
     },
   };
 
@@ -1661,6 +1744,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
           settingsOpen={settingsOpen} onToggleSettings={() => setSettingsOpen((s) => !s)}
           reminders={remPrefs} onUpdateReminders={updateReminders}
           shotCount={shotCount}
+          onCheckUpdates={() => { void checkForUpdates(); }} checkingUpdate={checkingUpdate}
         />
       </aside>
       {expanded && (
@@ -1691,8 +1775,9 @@ function TrackingWidget(props: {
   settingsOpen: boolean; onToggleSettings: () => void;
   reminders: ReminderPrefs; onUpdateReminders: (n: Partial<ReminderPrefs>) => void;
   shotCount: number;
+  onCheckUpdates: () => void; checkingUpdate: boolean;
 }) {
-  const { projects, active, workedToday, workedWeek, today, dayTarget, weekTarget, elapsed, onStart, onStop, error, onRefresh, lastUpdated, expanded, onToggleExpand, sync, onAddNote, settingsOpen, onToggleSettings, reminders, onUpdateReminders, shotCount } = props;
+  const { projects, active, workedToday, workedWeek, today, dayTarget, weekTarget, elapsed, onStart, onStop, error, onRefresh, lastUpdated, expanded, onToggleExpand, sync, onAddNote, settingsOpen, onToggleSettings, reminders, onUpdateReminders, shotCount, onCheckUpdates, checkingUpdate } = props;
   const [q, setQ] = useState("");
 
   // This project's time TODAY.
@@ -1784,6 +1869,18 @@ function TrackingWidget(props: {
         {active && (
           <button className="foot-icon" onClick={onAddNote} title="Add a note" aria-label="Add a note">✎</button>
         )}
+        {/* Check for updates. Until now this only existed in the tray menu, which is
+            invisible to anyone using the window — so an update was something that
+            happened to you, never something you could go and ask about. */}
+        <button
+          className={`foot-icon ${checkingUpdate ? "is-busy" : ""}`}
+          onClick={onCheckUpdates}
+          disabled={checkingUpdate}
+          title={checkingUpdate ? "Checking for updates…" : "Check for updates"}
+          aria-label={checkingUpdate ? "Checking for updates" : "Check for updates"}
+        >
+          <UpdateIcon />
+        </button>
         <div className="foot-settings-wrap">
           <button className="foot-icon" onClick={onToggleSettings} title="Reminders" aria-label="Reminders">⚙</button>
           {settingsOpen && (

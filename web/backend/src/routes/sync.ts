@@ -281,7 +281,18 @@ export default async function syncRoutes(fastify: FastifyInstance) {
     if (seconds <= 0) {
       return reply.code(400).send({ error: "Discard window must be positive" });
     }
-    await prisma.idleDiscard.create({ data: { sessionId: body.sessionId, from, to, seconds } });
+    // Idempotent on the exact span: the desktop app now writes the discard the
+    // moment an away stretch ends, before the member has answered the keep/discard
+    // prompt, and a retried request must not stack a second deduction for the same
+    // minutes.
+    const existing = await prisma.idleDiscard.findFirst({
+      where: { sessionId: body.sessionId, from, to },
+    });
+    if (existing) return reply.send({ ok: true, seconds: existing.seconds, id: existing.id });
+
+    const created = await prisma.idleDiscard.create({
+      data: { sessionId: body.sessionId, from, to, seconds },
+    });
     await auditLog({
       orgId: req.user.orgId,
       actorId: req.user.userId,
@@ -290,7 +301,45 @@ export default async function syncRoutes(fastify: FastifyInstance) {
       targetLabel: `${Math.round(seconds / 60)} min`,
       details: { seconds, from: body.fromISO, to: body.toISO },
     });
-    return reply.send({ ok: true, seconds });
+    return reply.send({ ok: true, seconds, id: created.id });
+  });
+
+  /**
+   * Put a discarded idle span back — the member said "Keep" on the prompt.
+   *
+   * The desktop app deducts an away stretch as soon as the member returns, so the
+   * clock they see is the work they actually did, and the deduction is written here
+   * straight away so an admin looking at the dashboard in that moment sees the same
+   * number. "Keep" therefore has to be an undo rather than a no-op, which is what
+   * it used to be when nothing was written until they answered.
+   *
+   * Identified by the span rather than an id so the client doesn't have to hold one
+   * across a restart: the span is what it already has from the prompt.
+   */
+  fastify.post("/sync/keep-idle", async (req, reply) => {
+    const body = discardIdleSchema.parse(req.body);
+    const session = await prisma.trackingSession.findUnique({ where: { id: body.sessionId } });
+    if (!session || session.userId !== req.user.userId) {
+      return reply.code(404).send({ error: "Session not found" });
+    }
+    const from = new Date(body.fromISO);
+    const to = new Date(body.toISO);
+    const { count } = await prisma.idleDiscard.deleteMany({
+      where: { sessionId: body.sessionId, from, to },
+    });
+    // Not found is a success: the discard may never have reached us (the client
+    // writes it best-effort), and the member's intent is satisfied either way.
+    if (count > 0) {
+      await auditLog({
+        orgId: req.user.orgId,
+        actorId: req.user.userId,
+        action: "idle.kept",
+        targetId: body.sessionId,
+        targetLabel: `${Math.round((to.getTime() - from.getTime()) / 60000)} min`,
+        details: { from: body.fromISO, to: body.toISO },
+      });
+    }
+    return reply.send({ ok: true, restored: count });
   });
 }
 

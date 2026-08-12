@@ -2,6 +2,15 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { orgScoped } from "../lib/org-scope";
+import {
+  effectiveEnd,
+  evidenceSelect,
+  grossSeconds,
+  overlapSeconds,
+  overlapsRange,
+  workedSeconds,
+  workedSecondsInRange,
+} from "../lib/duration";
 
 const rangeSchema = z.object({
   from: z.string().datetime({ offset: true }).optional(),
@@ -71,16 +80,12 @@ function splitByLocalDay(start: Date, end: Date, tz: string): Map<string, number
   return out;
 }
 
-function seconds(startedAt: Date, endedAt: Date | null): number {
-  return ((endedAt ?? new Date()).getTime() - startedAt.getTime()) / 1000;
-}
-
-// Worked time = wall-clock duration minus any discarded idle spans. Idle
-// discards are an accounting adjustment; ActivityBlocks are never mutated.
-function workedSeconds(s: { startedAt: Date; endedAt: Date | null; idleDiscards: { seconds: number }[] }): number {
-  const discarded = s.idleDiscards.reduce((sum, d) => sum + d.seconds, 0);
-  return Math.max(0, seconds(s.startedAt, s.endedAt) - discarded);
-}
+// Duration lives in lib/duration.ts now. It used to be `(endedAt ?? now) -
+// startedAt` right here, with near-identical copies in insights.ts, the web
+// dashboard, the desktop widget and the mobile app — the "three conflicting
+// definitions of hours worked" in plans/checklist.md §1.4. That formula treats an
+// abandoned session as still running, and nothing in the system ever closed one,
+// so a single forgotten row grew without bound across every report.
 
 export type WeightedBlock = {
   activityPct: number;
@@ -151,6 +156,22 @@ export default async function reportRoutes(fastify: FastifyInstance) {
   // default). The two are told apart by explicit query params rather than
   // role alone: no filter → self; ?userId=<id> → that one member (privileged
   // only); ?scope=team → the whole org (privileged only, what Insights sends).
+  /**
+   * The window a report is scoped to, in ms. Unbounded ends become ±Infinity so
+   * range-scoping arithmetic works without special cases.
+   *
+   * Every total below must be scoped to this, because `overlapsRange` deliberately
+   * returns sessions that began before `from` — a shift started on Sunday evening
+   * owns time in Monday's week, but only the part after the boundary.
+   */
+  function rangeMs(req: import("fastify").FastifyRequest): { fromMs: number; toMs: number } {
+    const q = rangeSchema.parse(req.query);
+    return {
+      fromMs: q.from ? new Date(q.from).getTime() : -Infinity,
+      toMs: q.to ? new Date(q.to).getTime() : Infinity,
+    };
+  }
+
   async function loadSessions(req: import("fastify").FastifyRequest) {
     const q = rangeSchema.parse(req.query);
     const privileged = req.user.role === "owner" || req.user.role === "admin";
@@ -171,12 +192,17 @@ export default async function reportRoutes(fastify: FastifyInstance) {
     } else {
       where.userId = req.user.userId;
     }
-    if (q.from || q.to) {
-      where.startedAt = {
-        ...(q.from ? { gte: new Date(q.from) } : {}),
-        ...(q.to ? { lte: new Date(q.to) } : {}),
-      };
-    }
+    // Matched by OVERLAP, not by start instant. Filtering on `startedAt >= from`
+    // dropped every session that began before the window and ran into it — a night
+    // shift vanished from the next day's report, and an open session that started
+    // before the range was excluded from the very report that would have exposed
+    // it, while one starting inside the range ran to `now`. The range filter and
+    // the duration maths have to share a definition.
+    const range = overlapsRange(
+      q.from ? new Date(q.from) : undefined,
+      q.to ? new Date(q.to) : undefined
+    );
+    if (range.length) where.AND = range;
     return prisma.trackingSession.findMany({
       where,
       include: {
@@ -184,8 +210,14 @@ export default async function reportRoutes(fastify: FastifyInstance) {
         task: { select: { id: true, title: true } },
         user: { select: { id: true, email: true } },
         // Duration is required to weight the activity average — see weightedActivity().
+        // blockEnd doubles as evidence of life for lib/duration.ts.
         activityBlocks: { select: { activityPct: true, creditedSeconds: true, blockStart: true, blockEnd: true } },
-        idleDiscards: { select: { seconds: true } },
+        // from/to as well as the total: a discard is a specific span, and every
+        // per-day and per-range figure below attributes it to the window it
+        // actually happened in rather than spreading it.
+        idleDiscards: { select: { seconds: true, from: true, to: true } },
+        // Heartbeat, the third witness that an open session is still alive.
+        ...evidenceSelect,
       },
       orderBy: { startedAt: "asc" },
     });
@@ -195,31 +227,48 @@ export default async function reportRoutes(fastify: FastifyInstance) {
   fastify.get("/reports/timesheet", async (req, reply) => {
     const sessions = await loadSessions(req);
     const tz = rangeSchema.parse(req.query).tz ?? "UTC";
+    // One instant for the whole response: computing `new Date()` per session hands
+    // out subtly different "now"s across a long loop, so slices wouldn't sum to
+    // the totals reported beside them.
+    const now = new Date();
+    const { fromMs, toMs } = rangeMs(req);
     const byDay = new Map<string, { date: string; totalSeconds: number; trackedSeconds: number; manualSeconds: number; sessions: number }>();
 
     for (const s of sessions) {
-      const worked = workedSeconds(s);
-      const end = s.endedAt ?? new Date();
-      const slices = splitByLocalDay(s.startedAt, end, tz);
-      const spanned = [...slices.values()].reduce((sum, v) => sum + v, 0);
-      if (spanned <= 0) continue;
+      // Clipped to the requested window. `overlapsRange` deliberately returns a
+      // session that began before `from`, so splitting its FULL span would emit
+      // day rows for dates the caller never asked about — and a "this week"
+      // timesheet would sprout a row for last Sunday.
+      const startMs = Math.max(new Date(s.startedAt).getTime(), fromMs);
+      const endMs = Math.min(effectiveEnd(s, now).getTime(), toMs);
+      if (!(endMs > startMs)) continue;
+      const slices = splitByLocalDay(new Date(startMs), new Date(endMs), tz);
+      if (slices.size === 0) continue;
 
-      // Idle discards have no timestamps, so worked < span. Spread the shortfall
-      // across the days proportionally rather than dropping it on the start day.
-      const scale = worked / spanned;
-
+      // Each day gets its OWN worked total, computed against that day's window.
+      //
+      // This used to scale every slice by one session-wide `worked / gross` ratio,
+      // on the stated assumption that idle discards carry no timestamps. They do,
+      // and the difference is not cosmetic: a session spanning Monday to Wednesday
+      // with a two-day hole in the middle had the hole smeared evenly across all
+      // three days, so a Wednesday of real work reported a fraction of itself while
+      // Tuesday — when nothing happened at all — still reported hours.
       let first = true;
+      let cursor = startMs;
       for (const [day, rawSecs] of slices) {
+        const dayEnd = Math.min(cursor + rawSecs * 1000, endMs);
         const d = byDay.get(day) ?? { date: day, totalSeconds: 0, trackedSeconds: 0, manualSeconds: 0, sessions: 0 };
-        const secs = rawSecs * scale;
+        const secs = workedSecondsInRange(s, cursor, dayEnd, now);
         d.totalSeconds += secs;
         if (s.isManual) d.manualSeconds += secs;
         else d.trackedSeconds += secs;
-        // Counted once, on the day it began — a session split across midnight is
-        // still one session, and summing the column must not double it.
+        // Counted once, on the first day it appears in this window — a session
+        // split across midnight is still one session, and summing the column must
+        // not double it.
         if (first) d.sessions += 1;
         byDay.set(day, d);
         first = false;
+        cursor = dayEnd;
       }
     }
 
@@ -235,6 +284,8 @@ export default async function reportRoutes(fastify: FastifyInstance) {
   // Time grouped by project (+ task), with average activity %.
   fastify.get("/reports/by-project", async (req, reply) => {
     const sessions = await loadSessions(req);
+    const now = new Date();
+    const { fromMs, toMs } = rangeMs(req);
     const byProject = new Map<string, { projectId: string; project: string; clientTag: string | null; archived: boolean; totalSeconds: number; blocks: WeightedBlock[] }>();
     for (const s of sessions) {
       const p = byProject.get(s.projectId) ?? {
@@ -249,7 +300,7 @@ export default async function reportRoutes(fastify: FastifyInstance) {
         totalSeconds: 0,
         blocks: [] as WeightedBlock[],
       };
-      p.totalSeconds += workedSeconds(s);
+      p.totalSeconds += workedSecondsInRange(s, fromMs, toMs, now);
       p.blocks.push(...s.activityBlocks);
       byProject.set(s.projectId, p);
     }
@@ -318,18 +369,25 @@ export default async function reportRoutes(fastify: FastifyInstance) {
   // Headline summary: total hours, avg activity %, session count, flags.
   fastify.get("/reports/summary", async (req, reply) => {
     const sessions = await loadSessions(req);
+    const now = new Date();
+    const { fromMs, toMs } = rangeMs(req);
     let totalSeconds = 0;
     let trackedSeconds = 0;
     let discardedSeconds = 0;
     const blocks: WeightedBlock[] = [];
     for (const s of sessions) {
-      totalSeconds += workedSeconds(s);
+      totalSeconds += workedSecondsInRange(s, fromMs, toMs, now);
       // Gross clock and the idle taken off it, reported alongside the net so a
       // client can show why "worked" is smaller than the time on the timer.
       // Without these the two numbers look like synonyms that disagree, and the
       // only way to reconcile them was to read this file.
-      trackedSeconds += seconds(s.startedAt, s.endedAt);
-      discardedSeconds += s.idleDiscards.reduce((sum, d) => sum + d.seconds, 0);
+      // Gross and discarded are scaled to the same window as `totalSeconds`, or
+      // the "X tracked − Y idle removed" line the Activity panel shows would not
+      // add up to the figure above it.
+      const gross = grossSeconds(s, now);
+      const share = gross > 0 ? overlapSeconds(s, fromMs, toMs, now) / gross : 0;
+      trackedSeconds += gross * share;
+      discardedSeconds += s.idleDiscards.reduce((sum, d) => sum + d.seconds, 0) * share;
       blocks.push(...s.activityBlocks);
     }
     return reply.send({

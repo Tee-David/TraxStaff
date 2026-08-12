@@ -1,11 +1,24 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import {
+  STALE_GRACE_MS,
+  effectiveEnd,
+  evidenceSelect,
+  lastEvidenceAt,
+  overlapsRange,
+  workedSeconds,
+} from "../lib/duration";
 
 // A session whose device hasn't heartbeat within this window is considered
 // dead and can be taken over by another device. Heartbeats are every 60s, so
 // 150s tolerates one missed beat before allowing a handoff.
-const STALE_SESSION_MS = 150_000;
+//
+// Re-exported from lib/duration.ts rather than declared again: the same window
+// decides when a session may be taken over here and when it stops accruing time
+// there. Two copies of that number would eventually disagree, and the disagreement
+// would show up as time appearing or vanishing at a handoff.
+const STALE_SESSION_MS = STALE_GRACE_MS;
 
 // How far back a client may claim its session started. The desktop app tracks
 // offline-first, so a genuine claim can predate registration by however long the
@@ -73,6 +86,16 @@ const startSchema = z.object({
 
 const stopSchema = z.object({
   endReason: z.enum(["stopped", "idle_timeout", "abrupt_exit"]).default("stopped"),
+  /**
+   * Credit this session with nothing — close it at its own start instant.
+   *
+   * Sent when the desktop app finds an unfinished session from a previous run and
+   * the member says the time wasn't theirs. A zero-duration row rather than a
+   * delete: the session still happened, screenshots and activity blocks still hang
+   * off it, and silently deleting tracked work is not something an endpoint should
+   * do on a client's word.
+   */
+  discard: z.boolean().optional(),
 });
 
 const manualSchema = z.object({
@@ -160,11 +183,18 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
     // only a *different* device with a live heartbeat is (the fraud case).
     const open = await prisma.trackingSession.findFirst({
       where: { userId: req.user.userId, endedAt: null },
-      include: { device: true },
+      // Newest first: with more than one open row (which shouldn't happen, but
+      // did), closing an arbitrary one leaves the others to keep accruing.
+      orderBy: { startedAt: "desc" },
+      include: {
+        device: true,
+        activityBlocks: { select: { blockEnd: true }, orderBy: { blockEnd: "desc" }, take: 1 },
+      },
     });
     if (open) {
       const sameDevice = open.deviceId === device.id;
-      const isFresh = Date.now() - open.device.lastSeenAt.getTime() < STALE_SESSION_MS;
+      const evidence = lastEvidenceAt(open);
+      const isFresh = Date.now() - evidence.getTime() < STALE_SESSION_MS;
       if (!sameDevice && isFresh) {
         // A second live timer on another machine — reject.
         return reply.code(409).send({
@@ -173,17 +203,23 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
           sessionId: open.id,
         });
       }
-      // Same device switching projects (close cleanly), or a device that went
-      // dark without stopping (finalize at its last heartbeat) — then take over.
-      // Never finalize before the session started: a device that never got to
-      // heartbeat has a lastSeenAt predating its own startedAt, which would
-      // otherwise write a negative-duration session.
-      const takeoverEnd = sameDevice ? new Date() : open.device.lastSeenAt;
+      // Finalize at the last evidence this session was alive — NEVER at `now`.
+      //
+      // This branch used to read `sameDevice ? new Date() : device.lastSeenAt`,
+      // which meant a session left open on Monday evening and resumed on the same
+      // machine on Wednesday morning was credited every hour in between, including
+      // two nights the computer was off. That is how a member who had tracked
+      // seven minutes was shown 44h58m for the week.
+      //
+      // The reason is also chosen by evidence, not by device identity. A genuine
+      // project switch has evidence seconds old and is a real `stopped`; anything
+      // staler is an `abrupt_exit`, and labelling it `stopped` is precisely what
+      // made a 39-hour outage indistinguishable from a 39-hour shift.
       await prisma.trackingSession.update({
         where: { id: open.id },
         data: {
-          endedAt: takeoverEnd < open.startedAt ? open.startedAt : takeoverEnd,
-          endReason: sameDevice ? "stopped" : "abrupt_exit",
+          endedAt: evidence,
+          endReason: isFresh ? "stopped" : "abrupt_exit",
         },
       });
     }
@@ -220,7 +256,13 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
     const { id } = req.params as { id: string };
     const body = stopSchema.parse(req.body ?? {});
 
-    const session = await prisma.trackingSession.findUnique({ where: { id } });
+    const session = await prisma.trackingSession.findUnique({
+      where: { id },
+      include: {
+        activityBlocks: { select: { blockEnd: true }, orderBy: { blockEnd: "desc" }, take: 1 },
+        ...evidenceSelect,
+      },
+    });
     if (!session || session.userId !== req.user.userId) {
       return reply.code(404).send({ error: "Session not found" });
     }
@@ -228,16 +270,24 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
       return reply.code(409).send({ error: "Session already stopped" });
     }
 
-    // Guard against a stored startedAt that is somehow ahead of server now
-    // (legacy rows written before start reconciliation existed). Duration must
-    // never be negative.
+    // Finalize at the last instant we have evidence this session was alive —
+    // NEVER unconditionally at `now`.
+    //
+    // For a session stopped normally this IS `now`: its heartbeat is seconds old,
+    // so `effectiveEnd` returns the server clock and nothing changes. It only
+    // differs for a session that stopped proving it existed — an app killed, a
+    // machine shut down — where stamping `now` credits every hour in between. That
+    // was the last route in the system able to mint hours out of an outage: the
+    // desktop app posts a stop for an unfinished session it finds at startup, and
+    // before this that post was worth 39 hours.
+    //
+    // `effectiveEnd` also floors at `startedAt`, which preserves the old guard
+    // against a legacy row whose start is somehow ahead of the server clock.
     const now = new Date();
+    const endedAt = body.discard ? session.startedAt : effectiveEnd(session, now);
     const updated = await prisma.trackingSession.update({
       where: { id },
-      data: {
-        endedAt: now < session.startedAt ? session.startedAt : now,
-        endReason: body.endReason,
-      },
+      data: { endedAt, endReason: body.endReason },
     });
     return reply.send(updated);
   });
@@ -319,12 +369,15 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
       where.userId = req.user.userId;
     }
 
-    if (q.from || q.to) {
-      where.startedAt = {
-        ...(q.from ? { gte: new Date(q.from) } : {}),
-        ...(q.to ? { lte: new Date(q.to) } : {}),
-      };
-    }
+    // By overlap, not by start instant — see overlapsRange in lib/duration.ts.
+    // The desktop widget asks for `?from=<start of week>` and then attributes time
+    // by overlap itself, so filtering on `startedAt` here silently withheld the
+    // part of a Sunday-night session that belonged to Monday.
+    const range = overlapsRange(
+      q.from ? new Date(q.from) : undefined,
+      q.to ? new Date(q.to) : undefined
+    );
+    if (range.length) where.AND = range;
 
     const sessions = await prisma.trackingSession.findMany({
       where,
@@ -333,11 +386,51 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
         task: { select: { id: true, title: true } },
         user: { select: { id: true, email: true } },
         notes: { select: { id: true, body: true, createdAt: true }, orderBy: { createdAt: "asc" } },
+        idleDiscards: { select: { seconds: true, from: true, to: true } },
+        // Evidence of life, for the derived fields below.
+        activityBlocks: { select: { blockEnd: true }, orderBy: { blockEnd: "desc" }, take: 1 },
+        ...evidenceSelect,
       },
       orderBy: { startedAt: "desc" },
       take: 500,
     });
-    return reply.send(sessions);
+
+    // Serve the durations rather than leaving every client to re-derive them.
+    //
+    // The web dashboard, the desktop widget and the mobile app each had their own
+    // `endedAt ?? Date.now()`, so each one independently treated an abandoned
+    // session as running and none of them could see IdleDiscard rows at all. The
+    // server has the evidence; it should do the arithmetic once.
+    //
+    // `activityBlocks` and `device` are stripped from the response: they were loaded
+    // to compute these fields, not to be sent.
+    const now = new Date();
+    return reply.send(
+      sessions.map(({ activityBlocks, device, idleDiscards, ...s }) => ({
+        ...s,
+        /**
+         * When this session effectively ended. Equals `endedAt` when closed; for an
+         * open one it is `now` while it is still heartbeating, and its last evidence
+         * of life once it isn't. Clients should measure against this, not `endedAt`.
+         */
+        effectiveEndAt: effectiveEnd({ ...s, activityBlocks, device }, now).toISOString(),
+        /** Gross clock minus idle the member discarded — the canonical "worked". */
+        workedSeconds: Math.round(workedSeconds({ ...s, activityBlocks, device, idleDiscards }, now)),
+        /** True once this row stopped proving it was alive: open, but not tracking. */
+        abandoned: !s.endedAt && effectiveEnd({ ...s, activityBlocks, device }, now) < now,
+        /**
+         * The deducted stretches, WITH their spans.
+         *
+         * Sent because a client splitting a session across days or hours has to know
+         * *when* the deduction was, not just how big it was. A session running Monday
+         * to Wednesday with a two-day hole in it must show the hole on Monday night
+         * and Tuesday — not shave a proportional slice off Wednesday's real work.
+         */
+        idleSpans: idleDiscards
+          .filter((d) => d.from && d.to)
+          .map((d) => ({ from: d.from.toISOString(), to: d.to.toISOString(), seconds: d.seconds })),
+      }))
+    );
   });
 
   // Attach a free-text note to a session (context for a tracked entry).

@@ -8,12 +8,9 @@ import {
   orgScoped,
   orgScopedViaSession,
 } from "../lib/org-scope";
+import { evidenceSelect, isAbandoned, overlapsRange, workedSecondsInRange } from "../lib/duration";
 
 const PRESENCE_WINDOW_MS = 3 * 60 * 1000; // "online" if a device beat within 3 min
-
-function seconds(startedAt: Date, endedAt: Date | null): number {
-  return ((endedAt ?? new Date()).getTime() - startedAt.getTime()) / 1000;
-}
 
 function requireAdmin(req: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply): boolean {
   if (req.user.role !== "owner" && req.user.role !== "admin") {
@@ -37,23 +34,36 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
         devices: { orderBy: { lastSeenAt: "desc" }, take: 1 },
         sessions: {
           where: { endedAt: null },
+          // Newest first: a member with more than one open row (which shouldn't
+          // happen, but did) should be reported as tracking the latest, not an
+          // arbitrary one.
+          orderBy: { startedAt: "desc" },
           take: 1,
-          include: { project: { select: { name: true } } },
+          include: {
+            project: { select: { name: true } },
+            // Needed to tell "tracking" from "left a session open months ago".
+            ...evidenceSelect,
+          },
         },
       },
     });
-    const now = Date.now();
+    const now = new Date();
     return reply.send(
       members.map((m) => {
         const lastSeen = m.devices[0]?.lastSeenAt ?? null;
-        const online = lastSeen ? now - lastSeen.getTime() < PRESENCE_WINDOW_MS : false;
+        const online = lastSeen ? now.getTime() - lastSeen.getTime() < PRESENCE_WINDOW_MS : false;
         const open = m.sessions[0];
+        // An open row is not proof of tracking. Nothing closes an abandoned
+        // session, so "endedAt IS NULL" alone reported people as tracking a
+        // project they last touched days ago — on the admin panel whose entire
+        // job is to say who is working right now.
+        const live = open && !isAbandoned(open, now) ? open : null;
         return {
           userId: m.id,
           email: m.email,
           online,
           lastSeenAt: lastSeen,
-          tracking: open ? { project: open.project.name, since: open.startedAt } : null,
+          tracking: live ? { project: live.project.name, since: live.startedAt } : null,
         };
       })
     );
@@ -92,12 +102,14 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
     // through, so they are admitted via their project instead — otherwise a
     // deleted member's tracked work silently disappears from the leaderboard.
     const where: Record<string, unknown> = { OR: orgScoped(req.user.orgId) };
-    if (q.from || q.to) {
-      where.startedAt = {
-        ...(q.from ? { gte: new Date(q.from) } : {}),
-        ...(q.to ? { lte: new Date(q.to) } : {}),
-      };
-    }
+    // By overlap, matching reports.ts — see lib/duration.ts's overlapsRange.
+    const fromMs = q.from ? new Date(q.from).getTime() : -Infinity;
+    const toMs = q.to ? new Date(q.to).getTime() : Infinity;
+    const range = overlapsRange(
+      q.from ? new Date(q.from) : undefined,
+      q.to ? new Date(q.to) : undefined
+    );
+    if (range.length) where.AND = range;
     const sessions = await prisma.trackingSession.findMany({
       where,
       include: {
@@ -105,11 +117,17 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
         // Duration is needed to weight the average — a plain mean of block
         // percentages lets a 5-second block outweigh a full 10-minute one.
         activityBlocks: { select: { activityPct: true, creditedSeconds: true, blockStart: true, blockEnd: true } },
+        // The leaderboard ranks people against each other, so an abandoned
+        // session doesn't just inflate one row — it reorders the board. Load the
+        // evidence and the idle adjustments the ranking depends on.
+        idleDiscards: { select: { seconds: true, from: true, to: true } },
+        ...evidenceSelect,
       },
     });
     // Orphaned sessions all collapse into one "Deleted user" entry rather than
     // being dropped: the hours were really worked and still belong in the org's
     // totals, even though nobody owns them any more.
+    const now = new Date();
     const byUser = new Map<string, { userId: string | null; email: string; totalSeconds: number; blocks: WeightedBlock[] }>();
     for (const s of sessions) {
       const key = s.userId ?? DELETED_USER_KEY;
@@ -119,7 +137,12 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
         totalSeconds: 0,
         blocks: [] as WeightedBlock[],
       };
-      u.totalSeconds += seconds(s.startedAt, s.endedAt);
+      // workedSecondsInRange, not gross: this used to be the one total that ignored
+      // idle discards, so the same range read differently on Reports and here — the
+      // "decide once" in plans/checklist.md §1.4. Discards are subtracted, and the
+      // figure is clipped to the requested window since `overlapsRange` admits
+      // sessions that started before it.
+      u.totalSeconds += workedSecondsInRange(s, fromMs, toMs, now);
       u.blocks.push(...s.activityBlocks);
       byUser.set(key, u);
     }

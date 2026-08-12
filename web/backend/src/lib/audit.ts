@@ -18,7 +18,17 @@ export type AuditAction =
   | "project.deleted"
   | "task.deleted"
   | "screenshot.deleted"
-  | "idle.discarded";
+  | "idle.discarded"
+  // The counterpart to idle.discarded. Away time is now deducted the moment the
+  // member returns, so choosing to keep it is a positive adjustment to recorded
+  // hours — and anything that adds time back belongs in the trail just as much as
+  // anything that takes it away.
+  | "idle.kept"
+  // A recorded end time was corrected because the session was abandoned rather
+  // than stopped, so the original value credited an outage as work. Written by the
+  // stale-session backfill; the live sweeper closes rows that were never given a
+  // wrong end in the first place and has nothing to log.
+  | "session.end_corrected";
 
 interface AuditEntry {
   /** Required, and passed in explicitly — see the note below. */

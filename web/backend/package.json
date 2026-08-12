@@ -5,6 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
     "prisma:generate": "prisma generate",

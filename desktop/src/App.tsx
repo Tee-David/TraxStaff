@@ -104,9 +104,31 @@ function isPrivilegedCached(): boolean {
 function canViewOwnCaptures(): boolean {
   return isPrivilegedCached() || !getCachedOrgSettings().blur;
 }
-// Locally-tracked sessions, persisted so the total survives an app restart
-// before they've synced. Pruned to the last ~8 days.
+/**
+ * Locally-tracked sessions, persisted so the total survives an app restart before
+ * they've synced. Pruned to the last ~8 days.
+ *
+ * Stamped with the OWNER's identity rather than wiped at every re-auth boundary.
+ *
+ * The wipe existed for a real reason — a different person signing into the same
+ * installed app would otherwise inherit the previous user's cached sessions,
+ * which `mergeSessions` folds straight into their totals with no ownership check.
+ * But wiping unconditionally destroyed the *same* user's closed copies too, and
+ * that combination is what made a rejected token permanently corrupting: the 401
+ * handler banks the running session locally because it cannot post a stop, then
+ * signing back in deleted exactly that record — leaving a server row that was
+ * open, un-maskable (no local closed copy) and un-resumable (`trax_stopped_ids`),
+ * accruing time forever.
+ *
+ * Tagging by owner keeps the protection and drops the collateral damage.
+ */
 const LOCAL_SESSIONS_KEY = "trax_local_sessions";
+const LOCAL_SESSIONS_OWNER_KEY = "trax_local_sessions_owner";
+
+/** Who the cached sessions belong to, or null if unknown/never set. */
+function localSessionsOwner(): string | null {
+  try { return localStorage.getItem(LOCAL_SESSIONS_OWNER_KEY); } catch { return null; }
+}
 function loadLocalSessions(): Session[] {
   try {
     const list = JSON.parse(localStorage.getItem(LOCAL_SESSIONS_KEY) || "[]") as Session[];
@@ -117,16 +139,50 @@ function loadLocalSessions(): Session[] {
 function saveLocalSessions(list: Session[]) {
   try { localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
 }
-// Cleared exactly at a re-authentication boundary (a fresh login, or either
-// sign-out path) — never on a same-user restart, since a persisted valid
-// token skips the login screen entirely. Without this, a different person
-// logging into the same installed app inherits whatever completed sessions
-// the previous user left cached here and they get merged straight into the
-// new user's totals with no ownership check (mergeSessions dedupes by id
-// only) — a real cross-user data leak on a shared/reused machine.
-function clearLocalSessionsCache() {
-  try { localStorage.removeItem(LOCAL_SESSIONS_KEY); } catch { /* ignore */ }
+/** Record who the cache belongs to. Called as soon as the signed-in identity is known. */
+function setLocalSessionsOwner(owner: string) {
+  try { localStorage.setItem(LOCAL_SESSIONS_OWNER_KEY, owner); } catch { /* ignore */ }
 }
+/**
+ * Drop the cache only if it belongs to somebody else.
+ *
+ * Called at each re-authentication boundary. An unknown owner is treated as
+ * somebody else: caches written before this tagging existed have no provenance,
+ * and inheriting them is the leak this guards against.
+ */
+function clearLocalSessionsCacheUnless(owner: string) {
+  if (localSessionsOwner() === owner) return;
+  try {
+    localStorage.removeItem(LOCAL_SESSIONS_KEY);
+    localStorage.removeItem(STOPPED_IDS_KEY);
+  } catch { /* ignore */ }
+  setLocalSessionsOwner(owner);
+}
+/**
+ * Stops we owe the server.
+ *
+ * The 401 path ends a session locally but CANNOT post the stop — the token is
+ * precisely what was rejected. Recording the intent here means the stop is sent
+ * as soon as we are authenticated again, so the row is closed with an accurate
+ * reason rather than waiting to be swept up by the server later.
+ *
+ * Small and idempotent: a stop for an already-closed session returns 409, which
+ * is a successful outcome as far as this queue is concerned.
+ */
+const PENDING_STOPS_KEY = "trax_pending_stops";
+function loadPendingStops(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(PENDING_STOPS_KEY) || "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch { return []; }
+}
+function savePendingStops(ids: string[]) {
+  try { localStorage.setItem(PENDING_STOPS_KEY, JSON.stringify(ids.slice(-20))); } catch { /* ignore */ }
+}
+function rememberPendingStop(id: string) {
+  savePendingStops([...new Set([...loadPendingStops(), id])]);
+}
+
 // Sessions this device has finished but the server may still think are open,
 // because our token was rejected before we could post the stop.
 //
@@ -192,12 +248,35 @@ const DAY_TARGET_SECONDS = 8 * 3600;
 
 function startOfToday(): Date { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
 function startOfWeek(): Date { const d = startOfToday(); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return d; }
+// When a session effectively ended.
+//
+// NOT `endedAt ?? Date.now()`. Nothing in this product used to close a session
+// abandoned by a crash, an OS shutdown or a rejected token, so treating a null
+// `endedAt` as "still running" let one forgotten row accrue time indefinitely
+// across every total on this screen. The server now decides where an open session
+// stops — at the last evidence its device was alive — and sends it as
+// `effectiveEndAt`. Fall back to `now` only for a session created locally moments
+// ago that has not registered yet; that one really is running.
+function endMs(s: Session): number {
+  if (s.effectiveEndAt) return new Date(s.effectiveEndAt).getTime();
+  if (s.endedAt) return new Date(s.endedAt).getTime();
+  return Date.now();
+}
 // Signed duration — only for deciding which of two copies of a session to trust.
-function rawSecs(s: Session): number { const e = s.endedAt ? new Date(s.endedAt).getTime() : Date.now(); return (e - new Date(s.startedAt).getTime()) / 1000; }
+function rawSecs(s: Session): number { return (endMs(s) - new Date(s.startedAt).getTime()) / 1000; }
 // Duration for display/aggregation. Clamped: a session can never have run for a
 // negative amount of time, and an unclamped value propagates into every total,
 // bar width and clock on the screen.
-function secs(s: Session): number { return Math.max(0, rawSecs(s)); }
+//
+// Prefers the server's `workedSeconds`, which is the only figure that also nets
+// off idle the member discarded — this client cannot see IdleDiscard rows, which
+// is why "Worked time" in Reports and "Tracked today" here used to disagree.
+function secs(s: Session): number {
+  if (typeof s.workedSeconds === "number") return Math.max(0, s.workedSeconds);
+  return Math.max(0, rawSecs(s));
+}
+/** Still tracking. An open row alone does not prove it — see `abandoned`. */
+function isLive(s: Session): boolean { return !s.endedAt && !s.abandoned; }
 // Seconds of a session that fall inside [fromMs, toMs).
 //
 // Totals are attributed by OVERLAP, never by which day a session started. A
@@ -208,9 +287,28 @@ function secs(s: Session): number { return Math.max(0, rawSecs(s)); }
 // "today" no matter how long ago it started.
 function overlapSecs(s: Session, fromMs: number, toMs: number): number {
   const start = new Date(s.startedAt).getTime();
-  const end = s.endedAt ? new Date(s.endedAt).getTime() : Date.now();
+  const end = endMs(s);
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
-  return Math.max(0, Math.min(end, toMs) - Math.max(start, fromMs)) / 1000;
+  const winFrom = Math.max(start, fromMs);
+  const winTo = Math.min(end, toMs);
+  const inside = Math.max(0, winTo - winFrom) / 1000;
+  if (inside <= 0) return 0;
+
+  // Deducted stretches come off the exact window they happened in.
+  //
+  // `idleSpans` carries the real from/to of each deduction, so a session that ran
+  // Monday to Wednesday with a two-day hole in the middle shows nothing on Tuesday
+  // and its full real hours on Wednesday. Spreading the deduction across the
+  // session instead — which is what a single worked/gross ratio does — reported a
+  // seven-hour Wednesday as under three, and still showed hours on a Tuesday when
+  // the app had not been running at all.
+  const idle = (s.idleSpans ?? []).reduce((a, span) => {
+    const f = new Date(span.from).getTime();
+    const t = new Date(span.to).getTime();
+    return a + Math.max(0, Math.min(t, winTo) - Math.max(f, winFrom)) / 1000;
+  }, 0);
+
+  return Math.max(0, inside - idle);
 }
 // Both formatters clamp too — Math.floor on a small negative yields -1 for each
 // component independently, which is where "-1:-1:-1" came from.
@@ -290,7 +388,10 @@ function ConsentGate({ onLogout }: { onLogout: () => void }) {
 
   function signOut() {
     clearToken();
-    clearLocalSessionsCache();
+    // The local session cache is deliberately NOT wiped here. It is tagged with
+    // its owner, so the next sign-in drops it only if somebody else logs in —
+    // which means this user's own closed-but-unsynced time survives a sign-out
+    // instead of being thrown away before it can reach the server.
     pushSyncAuth();
     onLogout();
   }
@@ -581,11 +682,12 @@ function Login({ onLogin, notice }: { onLogin: () => void; notice?: string | nul
     try {
       const res = await api<{ token: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
       setToken(res.token);
-      // Clear whatever the previous session on this device left cached — this
-      // is the actual re-auth boundary, and it's the one place a different
-      // person logging into a shared/reused install would otherwise inherit
-      // the last user's locally-cached tracked time.
-      clearLocalSessionsCache();
+      // The actual re-auth boundary, and the one place a different person signing
+      // into a shared/reused install would inherit the last user's locally-cached
+      // tracked time. Scoped by owner: somebody else's cache is dropped, this
+      // person's own closed-but-unsynced sessions survive — losing those is what
+      // turned a rejected token into a permanently open server row.
+      clearLocalSessionsCacheUnless(email.trim().toLowerCase());
       notify("TraxStaff", `Signed in as ${email}`);
       onLogin();
     } catch (err) { setError(err instanceof Error ? err.message : "Login failed"); }
@@ -649,7 +751,31 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [tab, setTab] = useState<DashTab>("dashboard");
   const [error, setError] = useState<string | null>(null);
   const [idleBanner, setIdleBanner] = useState<number | null>(null); // "you're idle" hint while away
-  const [idlePrompt, setIdlePrompt] = useState<{ minutes: number; fromISO: string; toISO: string } | null>(null);
+  const [idlePrompt, setIdlePrompt] = useState<{ minutes: number; fromISO: string; toISO: string; deductedSecs?: number } | null>(null);
+  /**
+   * An open session from a previous run that the server no longer believes is
+   * alive — the app was killed, the machine shut down, or a token was rejected
+   * before a stop could be posted.
+   *
+   * It is NOT adopted as the live session. Doing that is what put 39 hours on the
+   * clock the moment the app opened, and banked all of it on the next Start.
+   */
+  const [orphanSession, setOrphanSession] = useState<Session | null>(null);
+  /**
+   * Away stretches currently deducted from the live session, with their wall-clock
+   * spans.
+   *
+   * Needed because the timer is a single monotonic number: it cannot say WHEN the
+   * deducted time was. That matters at a day boundary — a session running from
+   * 22:00 with an overnight suspend would otherwise have the whole deduction
+   * charged against today, under-reporting today by however much of the absence
+   * happened yesterday. Keeping the spans lets the day/week split subtract only the
+   * part of the absence that falls inside the window.
+   *
+   * A span leaves this list when the member adds it back, and the whole list is
+   * dropped when the session ends.
+   */
+  const [awaySpans, setAwaySpans] = useState<{ fromMs: number; toMs: number; secs: number }[]>([]);
   const [resumed, setResumed] = useState<number | null>(null); // suspend gap (minutes)
   const [sync, setSync] = useState<SyncState | null>(null);
   const [hookOk, setHookOk] = useState(true);
@@ -690,9 +816,6 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   // Latest active session, readable from event listeners that register once.
   const activeRef = useRef<Session | null>(null);
   activeRef.current = active;
-  // Auto-resolve unanswered idle prompts to "Keep" after 60 minutes (matching Hubstaff
-  // crash-recovery timeout). Cleared when the user responds to avoid late fires.
-  const idlePromptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Our token was rejected, so this component is about to be replaced by the
   // login screen. Two things must happen first, and neither can wait for a
@@ -710,6 +833,11 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       if (!cur) return;
       stoppedIds.current.add(cur.id);
       rememberStoppedId(cur.id);
+      // The server still thinks this session is open and we cannot tell it
+      // otherwise right now. Record the debt so the next authenticated load()
+      // settles it, instead of leaving a row that only the server-side sweeper
+      // will ever close.
+      rememberPendingStop(cur.id);
       const finished: Session = { ...cur, endedAt: new Date().toISOString() };
       saveLocalSessions(mergeSessions([], [...loadLocalSessions(), finished]));
       invoke("end_capture").catch(() => {});
@@ -817,10 +945,32 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         setIdleBanner(e.payload.minutes);
         if (reminders.current.idle) notify("TraxStaff", `You've been idle for ~${e.payload.minutes} min while tracking.`);
       }),
-      listen<{ minutes: number; fromISO: string; toISO: string }>("trax:idle-ended", async (e) => {
+      // Back from an away stretch (idle past the threshold, or the machine woke).
+      //
+      // Rust has ALREADY taken the away time off the clock, so the timer on screen
+      // is the work done before the member stepped away. This prompt only decides
+      // whether to add it back. The discard is written to the server here too, not
+      // when the prompt is answered, so an admin looking at the dashboard in this
+      // window sees the same number the member does.
+      listen<{ minutes: number; fromISO: string; toISO: string; deductedSecs?: number }>("trax:idle-ended", async (e) => {
         setIdleBanner(null);
         if (e.payload.minutes >= 1) {
           setIdlePrompt(e.payload);
+          const fromMs = new Date(e.payload.fromISO).getTime();
+          const toMs = new Date(e.payload.toISO).getTime();
+          const secs = e.payload.deductedSecs ?? Math.max(0, (toMs - fromMs) / 1000);
+          setAwaySpans((prev) =>
+            prev.some((s) => s.fromMs === fromMs && s.toMs === toMs)
+              ? prev
+              : [...prev, { fromMs, toMs, secs }]
+          );
+          const cur = activeRef.current;
+          if (cur) {
+            api("/sync/discard-idle", {
+              method: "POST",
+              body: JSON.stringify({ sessionId: cur.id, fromISO: e.payload.fromISO, toISO: e.payload.toISO }),
+            }).catch(() => { /* offline: the local deduction stands; retried on Keep/Discard */ });
+          }
           if (reminders.current.idle) notify("TraxStaff", `You were away for ~${e.payload.minutes} min — keep or discard that time?`);
           // Pop the window to the foreground so the user sees the prompt immediately.
           // This matches Hubstaff's behavior: the idle prompt draws attention even if
@@ -842,31 +992,15 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-resolve unanswered idle prompts to "Keep" after 60 minutes (matching Hubstaff's
-  // crash-recovery window). If the user responds before the timeout fires, the timer is
-  // cleared so it never fires late. This ensures a long-dormant prompt doesn't silently
-  // discard time — the safe default is to keep it.
-  useEffect(() => {
-    if (idlePrompt) {
-      // Clear any existing timer (e.g. if a second prompt appears before the first resolves)
-      if (idlePromptTimer.current) clearTimeout(idlePromptTimer.current);
-      // Start a new 60-minute timeout to auto-keep
-      idlePromptTimer.current = setTimeout(() => {
-        setIdlePrompt(null);
-        setResumed(null);
-      }, 60 * 60 * 1000);
-      return () => {
-        // Cleanup: clear timer if this effect re-runs or the component unmounts
-        if (idlePromptTimer.current) clearTimeout(idlePromptTimer.current);
-      };
-    } else {
-      // Prompt was dismissed — clear the timer if it's still running
-      if (idlePromptTimer.current) {
-        clearTimeout(idlePromptTimer.current);
-        idlePromptTimer.current = null;
-      }
-    }
-  }, [idlePrompt]);
+  // An unanswered prompt leaves the away time DISCARDED.
+  //
+  // There is deliberately no auto-resolve timer here any more. The old one
+  // auto-answered "Keep" after 60 minutes, on the reasoning that keeping was the
+  // safe default — but the time was also being counted in the meantime, so an
+  // ignored prompt silently billed a lunch break, and an overnight suspend billed
+  // the night. With the deduction applied up front, silence now means "don't
+  // credit it", and time is only ever added by an explicit Keep. The prompt itself
+  // stays on screen until answered.
 
   // Exit flow: Rust holds the window open while a session is live or the sync
   // queue isn't empty, and emits "app-closing" with { capturing, pending }. We
@@ -963,6 +1097,15 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       // queue keeps draining with the older (eventually dead) credential.
       if (me?.token) { setToken(me.token); pushSyncAuth(); }
       if (me?.role) cacheRole(me.role);
+      // Tag the local session cache with whoever is actually signed in. Covers the
+      // case a login never does: a persisted valid token skips the login screen
+      // entirely, so without this an untagged cache would be discarded the next
+      // time this same person signed in explicitly.
+      if (me?.email) setLocalSessionsOwner(me.email.trim().toLowerCase());
+      // Settle any stop we couldn't post while our token was being rejected. A 409
+      // ("already stopped") is just as final as a 200, so both clear the debt; only
+      // a network failure leaves it queued for the next attempt.
+      void drainPendingStops();
       if (me?.dailyTargetMinutes != null) setDayTarget(me.dailyTargetMinutes * 60);
       if (me?.weeklyTargetMinutes != null) setWeekTarget(me.weeklyTargetMinutes * 60);
       // Refresh the capture policy here too, not only after a session registers.
@@ -976,7 +1119,25 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       if (p[0] && !projectId) setProjectId(p[0].id);
       // Resume a genuinely-open session (e.g. after a crash) — but never when we
       // already have a live local session, and never a session we just stopped.
-      const open = s.find((x) => !x.endedAt && !stoppedIds.current.has(x.id));
+      //
+      // "Genuinely open" now means the server still considers it alive. This used
+      // to be `!x.endedAt` alone, which adopted ANY open row and then seeded the
+      // timer with raw wall-clock since `startedAt` — so opening the app on
+      // Wednesday silently resumed Monday evening's session with 39 hours already
+      // on the clock, and pressing Start banked all of it. An abandoned row is
+      // offered instead (see `orphan` below), never resumed behind the user's back.
+      //
+      // Most recent first, not `find`: with more than one open row, adopting an
+      // arbitrary one leaves the others accruing (plans/checklist.md §1.5).
+      const openCandidates = s
+        .filter((x) => !x.endedAt && !stoppedIds.current.has(x.id))
+        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+      const open = openCandidates.find(isLive);
+      const orphan = openCandidates.find((x) => !isLive(x));
+      // An unfinished session from a previous run: ask, don't assume. Skipped
+      // while something is already tracking — the prompt would be about a row the
+      // takeover on the next start will close anyway.
+      setOrphanSession(orphan && !activeRef.current && !open ? orphan : null);
       if (open && !activeRef.current) {
         setActive(open); setProjectId(open.projectId); if (open.taskId) setTaskId(open.taskId);
         // Restart native capture for the resumed session, seeding the timer from
@@ -1006,7 +1167,10 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   // In browser-preview (no Tauri) fall back to a local clock; and on focus we
   // hard-correct from Rust in case the webview throttled the tick stream.
   useEffect(() => {
-    if (!active) { elapsedAnchor.current = null; setElapsed(0); return; }
+    // Away spans belong to one session's timer. Clearing them alongside `elapsed`
+    // keeps the two consistent: Rust resets its own deduction in begin(), so a
+    // leftover span here would subtract from a window it no longer applies to.
+    if (!active) { elapsedAnchor.current = null; setElapsed(0); setAwaySpans([]); return; }
     const startMs = new Date(active.startedAt).getTime();
     // Clamped: a startedAt slightly in the future (clock skew) must not show a
     // negative or backwards-running timer.
@@ -1061,6 +1225,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     showToast(`Tracking ${proj?.name ?? "project"}`);
     if (reminders.current.timer) notify("TraxStaff", `Started timer for project ${proj?.name ?? "project"}`);
     // Timer starts now, off the local monotonic clock — never waits on Render.
+    setAwaySpans([]);
     setActive({
       id: sid, projectId: useProject, taskId: taskForSession ?? null, startedAt, endedAt: null,
       project: { id: useProject, name: proj?.name ?? "Project", clientTag: proj?.clientTag ?? null },
@@ -1117,6 +1282,66 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     }
   }
 
+  /**
+   * Post the stops we owe from a 401, oldest first.
+   *
+   * `abrupt_exit`, not `stopped`: the app was signed out from under the session
+   * rather than stopped by the member. The server finalizes it at the last evidence
+   * of life, so a stop arriving hours late credits the work that actually happened,
+   * not the gap since.
+   */
+  async function drainPendingStops() {
+    const pending = loadPendingStops();
+    if (pending.length === 0) return;
+    const unsettled: string[] = [];
+    for (const id of pending) {
+      try {
+        await api(`/sessions/${id}/stop`, { method: "POST", body: JSON.stringify({ endReason: "abrupt_exit" }) });
+      } catch (e) {
+        // 404 (gone) and 409 (already stopped) are both settled. Anything else —
+        // offline, 5xx — stays queued.
+        const status = e instanceof ApiError ? e.status : 0;
+        if (status !== 404 && status !== 409) unsettled.push(id);
+      }
+    }
+    savePendingStops(unsettled);
+  }
+
+  /**
+   * Resolve an unfinished session found at startup.
+   *
+   * Both answers close the row — the question is only what it should be credited
+   * with, and neither answer may ever credit the hours the app was not running.
+   *
+   * `keep`  → the work up to the last evidence the tracker was alive. That is what
+   *           the server already computed as `effectiveEndAt`, so posting a plain
+   *           stop is enough: the takeover/sweep logic finalizes it there, not at
+   *           `now`.
+   * discard → nothing. The row is closed at its own start, so it contributes zero.
+   *
+   * Either way it goes into `stoppedIds` so a `load()` racing this can't re-offer
+   * or re-adopt it.
+   */
+  async function resolveOrphan(keep: boolean) {
+    const o = orphanSession;
+    setOrphanSession(null);
+    if (!o) return;
+    stoppedIds.current.add(o.id);
+    rememberStoppedId(o.id);
+    try {
+      await api(`/sessions/${o.id}/stop`, {
+        method: "POST",
+        body: JSON.stringify({ endReason: "abrupt_exit", discard: !keep }),
+      });
+      showToast(keep ? "Unfinished session kept" : "Unfinished session discarded");
+    } catch {
+      // Offline: the server-side sweeper closes it at the same instant we would
+      // have, so nothing is lost by failing quietly here.
+      showToast("We'll finish tidying that up when you're back online");
+    }
+    load();
+  }
+
   // LOCAL-FIRST stop: end the timer + capture instantly (capture finalizes to the
   // local queue, no network); the server is told in the background.
   async function stop() {
@@ -1144,7 +1369,8 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   async function signOut() {
     if (activeRef.current) { try { await stop(); } catch { /* stop best-effort */ } }
     clearToken();
-    clearLocalSessionsCache();
+    // Cache kept — it is owner-tagged, and the next sign-in clears it if the
+    // person changes. See clearLocalSessionsCacheUnless().
     pushSyncAuth(); // clear the sync engine's credentials
     onLogout();
   }
@@ -1166,19 +1392,48 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
     try { localStorage.setItem("trax_reminders", JSON.stringify(merged)); } catch { /* ignore */ }
   }
 
-  // Discard an idle stretch server-side (subtracts from worked time; never
-  // touches the activity hash-chain). Keep = just dismiss. Also clears the
-  // "woke from sleep" banner so they don't stack.
+  /**
+   * Answer the away-time prompt.
+   *
+   * The away stretch is ALREADY off the clock and already recorded as an
+   * IdleDiscard by the time this runs, so the two answers are:
+   *
+   * discard → confirm. Nothing to do but re-sync; the deduction stands. If the
+   *           POST at detection failed (offline), retry it here.
+   * keep    → undo. Credit the seconds back to the local timer and delete the
+   *           server-side discard.
+   *
+   * Inverted from how this used to work, where the time was kept unless the member
+   * objected — and an unanswered prompt auto-kept after an hour, silently billing
+   * a lunch break or an overnight suspend. Time is now credited only by an explicit
+   * Keep. Never touches the activity hash-chain either way.
+   */
   async function resolveIdle(discard: boolean) {
     const p = idlePrompt;
     setIdlePrompt(null);
     setResumed(null); // dismiss the associated wake-from-sleep banner if any
-    if (!discard || !p || !activeRef.current) return;
+    const cur = activeRef.current;
+    if (!p || !cur) return;
     try {
-      await api("/sync/discard-idle", { method: "POST", body: JSON.stringify({ sessionId: activeRef.current.id, fromISO: p.fromISO, toISO: p.toISO }) });
-      if (reminders.current.idle) notify("TraxStaff", `Discarded ~${p.minutes} min of idle time`);
+      if (discard) {
+        // Idempotent server-side on the exact span, so re-posting is safe.
+        await api("/sync/discard-idle", { method: "POST", body: JSON.stringify({ sessionId: cur.id, fromISO: p.fromISO, toISO: p.toISO }) });
+        if (reminders.current.idle) notify("TraxStaff", `Discarded ~${p.minutes} min of idle time`);
+      } else {
+        // Local first: the member sees the clock jump back immediately even if the
+        // network call fails, and Rust is the source of truth for the timer.
+        await invoke("keep_away_time", { secs: p.deductedSecs ?? 0 }).catch(() => {});
+        const fromMs = new Date(p.fromISO).getTime();
+        const toMs = new Date(p.toISO).getTime();
+        setAwaySpans((prev) => prev.filter((s) => !(s.fromMs === fromMs && s.toMs === toMs)));
+        await api("/sync/keep-idle", { method: "POST", body: JSON.stringify({ sessionId: cur.id, fromISO: p.fromISO, toISO: p.toISO }) });
+        if (reminders.current.idle) notify("TraxStaff", `Kept ~${p.minutes} min of away time`);
+      }
       load();
-    } catch { /* best-effort */ }
+    } catch {
+      // Best-effort: the local decision has already been applied, and the server
+      // copy converges on the next successful call.
+    }
   }
 
   // Server + local sessions, deduped by id, limited to this week. This is what
@@ -1210,8 +1465,31 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   // the boundary. Deriving it from wall-clock arithmetic instead would hand back
   // the clock-tampering hole the monotonic anchor exists to close.
   const activeStartMs = active ? new Date(active.startedAt).getTime() : 0;
-  const activeSince = (boundaryMs: number) =>
-    active ? Math.max(0, elapsed - Math.max(0, (boundaryMs - activeStartMs) / 1000)) : 0;
+  /** Seconds of away time deducted from the live session that fall inside a window. */
+  const awayInWindow = (fromMs: number, toMs: number) =>
+    awaySpans.reduce(
+      (a, s) => a + Math.max(0, Math.min(s.toMs, toMs) - Math.max(s.fromMs, fromMs)) / 1000,
+      0
+    );
+  const awayTotal = awaySpans.reduce((a, s) => a + s.secs, 0);
+  /**
+   * The part of the live session that belongs after `boundaryMs`.
+   *
+   * `elapsed` arrives already net of away time, and a single number can't say when
+   * that time was — so the away deduction has to be re-applied per window rather
+   * than assumed to sit after the boundary. Add the total back to recover the raw
+   * monotonic duration, cut it at the boundary, then subtract only the absence that
+   * actually falls inside the window.
+   *
+   * Without this, a session running from 22:00 through an overnight suspend had the
+   * entire night deducted from *today*, and today read hours short.
+   */
+  const activeSince = (boundaryMs: number) => {
+    if (!active) return 0;
+    const rawSinceBoundary =
+      elapsed + awayTotal - Math.max(0, (boundaryMs - activeStartMs) / 1000);
+    return Math.max(0, rawSinceBoundary - awayInWindow(boundaryMs, nowMs));
+  };
 
   const liveToday = workedToday + activeSince(dayStartMs);
   const workedWeek = workedWeekClosed + activeSince(weekStartMs);
@@ -1281,15 +1559,40 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         </div>
       )}
 
+      {/* An unfinished session from a previous run.
+          Shown INSTEAD of resuming it, which is what the app used to do silently —
+          adopting Monday evening's abandoned session on Wednesday morning and
+          putting 39 hours on the clock before anyone had pressed anything. Both
+          answers close the row; the only question is whether the work up to the
+          last sign of life counts. */}
+      {orphanSession && !active && (
+        <div className="idle-banner">
+          <span>
+            We found an unfinished session on {orphanSession.project?.name ?? "a project"} from{" "}
+            {fmtD(orphanSession.startedAt)} at {fmtT(orphanSession.startedAt)} — TraxStaff closed
+            before it could stop. Keep the {fmtShort(secs(orphanSession))} it recorded?
+          </span>
+          <div className="idle-actions">
+            <button className="idle-keep" onClick={() => resolveOrphan(true)}>Keep it</button>
+            <button className="idle-stop" onClick={() => resolveOrphan(false)}>Discard</button>
+          </div>
+        </div>
+      )}
+
       {/* Idle keep/discard prompt on return from being away or waking from sleep.
           Prioritize this over the informational "woke from sleep" banner since
           this one is actionable and covers both idle + sleep scenarios. */}
+      {/* The away time is already OFF the clock — the wording has to say so, or
+          "Keep" reads as "leave things as they are" when it actually adds time
+          back. */}
       {idlePrompt && active && (
         <div className="idle-banner">
-          <span>You were away for ~{idlePrompt.minutes} min. Keep that time or discard it?</span>
+          <span>
+            You were away for ~{idlePrompt.minutes} min, so it&rsquo;s not counted. Add it back?
+          </span>
           <div className="idle-actions">
-            <button className="idle-keep" onClick={() => resolveIdle(false)}>Keep</button>
-            <button className="idle-stop" onClick={() => resolveIdle(true)}>Discard idle</button>
+            <button className="idle-keep" onClick={() => resolveIdle(false)}>Add it back</button>
+            <button className="idle-stop" onClick={() => resolveIdle(true)}>Leave it out</button>
           </div>
         </div>
       )}
@@ -1299,7 +1602,7 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
           is showing to avoid duplicate alerts. */}
       {resumed !== null && active && !idlePrompt && (
         <div className="idle-banner">
-          <span>Your computer was asleep for ~{resumed} min.</span>
+          <span>Your computer was asleep for ~{resumed} min — that time isn&rsquo;t counted.</span>
           <div className="idle-actions">
             <button className="idle-keep" onClick={() => setResumed(null)}>Keep tracking</button>
             <button className="idle-stop" onClick={() => { setResumed(null); stop(); }}>Stop</button>
@@ -1392,8 +1695,19 @@ function TrackingWidget(props: {
   const { projects, active, workedToday, workedWeek, today, dayTarget, weekTarget, elapsed, onStart, onStop, error, onRefresh, lastUpdated, expanded, onToggleExpand, sync, onAddNote, settingsOpen, onToggleSettings, reminders, onUpdateReminders, shotCount } = props;
   const [q, setQ] = useState("");
 
+  // This project's time TODAY.
+  //
+  // By overlap, not `secs(s)`. `today` holds every session that overlaps today —
+  // including one that began yesterday and ran through midnight — and summing
+  // whole durations charged all of that to today. A session left open on Monday
+  // and closed on Wednesday put its entire 39h50m on this row, which is where the
+  // "39:57:14" against a project came from.
+  const dayStartMs = startOfToday().getTime();
+  const nowMs = Date.now();
   const secsToday = (pid: string) =>
-    today.filter((s) => s.projectId === pid).reduce((a, s) => a + secs(s), 0);
+    today
+      .filter((s) => s.projectId === pid)
+      .reduce((a, s) => a + overlapSecs(s, dayStartMs, nowMs), 0);
 
   const list = projects
     .filter((p) => !p.archivedAt && p.name.toLowerCase().includes(q.toLowerCase()))
@@ -1404,6 +1718,8 @@ function TrackingWidget(props: {
     <div className="widget">
       <div className="widget-brand"><img src="/brand/icon-badge.svg" alt="TraxStaff" className="brand-mark" /></div>
 
+      {/* Today's total, Hubstaff-style — not the session clock. It rolls over at
+          local midnight; see the minute ticker in Tracker(). */}
       <CircularTimer seconds={workedToday} targetSeconds={dayTarget} active={Boolean(active)} onToggle={() => (active ? onStop() : onStart())} />
 
       {active && (
@@ -1412,9 +1728,18 @@ function TrackingWidget(props: {
         </div>
       )}
 
+      {/* The ring above IS today's total, and it resets at midnight. "Tracked
+          today" used to sit here repeating it digit for digit, so the two could
+          never disagree — which is exactly why cross-checking them revealed
+          nothing when a phantom session was inflating both. "This session" is the
+          live clock instead: a session total that disagrees with the day total is
+          now visible on sight. */}
       <div className="widget-stats">
         <div className="ws-item"><span className="wm-label">This week</span><span className="wm-val">{fmtClock(workedWeek)}</span></div>
-        <div className="ws-item"><span className="wm-label">Tracked today</span><span className="wm-val">{fmtClock(workedToday)}</span></div>
+        <div className="ws-item">
+          <span className="wm-label">This session</span>
+          <span className="wm-val">{active ? fmtClock(elapsed) : "—"}</span>
+        </div>
       </div>
 
       <div className="proj-search">
@@ -1583,21 +1908,40 @@ function DesktopDashboard({ projects, week, workedWeek, weekTarget, onViewActivi
       .catch(() => {});
   }, [week]);
 
+  // Hours per weekday, split across the days a session actually spans.
+  //
+  // This used to charge `secs(s)` entirely to the day the session STARTED. With a
+  // session running from Monday evening to Wednesday morning, that put ~40 hours on
+  // a single Monday bar and left Tuesday and Wednesday empty — the spike-then-flat
+  // shape in the performance chart. A day boundary is not a bucketing detail here;
+  // it is the whole point of a per-day chart.
   const daily = useMemo(() => {
     const days = new Array(7).fill(0);
     const base = startOfWeek().getTime();
-    for (const s of week) {
-      const idx = Math.floor((new Date(s.startedAt).getTime() - base) / 86400000);
-      if (idx >= 0 && idx < 7) days[idx] += secs(s) / 3600;
+    const nowMs = Date.now();
+    for (let i = 0; i < 7; i++) {
+      const from = base + i * 86400000;
+      const to = Math.min(from + 86400000, nowMs);
+      if (to <= from) continue;
+      for (const s of week) days[i] += overlapSecs(s, from, to) / 3600;
     }
     return days;
   }, [week]);
 
   const perProject = useMemo(() => {
     const by = new Map<string, { name: string; secs: number; last: number }>();
+    const weekStartMs = startOfWeek().getTime();
+    const nowMs = Date.now();
     for (const s of week) {
       const e = by.get(s.projectId) ?? { name: s.project.name, secs: 0, last: 0 };
-      e.secs += secs(s); e.last = Math.max(e.last, new Date(s.endedAt ?? s.startedAt).getTime());
+      // Only this week's share — `week` now includes sessions that began before
+      // the week and ran into it, so whole-session totals would import last
+      // week's hours into this week's breakdown.
+      e.secs += overlapSecs(s, weekStartMs, nowMs);
+      // Last activity, used below to show a project as currently active. Bounded
+      // by the server's view of the end, so an abandoned session doesn't leave a
+      // project looking live indefinitely.
+      e.last = Math.max(e.last, endMs(s));
       by.set(s.projectId, e);
     }
     return [...by.values()].sort((a, b) => b.secs - a.secs);
@@ -1973,7 +2317,16 @@ function TimesheetsPage({ week }: { week: Session[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeKey, range.from.getTime(), range.to.getTime(), week]);
 
-  const inRange = (s: Session) => { const t = new Date(s.startedAt).getTime(); return t >= range.from.getTime() && t <= range.to.getTime(); };
+  // Admit anything that OVERLAPS the range, not just what started inside it — a
+  // shift begun the previous evening belongs on this timesheet, and filtering by
+  // start instant hid it completely.
+  //
+  // Durations here stay per-ENTRY rather than per-range share: this is a list of
+  // time entries showing each one's real start and end, so a row must show the
+  // duration between those two times, and the day subtotals must sum the rows
+  // above them. The range-scoped view of the same data is the Reports page.
+  const inRange = (s: Session) =>
+    overlapSecs(s, range.from.getTime(), range.to.getTime()) > 0;
   const rows = (sub === "approvals" ? fetched.filter((s) => s.isManual || s.tamperSuspected) : fetched).filter(inRange);
   const total = rows.reduce((a, s) => a + secs(s), 0);
   const trackedTotal = rows.filter((s) => !s.isManual).reduce((a, s) => a + secs(s), 0);
@@ -1996,7 +2349,12 @@ function TimesheetsPage({ week }: { week: Session[] }) {
         <div className="ts-row" key={s.id}>
           <span className="ts-proj">{s.project.name}{s.project.clientTag ? <em className="ts-client"> · {s.project.clientTag}</em> : ""}{s.task ? ` — ${s.task.title}` : ""}</span>
           <span className={`chip-prio ${s.tamperSuspected ? "urgent" : s.isManual ? "" : "lowest"}`}>{s.tamperSuspected ? "Review" : s.isManual ? "Manual" : "Tracked"}</span>
-          <span className="ts-time">{fmtT(s.startedAt)}{s.endedAt ? `–${fmtT(s.endedAt)}` : " · running"}</span>
+          {/* An open row is only "running" if it is still proving it — otherwise it
+              was left behind, and the server tells us where it really ended. */}
+          <span className="ts-time">
+            {fmtT(s.startedAt)}
+            {s.endedAt ? `–${fmtT(s.endedAt)}` : isLive(s) ? " · running" : `–${fmtT(new Date(endMs(s)).toISOString())} · unfinished`}
+          </span>
           <span className="ts-dur">{fmtShort(secs(s))}</span>
         </div>
       ))}
@@ -2348,21 +2706,29 @@ function ReportsPage({ week }: { week: Session[] }) {
   }, []);
 
   const weekStart = useMemo(() => startOfWeek(), []);
-  const trackedTotal = week.filter((s) => !s.isManual).reduce((a, s) => a + secs(s), 0);
-  const manualTotal = week.filter((s) => s.isManual).reduce((a, s) => a + secs(s), 0);
+  // This is a RANGE report, so every figure is the range's share — `week` now
+  // includes sessions that began before the week and ran into it, and summing
+  // whole durations would import last week's hours into this week's totals.
+  const weekStartMs = weekStart.getTime();
+  const nowMs = Date.now();
+  const trackedTotal = week.filter((s) => !s.isManual).reduce((a, s) => a + overlapSecs(s, weekStartMs, nowMs), 0);
+  const manualTotal = week.filter((s) => s.isManual).reduce((a, s) => a + overlapSecs(s, weekStartMs, nowMs), 0);
 
-  // per-day tracked-vs-manual stacked bars
+  // per-day tracked-vs-manual stacked bars, split across the days each session
+  // actually spans rather than charged whole to the day it started
   const daily = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(weekStart); d.setDate(d.getDate() + i);
-      const list = week.filter((s) => new Date(s.startedAt).toDateString() === d.toDateString());
+      const from = weekStartMs + i * 86400000;
+      const to = Math.min(from + 86400000, nowMs);
+      const share = (s: Session) => (to > from ? overlapSecs(s, from, to) : 0);
       return {
         dow: DOW[i],
-        tracked: list.filter((s) => !s.isManual).reduce((a, s) => a + secs(s), 0),
-        manual: list.filter((s) => s.isManual).reduce((a, s) => a + secs(s), 0),
+        tracked: week.filter((s) => !s.isManual).reduce((a, s) => a + share(s), 0),
+        manual: week.filter((s) => s.isManual).reduce((a, s) => a + share(s), 0),
       };
     });
-  }, [week, weekStart]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [week, weekStartMs]);
   const maxDay = Math.max(1, ...daily.map((d) => d.tracked + d.manual));
 
   // grouped table rows
@@ -2372,17 +2738,35 @@ function ReportsPage({ week }: { week: Session[] }) {
         .sort((a, b) => b.seconds - a.seconds);
     }
     const g = new Map<string, { seconds: number; count: number }>();
-    for (const s of week) {
-      const key = group === "day"
-        ? new Date(s.startedAt).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })
-        : s.task?.title ?? `${s.project.name} (no task)`;
-      const cur = g.get(key) ?? { seconds: 0, count: 0 };
-      cur.seconds += secs(s); cur.count += 1;
-      g.set(key, cur);
+    if (group === "day") {
+      // A day row must hold the time worked ON that day. Grouping by the session's
+      // start day put a whole multi-day session on one date — the same defect that
+      // produced a 40-hour Monday in the chart above.
+      for (let i = 0; i < 7; i++) {
+        const from = weekStartMs + i * 86400000;
+        const to = Math.min(from + 86400000, nowMs);
+        if (to <= from) continue;
+        const key = new Date(from).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+        for (const s of week) {
+          const share = overlapSecs(s, from, to);
+          if (share <= 0) continue;
+          const cur = g.get(key) ?? { seconds: 0, count: 0 };
+          cur.seconds += share; cur.count += 1;
+          g.set(key, cur);
+        }
+      }
+    } else {
+      for (const s of week) {
+        const key = s.task?.title ?? `${s.project.name} (no task)`;
+        const cur = g.get(key) ?? { seconds: 0, count: 0 };
+        cur.seconds += overlapSecs(s, weekStartMs, nowMs); cur.count += 1;
+        g.set(key, cur);
+      }
     }
     return [...g.entries()].map(([label, v]) => ({ label, seconds: v.seconds, meta: `${v.count} session${v.count > 1 ? "s" : ""}` }))
       .sort((a, b) => b.seconds - a.seconds);
-  }, [group, byProj, week]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group, byProj, week, weekStartMs]);
   const maxRow = Math.max(1, ...grouped.map((r) => r.seconds));
 
   return (

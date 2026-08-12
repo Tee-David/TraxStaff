@@ -44,6 +44,60 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 static LAST_INPUT: AtomicI64 = AtomicI64::new(0);
 static IDLE_NOTIFIED: AtomicBool = AtomicBool::new(false);
 static LAST_TICK_WALL: AtomicI64 = AtomicI64::new(0);
+
+// ── Away time ───────────────────────────────────────────────────────────────
+//
+// Seconds deducted from the running timer because the member wasn't there — an
+// idle stretch past the org's threshold, or the machine asleep. Both mean the
+// same thing and are accounted identically.
+//
+// Deducted the moment they return, BEFORE they answer the keep/discard prompt, so
+// the clock shows the work they actually did rather than a total that quietly
+// includes the hours they were away. "Keep" adds it back via `credit_away`.
+//
+// The clock keeping the away time and only removing it if asked was the wrong
+// default: an unanswered prompt (auto-resolved to Keep after an hour) silently
+// billed a lunch break or an overnight.
+static AWAY_SECS: AtomicI64 = AtomicI64::new(0);
+// High-water mark of away time already accounted for, as a unix timestamp.
+//
+// Two code paths detect the same absence — the suspend branch in `tick()` fires at
+// wake, and `on_input` fires on the first keypress after it — so without a
+// watermark a single nap would be deducted twice.
+static AWAY_ACCOUNTED_TO: AtomicI64 = AtomicI64::new(0);
+
+/// Deduct the part of [from, to] not already deducted. Returns the seconds newly
+/// taken off the clock, or 0 if this span was already covered.
+fn account_away(from_secs: i64, to_secs: i64) -> i64 {
+    if to_secs <= from_secs {
+        return 0;
+    }
+    let watermark = AWAY_ACCOUNTED_TO.load(Ordering::Relaxed);
+    if to_secs <= watermark {
+        return 0;
+    }
+    let start = from_secs.max(watermark);
+    let secs = to_secs - start;
+    if secs <= 0 {
+        return 0;
+    }
+    AWAY_SECS.fetch_add(secs, Ordering::Relaxed);
+    AWAY_ACCOUNTED_TO.store(to_secs, Ordering::Relaxed);
+    secs
+}
+
+/// Put away seconds back on the clock — the member chose "Keep".
+///
+/// Clamped at zero: a duplicated Keep must not credit time that was never
+/// deducted, which would turn the prompt into a way to inflate the timer.
+pub fn credit_away(secs: i64) {
+    if secs <= 0 {
+        return;
+    }
+    let _ = AWAY_SECS.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
+        Some((cur - secs).max(0))
+    });
+}
 // Whether the rdev input hook is delivering events. Starts true; the supervisor
 // flips it false if the listener dies so the UI can warn that activity % is 0.
 static INPUT_HOOK_OK: AtomicBool = AtomicBool::new(true);
@@ -202,14 +256,22 @@ pub fn on_input(is_keyboard: bool) {
     // Returning from an idle stretch we already notified about → offer the
     // keep/discard prompt for the gap (from last input to now).
     if IDLE_NOTIFIED.swap(false, Ordering::Relaxed) && prev > 0 {
-        emit(
-            "trax:idle-ended",
-            serde_json::json!({
-                "minutes": (sec - prev) / 60,
-                "fromISO": iso_ts(prev),
-                "toISO": iso_ts(sec),
-            }),
-        );
+        // Take it off the clock first, then ask. The prompt carries the exact number
+        // of seconds deducted so "Keep" can put back precisely that much — deriving
+        // it again from the timestamps would drift if the two paths disagreed about
+        // where the span started.
+        let deducted = account_away(prev, sec);
+        if deducted > 0 {
+            emit(
+                "trax:idle-ended",
+                serde_json::json!({
+                    "minutes": (sec - prev) / 60,
+                    "fromISO": iso_ts(prev),
+                    "toISO": iso_ts(sec),
+                    "deductedSecs": deducted,
+                }),
+            );
+        }
     }
     if let Ok(mut guard) = CAPTURE.lock() {
         if let Some(c) = guard.as_mut() {
@@ -252,6 +314,10 @@ pub fn begin(
     LAST_INPUT.store(now, Ordering::Relaxed);
     LAST_TICK_WALL.store(now, Ordering::Relaxed);
     IDLE_NOTIFIED.store(false, Ordering::Relaxed);
+    // Away accounting is per session. Carrying a previous session's deduction over
+    // would take time off a timer that never had it.
+    AWAY_SECS.store(0, Ordering::Relaxed);
+    AWAY_ACCOUNTED_TO.store(now, Ordering::Relaxed);
     // Recover from a poisoned mutex (a panic while a previous block finalized)
     // instead of leaving CAPTURE empty — otherwise ACTIVE would be true with no
     // state behind it and the timer would report 0 forever.
@@ -292,10 +358,16 @@ pub fn end() {
 /// wall-clock changes and webview throttling). `None` when there is no live
 /// capture state, so callers can distinguish "no session" from "zero seconds".
 fn live_elapsed_secs() -> Option<i64> {
-    CAPTURE
-        .lock()
-        .ok()
-        .and_then(|g| g.as_ref().map(|c| c.base_elapsed_secs + c.anchor.elapsed().as_secs() as i64))
+    CAPTURE.lock().ok().and_then(|g| {
+        g.as_ref().map(|c| {
+            let raw = c.base_elapsed_secs + c.anchor.elapsed().as_secs() as i64;
+            // Net of time the member was away. `anchor` is an Instant, which on
+            // Windows keeps counting through sleep and hibernate (see clock.rs), so
+            // the raw value bills an overnight suspend as worked time. Floored at 0
+            // so an over-deduction can never run the clock backwards.
+            (raw - AWAY_SECS.load(Ordering::Relaxed)).max(0)
+        })
+    })
 }
 
 /// Same, but 0 when there's no session (for the `get_elapsed` command).
@@ -328,15 +400,27 @@ pub fn tick() {
         let gap = now_ts - prev_tick;
         // Informational: let the UI know the machine woke from sleep
         emit("trax:resumed", serde_json::json!({ "gapSecs": gap }));
-        // Actionable: offer the keep/discard prompt for the sleep gap (just like idle)
-        emit(
-            "trax:idle-ended",
-            serde_json::json!({
-                "minutes": gap / 60,
-                "fromISO": iso_ts(prev_tick),
-                "toISO": iso_ts(now_ts),
-            }),
-        );
+        // Deduct the sleep before offering the prompt, exactly as for idle. The
+        // monotonic anchor counts through suspend on Windows, so without this the
+        // timer bills every hour the lid was shut. `account_away` also stops the
+        // first keypress after wake deducting the same nap a second time.
+        let deducted = account_away(prev_tick, now_ts);
+        if deducted > 0 {
+            // Actionable: offer the keep/discard prompt for the sleep gap.
+            emit(
+                "trax:idle-ended",
+                serde_json::json!({
+                    "minutes": gap / 60,
+                    "fromISO": iso_ts(prev_tick),
+                    "toISO": iso_ts(now_ts),
+                    "deductedSecs": deducted,
+                }),
+            );
+        }
+        // The idle notification (if any) is consumed by this span — clearing it
+        // stops on_input raising a second, overlapping prompt for the same absence.
+        IDLE_NOTIFIED.store(false, Ordering::Relaxed);
+        LAST_INPUT.store(now_ts, Ordering::Relaxed);
         finalize_block(false);
     }
 
@@ -795,11 +879,21 @@ pub async fn end_capture() {
     let _ = tauri::async_runtime::spawn_blocking(end).await;
 }
 
-/// Seconds elapsed in the running session (monotonic). The UI polls this on
-/// focus/visibility to correct a webview timer that was throttled while hidden.
+/// Seconds elapsed in the running session (monotonic, net of away time). The UI
+/// polls this on focus/visibility to correct a webview timer that was throttled
+/// while hidden.
 #[tauri::command]
 pub fn get_elapsed() -> i64 {
     elapsed_secs()
+}
+
+/// Put an away stretch back on the clock — the member answered "Keep".
+///
+/// `secs` is the `deductedSecs` from the `trax:idle-ended` payload, so the credit
+/// is exactly what was taken off rather than a fresh guess from the timestamps.
+#[tauri::command]
+pub fn keep_away_time(secs: i64) {
+    credit_away(secs);
 }
 
 /// The most recent screenshots captured on this device, newest first, as inline

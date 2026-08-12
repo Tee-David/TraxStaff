@@ -179,6 +179,7 @@ pub fn run() {
             capture::begin_capture,
             capture::end_capture,
             capture::get_elapsed,
+            capture::keep_away_time,
             capture::capture_health,
             capture::local_shots,
             sync::set_sync_auth,

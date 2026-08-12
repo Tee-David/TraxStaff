@@ -117,6 +117,32 @@ export interface Session {
   taskId: string | null;
   startedAt: string;
   endedAt: string | null;
+  /**
+   * Where this session effectively ends, decided server-side. Equals `endedAt`
+   * when closed; for an open session it is "now" while the device is still
+   * heartbeating and the LAST EVIDENCE OF LIFE once it isn't.
+   *
+   * Every total on this screen used to compute `endedAt ?? Date.now()`, and
+   * nothing in the system ever closed a session abandoned by a crash, a shutdown
+   * or a rejected token. So one forgotten row grew by sixty seconds a minute
+   * forever — which is how seven minutes of tracking displayed as 44h58m.
+   *
+   * Optional: a locally-created session that hasn't registered yet has no server
+   * opinion, and an older backend won't send it.
+   */
+  effectiveEndAt?: string;
+  /** Bounded wall clock minus idle the member discarded. The canonical duration. */
+  workedSeconds?: number;
+  /** Open, but no longer proving it is alive — left behind, not running. */
+  abandoned?: boolean;
+  /**
+   * Stretches deducted from this session, with their real spans.
+   *
+   * Needed to attribute a deduction to the day/hour it actually happened in. Only
+   * the total (`workedSeconds`) is not enough: a session spanning several days with
+   * one long hole in it would otherwise have that hole smeared across all of them.
+   */
+  idleSpans?: { from: string; to: string; seconds: number }[];
   deviceId?: string;
   isManual?: boolean;
   tamperSuspected?: boolean;

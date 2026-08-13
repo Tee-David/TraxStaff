@@ -114,10 +114,19 @@ jobs:
           node -e "
           const fs=require('fs'), path=require('path');
           const dir=path.join('src-tauri/target/release/bundle','${{ matrix.bundle }}');
-          const files=fs.readdirSync(dir);
-          const sig=files.find(f=>f.endsWith('.sig'));
-          const art=files.find(f=>!f.endsWith('.sig'));
+          // Match the installer by its known extension, and only consider real
+          // files. This used to take the first entry that was not a .sig, which on
+          // Linux is the TraxStaff.AppDir *directory* — it sorts before the
+          // .AppImage, so every latest.json has pointed Linux updaters at a URL
+          // that 404s since the updater was added. Windows has only the installer
+          // in its bundle dir, which is why it was never noticed.
+          const want='${{ matrix.installer }}'.replace('*','');
+          const files=fs.readdirSync(dir).filter(f=>fs.statSync(path.join(dir,f)).isFile());
+          const art=files.find(f=>f.endsWith(want));
+          // The signature must be THIS artifact's, not merely the first .sig present.
+          const sig=art&&files.includes(art+'.sig')?art+'.sig':null;
           if(!art||!sig){console.error('missing artifact/sig in '+dir,files);process.exit(1);}
+          console.log('updater artifact: '+art);
           fs.writeFileSync('fragment-${{ matrix.platform }}.json',JSON.stringify({
             '${{ matrix.platform }}':{
               signature:fs.readFileSync(path.join(dir,sig),'utf8').trim(),

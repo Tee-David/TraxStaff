@@ -60,7 +60,7 @@ export function formatReleaseDate(iso: string | null): string | null {
 
 // Public fallback so a caller never dead-ends even if the API route itself
 // is unreachable (not just GitHub) — this is just the releases page.
-export const RELEASES_FALLBACK_URL = "https://github.com/Tee-David/trax/releases";
+export const RELEASES_FALLBACK_URL = "https://github.com/Tee-David/TraxStaff/releases";
 
 /**
  * Fetches `/api/releases/latest` and tracks load state. Both the dashboard

@@ -121,7 +121,7 @@ jobs:
           fs.writeFileSync('fragment-${{ matrix.platform }}.json',JSON.stringify({
             '${{ matrix.platform }}':{
               signature:fs.readFileSync(path.join(dir,sig),'utf8').trim(),
-              url:'https://github.com/Tee-David/trax/releases/download/'+process.env.GITHUB_REF_NAME+'/'+art,
+              url:'https://github.com/Tee-David/TraxStaff/releases/download/'+process.env.GITHUB_REF_NAME+'/'+art,
             }
           },null,2));
           "

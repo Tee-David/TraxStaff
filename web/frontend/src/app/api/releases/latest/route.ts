@@ -21,7 +21,11 @@ import type { LatestRelease } from "@/lib/releases";
  * than breaking the download button.
  */
 
-const REPO = "Tee-David/trax";
+// The repository was renamed trax → TraxStaff. The old path still works only
+// because GitHub redirects renamed repos, and that redirect dies the moment
+// anyone creates a new repo called `trax` under this account — which would
+// silently point the download button at a stranger's releases.
+const REPO = "Tee-David/TraxStaff";
 const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 

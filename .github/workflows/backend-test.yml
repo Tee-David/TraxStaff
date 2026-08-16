@@ -26,10 +26,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 22, not the 20 the build workflows use. `npm test` is
+      # `tsx --test "src/**/*.test.ts"`, and Node's test runner only learned to
+      # expand glob patterns in v21 — on 20 the pattern is taken as a literal
+      # path, matches nothing, and the step fails with every test unrun.
+      #
+      # The alternative, pointing `--test` at the `src` directory, is worse: it
+      # walks into non-test files, and `index.ts` boots the API against whatever
+      # DATABASE_URL resolves to.
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: web/backend/package-lock.json
 

@@ -58,7 +58,6 @@ export type EvidenceInput = {
    * call site. Either field works; the later of the two wins.
    */
   activityBlocks?: { blockEnd: Date }[];
-  device?: { lastSeenAt: Date } | null;
 };
 
 /**
@@ -114,28 +113,42 @@ function ms(d: Date | null | undefined): number {
 }
 
 /**
- * The last instant we have server-side evidence that this session was alive.
+ * The last instant we have server-side evidence that THIS session was alive.
  *
- * Three independent witnesses, strongest first, and the latest of them wins:
- *  - `lastSyncAt` — the session itself reached us.
+ * Two witnesses, and the later of them wins:
+ *  - `lastSyncAt` — the session itself reached us, via a block sync or a
+ *    heartbeat. Server-stamped, so it is a fact rather than a claim.
  *  - the newest `ActivityBlock.blockEnd` — capture was running and producing work.
- *  - `device.lastSeenAt` — the heartbeat, which is what /sessions/start already
- *    trusts when finalizing a session abandoned on *another* device.
  *
- * Floored at `startedAt`: a session that never lived long enough to heartbeat has
- * a `device.lastSeenAt` predating its own start, and a duration must never be
- * negative.
+ * `device.lastSeenAt` is deliberately NOT a witness, though it used to be. It is
+ * per-DEVICE, not per-session, and a device outlives any one session. With two
+ * open rows on one machine — which the reconciliation invariant forbids but which
+ * has been observed in production — the live session's heartbeat advanced the
+ * shared device row, which then testified that the *dead* session was also still
+ * alive. It could therefore never be swept, and grew by sixty seconds a minute
+ * across every report while double-counting the live session's hours. That is the
+ * original unbounded-session bug, reachable through an alias.
+ *
+ * Removing it costs nothing now that `POST /sessions/:id/heartbeat` stamps
+ * `lastSyncAt` on the session it names: the same 60-second beat, attributed to
+ * the row it actually concerns.
+ *
+ * Floored at `startedAt` (a duration must never be negative) and capped at `now`
+ * (evidence cannot come from the future — see the note on `now` below).
  */
-export function lastEvidenceAt(s: EvidenceInput): Date {
-  return new Date(
-    Math.max(
-      ms(s.startedAt),
-      ms(s.lastSyncAt),
-      ms(s.latestBlockEnd),
-      ms(latestBlockEnd(s.activityBlocks)),
-      ms(s.device?.lastSeenAt)
-    )
+export function lastEvidenceAt(s: EvidenceInput, now: Date = new Date()): Date {
+  const latest = Math.max(
+    ms(s.lastSyncAt),
+    ms(s.latestBlockEnd),
+    ms(latestBlockEnd(s.activityBlocks))
   );
+  // Capped at `now`. `blockEnd` is a client-supplied timestamp inside the hash
+  // chain, so a modified client can hash a block ending next month and have it
+  // verify perfectly. Uncapped, that value flowed straight into `endedAt` via
+  // /sessions/start and minted arbitrary hours — 720 of them from one block,
+  // labelled a clean "stopped". Evidence of life cannot postdate the moment we
+  // are asking, whatever a client asserts.
+  return new Date(Math.max(ms(s.startedAt), Math.min(latest, ms(now))));
 }
 
 /**
@@ -155,13 +168,13 @@ export function effectiveEnd(s: DurationInput, now: Date = new Date()): Date {
     // endedAt before startedAt. Clamp rather than propagate a negative.
     return ms(s.endedAt) < ms(s.startedAt) ? s.startedAt : s.endedAt;
   }
-  const cap = ms(lastEvidenceAt(s)) + STALE_GRACE_MS;
+  const cap = ms(lastEvidenceAt(s, now)) + STALE_GRACE_MS;
   return new Date(Math.min(ms(now), Math.max(cap, ms(s.startedAt))));
 }
 
 /** True once a session has stopped proving it is alive. */
 export function isAbandoned(s: DurationInput, now: Date = new Date()): boolean {
-  return !s.endedAt && ms(now) > ms(lastEvidenceAt(s)) + STALE_GRACE_MS;
+  return !s.endedAt && ms(now) > ms(lastEvidenceAt(s, now)) + STALE_GRACE_MS;
 }
 
 /** Gross wall-clock seconds, bounded by `effectiveEnd`. Never negative. */
@@ -268,13 +281,13 @@ export function overlapsRange(from?: Date, to?: Date) {
 /**
  * The subset of a Prisma `include`/`select` that the helpers above need, so route
  * handlers can't quietly forget a witness and silently degrade the maths.
- * `activityBlocks` is intentionally not here — callers that need block-derived
- * evidence pass `latestBlockEnd` themselves, since some already load full blocks
- * for activity weighting and others must not.
+ *
+ * Now empty: every witness lives on the session row itself (`lastSyncAt`) or on
+ * its blocks. It is kept as a named export so the intent survives — a future
+ * witness added here reaches every caller at once — and so the routes that spread
+ * it do not have to change back and forth.
  */
-export const evidenceSelect = {
-  device: { select: { lastSeenAt: true } },
-} as const;
+export const evidenceSelect = {} as const;
 
 /** Newest `blockEnd` from an already-loaded block list, or null. */
 export function latestBlockEnd(blocks: { blockEnd: Date }[] | undefined): Date | null {

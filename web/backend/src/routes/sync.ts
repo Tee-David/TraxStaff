@@ -23,6 +23,12 @@ const blockSchema = z.object({
   creditedSeconds: z.number().int().min(0).optional(),
   suspendedSeconds: z.number().int().min(0).optional(),
   clockSkewSeconds: z.number().int().optional(),
+  // How long one input event kept counting as work when this block's
+  // activityPct was measured. Absent from clients predating the change, which
+  // reads as the original per-second sampling. Bounded so a modified client
+  // cannot claim an implausible measurement; the value is a label on the
+  // reading, not an input to it, so it is deliberately not in the hash chain.
+  pauseDefinitionSecs: z.number().int().min(0).max(60).optional(),
 });
 
 const syncSchema = z.object({
@@ -39,6 +45,32 @@ const CLOCK_SKEW_TOLERANCE_SECONDS = 120;
 // Slack on the server-witnessed cap, covering request latency, block-boundary
 // rounding and a cold-started backend.
 const CAP_TOLERANCE_SECONDS = 300;
+
+/**
+ * Whether the database actually has `ActivityBlock.pauseDefinitionSecs`.
+ *
+ * Same problem, and same treatment, as `hasWebsiteUsageColumn` in routes/orgs.ts:
+ * code and migrations do not land at the same instant, and writing a column that
+ * does not exist throws. Here the stakes are higher — this is the ingestion path,
+ * so an unguarded write would turn one pending migration into every desktop
+ * client failing to sync and queueing indefinitely. The stamp is a label on the
+ * measurement; losing it is a footnote, losing sync is an outage.
+ *
+ * `true` is cached permanently (a column cannot go away); `false` is not, so the
+ * first request after the migration lands starts recording it without a restart.
+ */
+let pauseColumnPresent = false;
+
+async function hasPauseDefinitionColumn(): Promise<boolean> {
+  if (pauseColumnPresent) return true;
+  try {
+    await prisma.$queryRaw`SELECT "pauseDefinitionSecs" FROM "ActivityBlock" LIMIT 1`;
+    pauseColumnPresent = true;
+  } catch {
+    pauseColumnPresent = false;
+  }
+  return pauseColumnPresent;
+}
 
 const appUsageSchema = z.object({
   sessionId: z.string().uuid(),
@@ -58,6 +90,33 @@ const discardIdleSchema = z.object({
   toISO: z.string().datetime({ offset: true }),
 });
 
+/**
+ * Load a session this caller is allowed to sync into, or null.
+ *
+ * A NULL `userId` is accepted. It means the member was hard-deleted while this
+ * work was still queued on their machine, and the `nullable_user_fks` migration
+ * exists precisely so their sessions, blocks and screenshots outlive the
+ * account. Every route here used to test `session.userId !== req.user.userId`,
+ * which is true for null, and returned 404 — and the desktop client maps 404 to
+ * "this will never succeed, drop it", deleting the queued blocks AND their
+ * screenshot files from disk.
+ *
+ * So three hours tracked offline on a flight, followed by the member being
+ * removed from the org that afternoon, ended with the work destroyed by its own
+ * tracker on reconnect: nothing on the server, nothing on the laptop. The exact
+ * outcome the migration was written to prevent.
+ *
+ * Ownership is not weakened. An orphaned session is still reachable only by a
+ * caller presenting a token minted for it, and it remains org-scoped through its
+ * project for every read path.
+ */
+async function loadSyncableSession(sessionId: string, userId: string) {
+  const session = await prisma.trackingSession.findUnique({ where: { id: sessionId } });
+  if (!session) return null;
+  if (session.userId !== null && session.userId !== userId) return null;
+  return session;
+}
+
 export default async function syncRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
 
@@ -68,8 +127,8 @@ export default async function syncRoutes(fastify: FastifyInstance) {
   fastify.post("/sync/activity", async (req, reply) => {
     const body = syncSchema.parse(req.body);
 
-    const session = await prisma.trackingSession.findUnique({ where: { id: body.sessionId } });
-    if (!session || session.userId !== req.user.userId) {
+    const session = await loadSyncableSession(body.sessionId, req.user.userId);
+    if (!session) {
       return reply.code(404).send({ error: "Session not found" });
     }
 
@@ -79,6 +138,7 @@ export default async function syncRoutes(fastify: FastifyInstance) {
     // sequenceNo than what's stored — that silently lost tracked time and then
     // wedged the client's queue. The unique (sessionId, sequenceNo) index plus
     // skipDuplicates makes this idempotent and order-independent.
+    const withPauseColumn = await hasPauseDefinitionColumn();
     await prisma.activityBlock.createMany({
       data: body.blocks.map((b) => ({
         sessionId: body.sessionId,
@@ -94,6 +154,10 @@ export default async function syncRoutes(fastify: FastifyInstance) {
         creditedSeconds: b.creditedSeconds ?? null,
         suspendedSeconds: b.suspendedSeconds ?? null,
         clockSkewSeconds: b.clockSkewSeconds ?? null,
+        // Dropped rather than defaulted when the column is missing: a null means
+        // "measured the old way", and inventing that for a block the client told
+        // us was measured the new way would be a small lie in the audit trail.
+        ...(withPauseColumn ? { pauseDefinitionSecs: b.pauseDefinitionSecs ?? null } : {}),
       })),
       skipDuplicates: true,
     });
@@ -119,7 +183,14 @@ export default async function syncRoutes(fastify: FastifyInstance) {
       hash: b.hash,
     })) as (ChainBlock & { prevHash: string; hash: string })[];
     const chain = verifyChain(chainInput, GENESIS, 0);
-    const tamper = !chain.ok;
+    // Only ALTERATION is tampering. A sequence gap — and the chain break that
+    // necessarily follows one — is the normal state of an offline-first client:
+    // a queued block flushes after later blocks have already synced inline, so
+    // the stored set legitimately has holes for seconds or hours at a time.
+    // Treating that as tampering flagged an honest session for a 3-second
+    // network blip, and because the flag was write-once-true it stayed flagged
+    // forever, red badge and all, long after the missing block arrived.
+    const tamper = chain.altered;
     const reasons: string[] = chain.reasons;
     const fresh = body.blocks;
 
@@ -137,48 +208,83 @@ export default async function syncRoutes(fastify: FastifyInstance) {
         return s > Math.abs(worst) ? b.clockSkewSeconds! : worst;
       }, 0);
     if (Math.abs(skewed) > CLOCK_SKEW_TOLERANCE_SECONDS) {
-      await upsertFlag(body.sessionId, "clock_skew_detected", { skewSeconds: skewed });
-      await notifyOrg(session.userId, "unusual_activity", {
-        sessionId: body.sessionId,
-        type: "clock_skew_detected",
-        skewSeconds: skewed,
-      });
+      // Gated on upsertFlag, like the anomaly loop below. `upsertFlag` dedupes
+      // the flag row, but the notification did not: an offline client posts one
+      // block per request, so a 4-hour backlog wrote one admin notification per
+      // block for the same single condition.
+      if (await upsertFlag(body.sessionId, "clock_skew_detected", { skewSeconds: skewed })) {
+        await notifyOrg(session.userId, "unusual_activity", {
+          sessionId: body.sessionId,
+          type: "clock_skew_detected",
+          skewSeconds: skewed,
+        });
+      }
     }
 
-    // 2) Server-witnessed cap. Credited time between two server contacts can
-    //    never exceed the time that actually elapsed on OUR clock. This is the
-    //    load-bearing control: it needs no trust in the client at all, because
-    //    the client never sees or influences either endpoint.
-    const claimedSeconds = body.blocks.reduce(
-      (sum, b) =>
-        sum +
-        (typeof b.creditedSeconds === "number"
-          ? b.creditedSeconds
-          : Math.max(0, (new Date(b.blockEnd).getTime() - new Date(b.blockStart).getTime()) / 1000)),
-      0
-    );
-    const lastContact = session.lastSyncAt ?? session.startedAt;
-    const elapsedServerSeconds = (Date.now() - lastContact.getTime()) / 1000;
+    // 2) Server-witnessed cap. Credited work can never exceed the time that has
+    //    actually elapsed on OUR clock. This is the load-bearing control: it
+    //    needs no trust in the client at all, because the client never sees or
+    //    influences either endpoint.
+    //
+    //    Measured CUMULATIVELY, over the whole session since it started, rather
+    //    than per-batch since the last contact. The per-batch form was broken in
+    //    both directions:
+    //
+    //      - False positives, constantly. `lastSyncAt` is advanced on EVERY
+    //        request (below), while the desktop posts one block per request. So
+    //        an honest 4-hour offline day flushed 24 blocks, and from the second
+    //        block onward the window was ~1.5 seconds against a 600-second
+    //        claim. Twenty-three fraud flags for working on a plane.
+    //      - And it was evadable. Splitting a claim across many small requests
+    //        reset the window each time, which is precisely what an actual
+    //        attacker would do.
+    //
+    //    Cumulative has neither problem: batching cannot change the total, and
+    //    the denominator only ever grows with real elapsed time.
+    const creditedOf = (b: { creditedSeconds: number | null; blockStart: Date; blockEnd: Date }) =>
+      b.creditedSeconds ?? Math.max(0, (b.blockEnd.getTime() - b.blockStart.getTime()) / 1000);
+    const claimedSeconds = stored.reduce((sum, b) => sum + creditedOf(b), 0);
+    const elapsedServerSeconds = (Date.now() - session.startedAt.getTime()) / 1000;
     if (claimedSeconds > elapsedServerSeconds + CAP_TOLERANCE_SECONDS) {
-      await upsertFlag(body.sessionId, "exceeds_elapsed_cap", {
-        claimedSeconds: Math.round(claimedSeconds),
-        elapsedServerSeconds: Math.round(elapsedServerSeconds),
-      });
-      await notifyOrg(session.userId, "unusual_activity", {
-        sessionId: body.sessionId,
-        type: "exceeds_elapsed_cap",
-        claimedSeconds: Math.round(claimedSeconds),
-        elapsedServerSeconds: Math.round(elapsedServerSeconds),
-      });
+      if (
+        await upsertFlag(body.sessionId, "exceeds_elapsed_cap", {
+          claimedSeconds: Math.round(claimedSeconds),
+          elapsedServerSeconds: Math.round(elapsedServerSeconds),
+        })
+      ) {
+        await notifyOrg(session.userId, "unusual_activity", {
+          sessionId: body.sessionId,
+          type: "exceeds_elapsed_cap",
+          claimedSeconds: Math.round(claimedSeconds),
+          elapsedServerSeconds: Math.round(elapsedServerSeconds),
+        });
+      }
     }
 
-    // 3) Plausibility: blocks must fall inside the session's own window.
-    const outOfWindow = body.blocks.filter(
-      (b) =>
-        new Date(b.blockEnd).getTime() < session.startedAt.getTime() - CAP_TOLERANCE_SECONDS * 1000 ||
-        (session.endedAt &&
-          new Date(b.blockStart).getTime() > session.endedAt.getTime() + CAP_TOLERANCE_SECONDS * 1000)
-    );
+    // 3) Plausibility: blocks must fall inside the session's own window, and
+    //    inside time that has actually happened.
+    //
+    //    The future check is the important one and it used to be dead code. It
+    //    was written as `session.endedAt && blockStart > endedAt`, but blocks are
+    //    only ever ingested while a session is OPEN, so `endedAt` was null and
+    //    the branch never evaluated. Nothing else bounded `blockEnd`: it is
+    //    inside the hash chain, so a modified client hashes a block ending next
+    //    month and the chain verifies perfectly. That value then flowed into
+    //    `lastEvidenceAt` and out through `endedAt` — one block, 720 hours,
+    //    recorded as a clean "stopped". `lastEvidenceAt` now clamps to `now` as
+    //    well; this flags the attempt rather than silently absorbing it.
+    const nowMs = Date.now();
+    const tolMs = CAP_TOLERANCE_SECONDS * 1000;
+    const outOfWindow = body.blocks.filter((b) => {
+      const startMs = new Date(b.blockStart).getTime();
+      const endMs = new Date(b.blockEnd).getTime();
+      return (
+        endMs < session.startedAt.getTime() - tolMs ||
+        endMs > nowMs + tolMs ||
+        endMs < startMs ||
+        (session.endedAt && startMs > session.endedAt.getTime() + tolMs)
+      );
+    });
     if (outOfWindow.length > 0) {
       await upsertFlag(body.sessionId, "block_outside_session_window", {
         count: outOfWindow.length,
@@ -186,11 +292,49 @@ export default async function syncRoutes(fastify: FastifyInstance) {
       });
     }
 
-    // Record this contact so the next batch is capped against it.
+    // Record this contact, and extend an end time we invented if the work turns
+    // out to have continued past it.
+    //
+    // This is the other half of the stale-session fix. lib/stale-sessions.ts
+    // has to guess, from silence, that a session is over — and silence is
+    // ambiguous, because the tracker is offline-first and keeps recording
+    // through an outage. Without this, that guess was final: the row was closed,
+    // `effectiveEnd` treats a closed session as its own authority, and blocks
+    // arriving afterwards were stored and then ignored by every total. Work that
+    // demonstrably happened, with screenshots to prove it, reported as ten
+    // minutes.
+    //
+    // Blocks are exactly the evidence needed to correct it. Only a session we
+    // closed ourselves is eligible (`abrupt_exit`) — a member's real `stopped`
+    // is their statement about their own day and is never overridden — and the
+    // new end still comes from evidence, never from `now`.
+    const latestBlockEnd = stored.reduce(
+      (max, b) => Math.max(max, b.blockEnd.getTime()),
+      0
+    );
+    const reopen =
+      session.endedAt !== null &&
+      session.endReason === "abrupt_exit" &&
+      latestBlockEnd > session.endedAt.getTime() &&
+      latestBlockEnd <= Date.now();
+
     await prisma.trackingSession.update({
       where: { id: body.sessionId },
-      data: { lastSyncAt: new Date() },
+      data: {
+        lastSyncAt: new Date(),
+        ...(reopen ? { endedAt: new Date(latestBlockEnd) } : {}),
+      },
     });
+    if (reopen) {
+      req.log.info(
+        {
+          sessionId: body.sessionId,
+          was: session.endedAt?.toISOString(),
+          now: new Date(latestBlockEnd).toISOString(),
+        },
+        "extended an auto-closed session: work continued past the swept end time"
+      );
+    }
 
     // Client-reported jiggler process → immediate flag.
     const jiggler = body.blocks.find((b) => b.jigglerProcess);
@@ -203,10 +347,19 @@ export default async function syncRoutes(fastify: FastifyInstance) {
       });
     }
 
-    if (tamper) {
+    // Recomputed from the whole stored chain on every sync, and written in BOTH
+    // directions. Previously this only ever set `true`, and nothing anywhere
+    // cleared it — so a session flagged by a transient gap wore the red
+    // "Flagged" badge and counted toward `flaggedSessions` permanently, with no
+    // way back even once the chain was provably intact. A verdict that cannot be
+    // revised by new evidence is not a verdict.
+    //
+    // Self-healing is safe: an altered block stays altered, so `chain.altered`
+    // stays true for as long as the alteration is in the database.
+    if (session.tamperSuspected !== tamper) {
       await prisma.trackingSession.update({
         where: { id: body.sessionId },
-        data: { tamperSuspected: true },
+        data: { tamperSuspected: tamper },
       });
     }
 
@@ -231,8 +384,8 @@ export default async function syncRoutes(fastify: FastifyInstance) {
   // Ingest per-app foreground seconds for a block (active-window sampling).
   fastify.post("/sync/app-usage", async (req, reply) => {
     const body = appUsageSchema.parse(req.body);
-    const session = await prisma.trackingSession.findUnique({ where: { id: body.sessionId } });
-    if (!session || session.userId !== req.user.userId) {
+    const session = await loadSyncableSession(body.sessionId, req.user.userId);
+    if (!session) {
       return reply.code(404).send({ error: "Session not found" });
     }
     await prisma.appUsage.createMany({
@@ -250,8 +403,8 @@ export default async function syncRoutes(fastify: FastifyInstance) {
   // Ingest per-domain foreground seconds for a block (browser URL sampling).
   fastify.post("/sync/url-usage", async (req, reply) => {
     const body = urlUsageSchema.parse(req.body);
-    const session = await prisma.trackingSession.findUnique({ where: { id: body.sessionId } });
-    if (!session || session.userId !== req.user.userId) {
+    const session = await loadSyncableSession(body.sessionId, req.user.userId);
+    if (!session) {
       return reply.code(404).send({ error: "Session not found" });
     }
     await prisma.urlUsage.createMany({
@@ -271,8 +424,8 @@ export default async function syncRoutes(fastify: FastifyInstance) {
   // ActivityBlocks — this is a reversible accounting adjustment only.
   fastify.post("/sync/discard-idle", async (req, reply) => {
     const body = discardIdleSchema.parse(req.body);
-    const session = await prisma.trackingSession.findUnique({ where: { id: body.sessionId } });
-    if (!session || session.userId !== req.user.userId) {
+    const session = await loadSyncableSession(body.sessionId, req.user.userId);
+    if (!session) {
       return reply.code(404).send({ error: "Session not found" });
     }
     const from = new Date(body.fromISO);
@@ -318,8 +471,8 @@ export default async function syncRoutes(fastify: FastifyInstance) {
    */
   fastify.post("/sync/keep-idle", async (req, reply) => {
     const body = discardIdleSchema.parse(req.body);
-    const session = await prisma.trackingSession.findUnique({ where: { id: body.sessionId } });
-    if (!session || session.userId !== req.user.userId) {
+    const session = await loadSyncableSession(body.sessionId, req.user.userId);
+    if (!session) {
       return reply.code(404).send({ error: "Session not found" });
     }
     const from = new Date(body.fromISO);
@@ -352,7 +505,12 @@ async function upsertFlag(sessionId: string, type: import("@prisma/client").Flag
   return true;
 }
 
-async function notifyOrg(userId: string, type: string, payload: Record<string, unknown>) {
+// `userId` is nullable because a session outlives the member who created it (see
+// loadSyncableSession). There is nobody to notify about an orphaned session's
+// activity, and no org to attribute it to, so this returns quietly rather than
+// forcing every call site to narrow.
+async function notifyOrg(userId: string | null, type: string, payload: Record<string, unknown>) {
+  if (!userId) return;
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return;
   await prisma.notification.create({

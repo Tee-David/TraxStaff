@@ -1,16 +1,41 @@
 import type { ActivityBlock } from "@prisma/client";
+import { blockSeconds } from "./activity";
 
 // Server-side "unusual activity" detection, thresholds adapted from Hubstaff's
-// documented rules. Operates on a session's activity blocks (each ~10 min).
-// Pure function → returns the flag types that currently apply; the caller
-// persists new ones. Never mutates input.
+// documented rules. Operates on a session's activity blocks. Pure function →
+// returns the flag types that currently apply; the caller persists new ones.
+// Never mutates input.
+//
+// Two things this must get right, because the output is an accusation against a
+// named person:
+//
+// 1. **Blocks are not ten minutes long.** They are finalized on every pause,
+//    stop, project switch and suspend-wake, so five-second blocks are routine.
+//    The rules below therefore measure real elapsed time rather than counting
+//    blocks and multiplying by ten. Counting blocks meant three project switches
+//    in a minute — three short blocks, each trivially 100% because a single
+//    input second over a one-second denominator is 100% — reported as
+//    "sustained high activity for 30 minutes".
+//
+// 2. **Absence of activity is not evidence of gaming.** A jiggler produces
+//    sustained, unnaturally steady *non-zero* activity. A flat run of zeros is
+//    someone who walked away, or a tracker whose input hook has died (capture.rs
+//    warns the UI about exactly this). Flagging that as robotic accuses a member
+//    of fraud for the crime of taking a break, or for our own bug.
 
 export type DetectedFlag =
   | "sustained_high_activity"
   | "low_variance_robotic"
   | "input_channel_imbalance";
 
-const BLOCK_MINUTES = 10;
+/**
+ * Activity floor below which a flat run means "nobody was there", not "a machine
+ * was pretending to be there". Deliberately above zero: a jiggler that produced
+ * genuinely 0% would not be a jiggler.
+ */
+const ROBOTIC_MIN_ACTIVITY_PCT = 5;
+
+type Scored = { pct: number; keyboardPct: number; mousePct: number; seconds: number };
 
 export function detectAnomalies(blocks: ActivityBlock[]): {
   type: DetectedFlag;
@@ -19,57 +44,79 @@ export function detectAnomalies(blocks: ActivityBlock[]): {
   const found: { type: DetectedFlag; details: Record<string, unknown> }[] = [];
   if (blocks.length === 0) return found;
 
-  // Chronological order.
-  const b = [...blocks].sort((x, y) => x.blockStart.getTime() - y.blockStart.getTime());
+  // Chronological order, each block carrying its real duration. Blocks with no
+  // usable span are dropped rather than counted as a unit of anything.
+  const b: Scored[] = [...blocks]
+    .sort((x, y) => x.blockStart.getTime() - y.blockStart.getTime())
+    .map((blk) => ({
+      pct: blk.activityPct,
+      keyboardPct: blk.keyboardPct,
+      mousePct: blk.mousePct,
+      seconds: blockSeconds(blk) ?? 0,
+    }))
+    .filter((blk) => blk.seconds > 0);
+  if (b.length === 0) return found;
 
-  // 1) Sustained ≥95% activity for ≥30 min (3 consecutive blocks).
-  let run = 0;
+  const minutes = (secs: number) => +(secs / 60).toFixed(1);
+
+  // 1) Sustained ≥95% activity for ≥30 minutes of real elapsed time.
+  let runSecs = 0;
   for (const blk of b) {
-    run = blk.activityPct >= 95 ? run + 1 : 0;
-    if (run * BLOCK_MINUTES >= 30) {
+    runSecs = blk.pct >= 95 ? runSecs + blk.seconds : 0;
+    if (runSecs >= 30 * 60) {
       found.push({
         type: "sustained_high_activity",
-        details: { thresholdPct: 95, minutes: run * BLOCK_MINUTES },
+        details: { thresholdPct: 95, minutes: minutes(runSecs) },
       });
       break;
     }
   }
 
-  // 2) Low variance (robotic): activity varies ≤4 pts over a 90-min window,
-  //    or is perfectly flat (0 variance) over 40 min.
-  for (let i = 0; i < b.length; i++) {
-    for (const [win, spread] of [[90, 4], [40, 0]] as const) {
-      const n = win / BLOCK_MINUTES;
-      if (i + n <= b.length) {
-        const slice = b.slice(i, i + n).map((x) => x.activityPct);
-        const range = Math.max(...slice) - Math.min(...slice);
-        if (range <= spread) {
+  // 2) Low variance (robotic): activity varies ≤4 points across 90 minutes, or
+  //    is perfectly flat across 40 minutes — but only where there is activity to
+  //    be flat about. See note 2 at the top.
+  outer: for (let i = 0; i < b.length; i++) {
+    for (const [winMinutes, spread] of [[90, 4], [40, 0]] as const) {
+      // Walk forward from i until the window is genuinely covered.
+      let secs = 0;
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let j = i; j < b.length; j++) {
+        secs += b[j].seconds;
+        lo = Math.min(lo, b[j].pct);
+        hi = Math.max(hi, b[j].pct);
+        if (secs < winMinutes * 60) continue;
+
+        if (hi - lo <= spread && lo > ROBOTIC_MIN_ACTIVITY_PCT) {
           found.push({
             type: "low_variance_robotic",
-            details: { windowMinutes: win, maxSpread: spread, observedSpread: +range.toFixed(2) },
+            details: {
+              windowMinutes: winMinutes,
+              maxSpread: spread,
+              observedSpread: +(hi - lo).toFixed(2),
+              observedMinutes: minutes(secs),
+            },
           });
-          i = b.length; // break outer
-          break;
+          break outer;
         }
+        break; // window covered and not flat — try the next rule / start index
       }
     }
   }
 
   // 3) Input-channel imbalance: one channel near-zero while the other is active,
-  //    sustained ≥50 min (5 blocks) — the classic mouse-jiggler signature.
+  //    sustained ≥50 minutes — the classic mouse-jiggler signature.
   for (const [active, quiet, label] of [
     ["mousePct", "keyboardPct", "keyboard"],
     ["keyboardPct", "mousePct", "mouse"],
   ] as const) {
-    let imbalance = 0;
+    let imbalanceSecs = 0;
     for (const blk of b) {
-      const a = blk[active] as number;
-      const q = blk[quiet] as number;
-      imbalance = a > 10 && q <= 1 ? imbalance + 1 : 0;
-      if (imbalance * BLOCK_MINUTES >= 50) {
+      imbalanceSecs = blk[active] > 10 && blk[quiet] <= 1 ? imbalanceSecs + blk.seconds : 0;
+      if (imbalanceSecs >= 50 * 60) {
         found.push({
           type: "input_channel_imbalance",
-          details: { silentChannel: label, minutes: imbalance * BLOCK_MINUTES },
+          details: { silentChannel: label, minutes: minutes(imbalanceSecs) },
         });
         break;
       }

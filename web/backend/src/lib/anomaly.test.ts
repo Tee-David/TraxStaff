@@ -9,8 +9,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { ActivityBlock } from "@prisma/client";
-import { detectAnomalies, type DetectedFlag } from "./anomaly";
+import { detectAnomalies, type AnomalyBlock, type DetectedFlag } from "./anomaly";
 
 const T0 = Date.UTC(2026, 7, 10, 9, 0, 0);
 
@@ -20,29 +19,19 @@ function blk(
   pct: number,
   seconds = 600,
   channels: { keyboardPct?: number; mousePct?: number } = {}
-): ActivityBlock {
+): AnomalyBlock {
   const start = T0 + index * seconds * 1000;
   return {
-    id: `b${index}`,
-    sessionId: "s",
     blockStart: new Date(start),
     blockEnd: new Date(start + seconds * 1000),
     keyboardPct: channels.keyboardPct ?? pct / 2,
     mousePct: channels.mousePct ?? pct / 2,
     activityPct: pct,
-    idleSeconds: 0,
-    sequenceNo: index,
-    prevHash: "p",
-    hash: "h",
     creditedSeconds: seconds,
-    suspendedSeconds: 0,
-    clockSkewSeconds: 0,
-    pauseDefinitionSecs: 3,
-    createdAt: new Date(start),
-  } as ActivityBlock;
+  };
 }
 
-const types = (blocks: ActivityBlock[]): DetectedFlag[] =>
+const types = (blocks: AnomalyBlock[]): DetectedFlag[] =>
   detectAnomalies(blocks).map((f) => f.type);
 
 // ── absence of activity is not gaming ─────────────────────────────────────
@@ -130,7 +119,7 @@ test("no blocks means no flags", () => {
 
 test("blocks with no usable duration are ignored, not counted as one unit", () => {
   const zero = { ...blk(0, 100, 600), creditedSeconds: 0, blockEnd: new Date(T0) };
-  assert.deepEqual(types([zero as ActivityBlock]), []);
+  assert.deepEqual(types([zero]), []);
 });
 
 test("ordinary varied work triggers nothing", () => {

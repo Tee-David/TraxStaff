@@ -1,4 +1,3 @@
-import type { ActivityBlock } from "@prisma/client";
 import { blockSeconds } from "./activity";
 
 // Server-side "unusual activity" detection, thresholds adapted from Hubstaff's
@@ -37,7 +36,24 @@ const ROBOTIC_MIN_ACTIVITY_PCT = 5;
 
 type Scored = { pct: number; keyboardPct: number; mousePct: number; seconds: number };
 
-export function detectAnomalies(blocks: ActivityBlock[]): {
+/**
+ * Exactly the columns this module reads — structural, not the full Prisma row.
+ *
+ * Callers can then `select` these and nothing else. An unqualified Prisma read
+ * asks for every column in schema.prisma, which breaks the moment the schema
+ * gains a column the database has not been migrated for; taking the whole row
+ * here is what forced those callers to over-select in the first place.
+ */
+export type AnomalyBlock = {
+  activityPct: number;
+  keyboardPct: number;
+  mousePct: number;
+  creditedSeconds: number | null;
+  blockStart: Date;
+  blockEnd: Date;
+};
+
+export function detectAnomalies(blocks: AnomalyBlock[]): {
   type: DetectedFlag;
   details: Record<string, unknown>;
 }[] {

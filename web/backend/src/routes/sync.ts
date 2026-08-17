@@ -166,9 +166,29 @@ export default async function syncRoutes(fastify: FastifyInstance) {
     // a gap filled later doesn't false-positive as tampering. canonical()
     // normalizes timestamps via new Date(...).toISOString(), so rebuilding the
     // chain input from stored rows reproduces the client's digest exactly.
+    // Explicit select, deliberately. An unqualified `findMany` asks for every
+    // column in schema.prisma, so the day a new column is added to the schema
+    // this read starts demanding it from a database that does not have it yet —
+    // and code and migrations never land at the same instant. That is not
+    // hypothetical: adding `pauseDefinitionSecs` 500'd this route for every
+    // client, and because a 5xx is retryable the queues wedged rather than
+    // failing loudly. The write below is guarded by a column probe; the reads
+    // must not need one.
     const stored = await prisma.activityBlock.findMany({
       where: { sessionId: body.sessionId },
       orderBy: { sequenceNo: "asc" },
+      select: {
+        sequenceNo: true,
+        blockStart: true,
+        blockEnd: true,
+        keyboardPct: true,
+        mousePct: true,
+        activityPct: true,
+        idleSeconds: true,
+        prevHash: true,
+        hash: true,
+        creditedSeconds: true,
+      },
     });
     const chainInput = stored.map((b) => ({
       sessionId: body.sessionId,
@@ -364,7 +384,19 @@ export default async function syncRoutes(fastify: FastifyInstance) {
     }
 
     // Re-run anomaly detection over the full session and persist new flags.
-    const allBlocks = await prisma.activityBlock.findMany({ where: { sessionId: body.sessionId } });
+    // Explicit select for the same reason as `stored` above — only the fields
+    // detectAnomalies actually reads.
+    const allBlocks = await prisma.activityBlock.findMany({
+      where: { sessionId: body.sessionId },
+      select: {
+        activityPct: true,
+        keyboardPct: true,
+        mousePct: true,
+        creditedSeconds: true,
+        blockStart: true,
+        blockEnd: true,
+      },
+    });
     const anomalies = detectAnomalies(allBlocks);
     for (const a of anomalies) {
       const created = await upsertFlag(body.sessionId, a.type, a.details);

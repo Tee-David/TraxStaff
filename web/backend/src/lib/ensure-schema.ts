@@ -173,7 +173,7 @@ export async function ensureNullableUserFks(log: Logger): Promise<void> {
  * never a broken settings page.
  */
 const NOTIFY_COLUMNS: [name: string, ddlType: string][] = [
-  ["timezone", `STRING NOT NULL DEFAULT 'UTC'`],
+  ["timezone", `STRING NOT NULL DEFAULT 'Africa/Lagos'`],
   ["emailsEnabled", "BOOL NOT NULL DEFAULT true"],
   ["notifyDailyShortfall", "BOOL NOT NULL DEFAULT true"],
   ["notifyWeeklyShortfall", "BOOL NOT NULL DEFAULT true"],

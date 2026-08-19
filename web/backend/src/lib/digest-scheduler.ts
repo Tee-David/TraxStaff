@@ -89,7 +89,7 @@ type OrgRow = {
 
 /** Served when the database predates a column — same values as routes/orgs.ts. */
 const OPTIONAL_DEFAULTS = {
-  timezone: "UTC",
+  timezone: "Africa/Lagos",
   emailsEnabled: true,
   notifyDailyShortfall: true,
   notifyWeeklyShortfall: true,
@@ -107,25 +107,27 @@ const BASE_ORG_SELECT = {
 const appUrl = () => (env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
 
 /**
- * Orgs with their notification settings, tolerating a database that has not yet
- * grown the columns — the same drift the settings route handles, for the same
- * reason (code and DDL do not land at the same instant).
- */
-/**
  * Normalised once, here, rather than at each use: an empty or unrecognised zone
  * makes every `Intl` call downstream throw, and a single org with a bad value
- * would otherwise take out that org's digests on every tick.
+ * would otherwise take out that org's digests on every tick. Falls back to the
+ * same default the missing-column path serves, so there is one answer to "which
+ * zone do we assume".
  */
 function safeZone(value: unknown): string {
-  if (typeof value !== "string" || value.trim() === "") return "UTC";
+  if (typeof value !== "string" || value.trim() === "") return OPTIONAL_DEFAULTS.timezone;
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value });
     return value;
   } catch {
-    return "UTC";
+    return OPTIONAL_DEFAULTS.timezone;
   }
 }
 
+/**
+ * Orgs with their notification settings, tolerating a database that has not yet
+ * grown the columns — the same drift the settings route handles, for the same
+ * reason (code and DDL do not land at the same instant).
+ */
 async function loadOrgs(db: DigestDb): Promise<OrgRow[]> {
   const full = {
     ...BASE_ORG_SELECT,

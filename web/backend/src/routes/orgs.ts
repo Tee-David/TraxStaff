@@ -65,7 +65,7 @@ const baseSelect = {
  */
 const OPTIONAL_COLUMN_DEFAULTS = {
   showWebsiteUsage: true,
-  timezone: "UTC",
+  timezone: "Africa/Lagos",
   emailsEnabled: true,
   notifyDailyShortfall: true,
   notifyWeeklyShortfall: true,

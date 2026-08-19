@@ -81,9 +81,12 @@ model Organization {
   dailyTargetMinutes  Int      @default(480)
   weeklyTargetMinutes Int      @default(2400)
   // IANA zone the org's working days are measured in. Day and week boundaries
-  // are wall-clock local, so without this a UTC+1 org credits an hour of Monday
-  // morning to Sunday and the Monday digest under-reports it.
-  timezone            String   @default("UTC")
+  // are wall-clock local, so on the UTC default a UTC+1 org credited an hour of
+  // Monday morning to Sunday and the Monday digest under-reported it.
+  //
+  // Africa/Lagos rather than a bare "+01:00": it is permanent UTC+1 with no DST,
+  // and an IANA name is what Intl needs to resolve a wall clock at all.
+  timezone            String   @default("Africa/Lagos")
   // Master switch for all non-essential email. Invites and password resets are
   // deliberately NOT covered — turning those off locks people out of the
   // account with no way back in.

@@ -241,13 +241,16 @@ test("a failing already-sent check skips the send rather than mailing every tick
   assert.deepEqual(sent, []);
 });
 
-test("an org whose timezone column is missing still runs, on the UTC default", async () => {
-  const sent: Sent[] = [];
-  // 08:30 UTC is past the send hour for a UTC org, but 09:30 in Lagos.
-  const h = makeDb({ org: { timezone: "" } });
-  await run(h, new Date("2026-08-18T08:30:00.000Z"), sent);
+test("a blank or unknown zone falls back to the UTC+1 default, not to UTC", async () => {
+  // 07:30 UTC is 08:30 in Lagos — due on the fallback, but an hour early if the
+  // fallback were UTC. The pair pins which zone the fallback actually is.
+  const due: Sent[] = [];
+  await run(makeDb({ org: { timezone: "" } }), new Date("2026-08-18T07:30:00.000Z"), due);
+  assert.equal(due.filter((s) => s.kind === "daily").length, 1);
 
-  assert.equal(sent.filter((s) => s.kind === "daily").length, 1);
+  const tooEarly: Sent[] = [];
+  await run(makeDb({ org: { timezone: "Not/AZone" } }), new Date("2026-08-18T06:30:00.000Z"), tooEarly);
+  assert.deepEqual(tooEarly, []);
 });
 
 test("the send hour is the org's local morning, not the server's", async () => {

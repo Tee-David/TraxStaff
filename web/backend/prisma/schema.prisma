@@ -80,6 +80,23 @@ model Organization {
   // Org-wide work targets. Members inherit these unless given their own.
   dailyTargetMinutes  Int      @default(480)
   weeklyTargetMinutes Int      @default(2400)
+  // IANA zone the org's working days are measured in. Day and week boundaries
+  // are wall-clock local, so without this a UTC+1 org credits an hour of Monday
+  // morning to Sunday and the Monday digest under-reports it.
+  timezone            String   @default("UTC")
+  // Master switch for all non-essential email. Invites and password resets are
+  // deliberately NOT covered — turning those off locks people out of the
+  // account with no way back in.
+  emailsEnabled             Boolean @default(true)
+  // Whether admins get the shortfall digests (one per period, not per member).
+  // Independent switches: a daily digest is a nudge, a weekly one is a review,
+  // and orgs reasonably want the second without the first.
+  notifyDailyShortfall      Boolean @default(true)
+  notifyWeeklyShortfall     Boolean @default(true)
+  notifyUnusualActivity     Boolean @default(true)
+  // Off by default: the only one of these that mails every member rather than
+  // the admins, so it is opted into rather than sprung on a workspace.
+  notifyMemberWeeklySummary Boolean @default(false)
   users         User[]
   projects      Project[]
   invites       InviteToken[]

@@ -31,13 +31,48 @@ export function notificationWho(n: AppNotification): string | null {
   return typeof email === "string" ? email.split("@")[0] : null;
 }
 
+/** A payload number, or null when the row predates the field. */
+function count(p: Record<string, unknown>, key: string): number | null {
+  const v = p[key];
+  return typeof v === "number" ? v : null;
+}
+
 /** What happened, without the who — the row renders the two separately. */
 export function notificationWhat(n: AppNotification): string {
   const p = n.payload ?? {};
+
   if (n.type === "unusual_activity") {
     const kind = typeof p.type === "string" ? p.type : null;
     return (kind && FLAG_LABELS[kind]) || kind?.replace(/_/g, " ") || "Unusual activity";
   }
+
+  // The digest rows are org-wide (no userId), so they carry their own summary
+  // rather than a member name — `notificationWho` returns null for them.
+  if (n.type === "daily_shortfall" || n.type === "weekly_shortfall") {
+    const period = n.type === "daily_shortfall" ? "day" : "week";
+    const short = count(p, "shortfallCount");
+    const total = count(p, "totalMembers");
+    if (short === 0) return `Everyone met their target last ${period}`;
+    if (short === null) return `Work-target digest for the ${period}`;
+    return total === null
+      ? `${short} below target last ${period}`
+      : `${short} of ${total} below target last ${period}`;
+  }
+
+  if (n.type === "unusual_activity_digest") {
+    const flags = count(p, "flagCount");
+    return flags === null
+      ? "Unusual activity digest"
+      : `${flags} session${flags === 1 ? "" : "s"} flagged for review`;
+  }
+
+  if (n.type === "member_weekly_summary") {
+    const to = count(p, "recipients");
+    return to === null
+      ? "Weekly summaries sent to members"
+      : `Weekly summaries sent to ${to} member${to === 1 ? "" : "s"}`;
+  }
+
   return n.type.replace(/_/g, " ");
 }
 

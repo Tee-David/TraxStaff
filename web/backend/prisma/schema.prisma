@@ -80,6 +80,26 @@ model Organization {
   // Org-wide work targets. Members inherit these unless given their own.
   dailyTargetMinutes  Int      @default(480)
   weeklyTargetMinutes Int      @default(2400)
+  // IANA zone the org's working days are measured in. Day and week boundaries
+  // are wall-clock local, so on the UTC default a UTC+1 org credited an hour of
+  // Monday morning to Sunday and the Monday digest under-reported it.
+  //
+  // Africa/Lagos rather than a bare "+01:00": it is permanent UTC+1 with no DST,
+  // and an IANA name is what Intl needs to resolve a wall clock at all.
+  timezone            String   @default("Africa/Lagos")
+  // Master switch for all non-essential email. Invites and password resets are
+  // deliberately NOT covered — turning those off locks people out of the
+  // account with no way back in.
+  emailsEnabled             Boolean @default(true)
+  // Whether admins get the shortfall digests (one per period, not per member).
+  // Independent switches: a daily digest is a nudge, a weekly one is a review,
+  // and orgs reasonably want the second without the first.
+  notifyDailyShortfall      Boolean @default(true)
+  notifyWeeklyShortfall     Boolean @default(true)
+  notifyUnusualActivity     Boolean @default(true)
+  // Off by default: the only one of these that mails every member rather than
+  // the admins, so it is opted into rather than sprung on a workspace.
+  notifyMemberWeeklySummary Boolean @default(false)
   users         User[]
   projects      Project[]
   invites       InviteToken[]
@@ -316,6 +336,14 @@ model ActivityBlock {
   creditedSeconds  Int?
   suspendedSeconds Int?
   clockSkewSeconds Int?
+  // The pause definition (in seconds) this block's activityPct was measured
+  // with — how long one input event keeps counting as work. NULL means the
+  // original per-second sampling, where only a second containing an actual
+  // event counted. Stored so every figure says how it was produced, and so a
+  // report spanning the change can say the two halves are not comparable
+  // instead of silently averaging them. Never used to recompute a stored
+  // percentage: activityPct is inside the hash chain and is not ours to edit.
+  pauseDefinitionSecs Int?
   createdAt   DateTime        @default(now())
   screenshots Screenshot[]
 
@@ -346,6 +374,11 @@ model Screenshot {
   // Gallery paging is a keyset scan on (takenAt desc, id desc) — without this
   // every page is a full sort of the org's screenshot history.
   @@index([takenAt, id])
+  // The R2 key is deterministic (org/session/takenAtMs-mN.webp), so it names one
+  // image exactly once. Unique because a confirm whose response was lost is
+  // retried by the client, and without this the retry created a second row for
+  // an object already stored — the same screenshot twice in the gallery.
+  @@unique([r2Key])
 }
 
 model UnusualActivityFlag {

@@ -35,6 +35,30 @@ const FIRST_SHOT_BY_SECS: i64 = 60;
 const SUSPEND_GAP_SECS: i64 = 120;
 // A second counts toward app/URL attribution only if input landed this recently.
 const ACTIVE_WINDOW_SECS: i64 = 2;
+// ── Pause definition ────────────────────────────────────────────────────────
+//
+// How long a single input event keeps counting as work. An event at second `t`
+// marks `[t, t + PAUSE_DEFINITION_SECS)` active, so a brief pause between
+// keystrokes reads as working rather than as idle.
+//
+// 2.5s is the threshold Chang, Chen, Chen & Yu (Ergonomics, 2009; PMID
+// 19562597) validated against video-record observation as the most accurate
+// estimator of keyboard and mouse use time (r = 0.918-0.964). We bucket by
+// whole seconds, so 3.
+//
+// This is deliberately NOT configurable, and must stay that way. An activity
+// score an admin can turn up is a negotiated figure rather than evidence —
+// worthless in exactly the dispute it exists to settle — and a threshold that
+// moves week to week destroys period-over-period comparability. The number to
+// expect from this is modest and known: Richter et al. (Applied Ergonomics,
+// 2008; PMID 18177840), across 571 users and ~60,000 working days, measured a
+// log-linear relationship in which doubling the pause definition raises
+// measured work duration by ~3.5%.
+//
+// It cannot manufacture activity. The window only extends outward from real
+// input events, so a member who was away produces no events and still scores
+// zero at any value.
+const PAUSE_DEFINITION_SECS: i64 = 3;
 const JIGGLER_BLOCKLIST: &[&str] = &[
     "mousejiggler", "movemouse", "move mouse", "caffeine", "autoclicker",
     "auto clicker", "mousemover", "jiggler", "wiggler", "clickermann", "pressplay",
@@ -166,7 +190,14 @@ impl Capture {
         queue_dir: PathBuf,
         block_secs: i64,
         base_elapsed_secs: i64,
+        resumed: Option<ChainHead>,
     ) -> Self {
+        // Resume the hash chain where this session left off, if it has run
+        // before on this machine. See load_chain_head().
+        let (seq, prev_hash) = match resumed {
+            Some(h) => (h.seq, h.prev_hash),
+            None => (0, GENESIS.to_string()),
+        };
         let mut c = Capture {
             token,
             backend,
@@ -174,8 +205,8 @@ impl Capture {
             screenshots_per_block,
             blur,
             block_secs,
-            seq: 0,
-            prev_hash: GENESIS.to_string(),
+            seq,
+            prev_hash,
             block_start: Utc::now(),
             kb_secs: HashSet::new(),
             mouse_secs: HashSet::new(),
@@ -310,6 +341,17 @@ pub fn begin(
         .unwrap_or(600)
         .clamp(30, 3600);
     let _ = fs::create_dir_all(&queue_dir);
+    // Pick the chain up where this session left off. A session outlives the
+    // process — the app resumes its own still-open session by id after a crash,
+    // a reboot or an auto-update — and restarting the chain at GENESIS makes the
+    // server silently discard every block of the second run. See load_chain_head().
+    let resumed = load_chain_head(&queue_dir, &session_id);
+    if let Some(h) = &resumed {
+        emit(
+            "trax:chain-resumed",
+            serde_json::json!({ "sessionId": session_id, "sequenceNo": h.seq }),
+        );
+    }
     let now = Utc::now().timestamp();
     LAST_INPUT.store(now, Ordering::Relaxed);
     LAST_TICK_WALL.store(now, Ordering::Relaxed);
@@ -326,7 +368,7 @@ pub fn begin(
             *guard = Some(Capture::new(
                 token, backend, session_id, screenshots_per_block, blur,
                 idle_minutes.clamp(1, 60) * 60, queue_dir, block_secs,
-                base_elapsed_secs.max(0),
+                base_elapsed_secs.max(0), resumed,
             ));
             true
         }
@@ -335,7 +377,7 @@ pub fn begin(
             *guard = Some(Capture::new(
                 token, backend, session_id, screenshots_per_block, blur,
                 idle_minutes.clamp(1, 60) * 60, queue_dir, block_secs,
-                base_elapsed_secs.max(0),
+                base_elapsed_secs.max(0), resumed,
             ));
             CAPTURE.clear_poison();
             true
@@ -350,6 +392,12 @@ pub fn end() {
     ACTIVE.store(false, Ordering::Relaxed);
     finalize_block(true);
     if let Ok(mut guard) = CAPTURE.lock() {
+        // The session is over, so its chain state has nothing left to describe.
+        // Cleared AFTER the final block is finalized and queued, so a crash
+        // partway through still leaves a resumable head on disk.
+        if let Some(c) = guard.as_ref() {
+            clear_chain_head(&c.queue_dir, &c.session_id);
+        }
         *guard = None;
     }
 }
@@ -612,10 +660,158 @@ pub struct BlockPayload {
     /// this block. Non-zero means the system clock was changed.
     #[serde(rename = "clockSkewSeconds")]
     clock_skew_seconds: i64,
+    /// The pause definition this block's `activityPct` was measured with, so
+    /// every stored figure says how it was produced. Blocks written before this
+    /// existed have no value and are read as the old per-second behaviour; a
+    /// report spanning the cutover can therefore say so instead of silently
+    /// comparing two different measurements.
+    #[serde(rename = "pauseDefinitionSecs")]
+    pause_definition_secs: i64,
 }
 
 fn round2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
+}
+
+// ── Chain continuity across a restart ───────────────────────────────────────
+//
+// The hash chain is per SESSION, but `Capture` is in-memory and `begin()` builds
+// a fresh one every time. A session, meanwhile, outlives the process: the app
+// finds its own still-open session on launch and resumes it with the same id
+// (App.tsx re-invokes `begin_capture` with `open.id`), after a crash, a forced
+// reboot, an auto-updater relaunch, or a "Stop & sync" whose POST failed.
+//
+// Restarting at `seq 0` / GENESIS then produced silent, total data loss. The
+// server's `@@unique([sessionId, sequenceNo])` makes `createMany(skipDuplicates)`
+// DROP the second run's blocks 0, 1, 2 — it replies 200 with the rows discarded,
+// the client believes the sync succeeded and deletes its queue, and half an hour
+// of work is gone with no error anywhere. Screenshots attach to the earlier
+// block with the same sequence number, so the gallery shows them against an
+// unrelated ten minutes.
+//
+// So the chain head is persisted beside the queue on every block boundary. A
+// tiny file, written after the block it describes, read back by `begin()`.
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct ChainHead {
+    seq: u32,
+    prev_hash: String,
+}
+
+fn chain_head_path(queue_dir: &std::path::Path, session_id: &str) -> PathBuf {
+    queue_dir.join(format!("chain-{session_id}.json"))
+}
+
+/// Where this session's chain had reached, if it has run before on this machine.
+///
+/// A missing or unreadable file means "no idea", which falls back to starting at
+/// GENESIS — the old behaviour, and the only safe default for a genuinely new
+/// session.
+fn load_chain_head(queue_dir: &std::path::Path, session_id: &str) -> Option<ChainHead> {
+    let text = fs::read_to_string(chain_head_path(queue_dir, session_id)).ok()?;
+    let head: ChainHead = serde_json::from_str(&text).ok()?;
+    if head.prev_hash.is_empty() {
+        return None;
+    }
+    Some(head)
+}
+
+/// Record where the chain has reached. Best-effort: failing to write it costs
+/// continuity across a restart, which is strictly better than failing the block.
+fn save_chain_head(queue_dir: &std::path::Path, session_id: &str, seq: u32, prev_hash: &str) {
+    let head = ChainHead { seq, prev_hash: prev_hash.to_string() };
+    if let Ok(text) = serde_json::to_string(&head) {
+        let _ = fs::write(chain_head_path(queue_dir, session_id), text);
+    }
+}
+
+/// Drop a finished session's chain state. Called on stop, so the file does not
+/// outlive the session it describes.
+fn clear_chain_head(queue_dir: &std::path::Path, session_id: &str) {
+    let _ = fs::remove_file(chain_head_path(queue_dir, session_id));
+}
+
+/// How many seconds of work one block actually covered — the denominator for
+/// every percentage on it.
+///
+/// `credited` comes from the monotonic awake counter (see clock.rs): it excludes
+/// time the machine spent suspended and cannot be moved by the wall clock. It is
+/// the only figure worth trusting. The wall span is a fallback for the single
+/// case the monotonic delta cannot describe — a block so short that integer
+/// division floors `credited_secs()` to zero, or a counter glitch — and that
+/// case is recognisable precisely because `credited` is zero.
+///
+/// This used to be `credited.max(wall_span).max(1)`, which always took the
+/// LARGER of the two. Since `credited` excludes suspend and the wall span
+/// includes it, the wall clock won exactly when the machine had slept: five
+/// minutes of work followed by an overnight suspend produced a 68,700-second
+/// denominator and reported 83% activity as 0.36%. The `.max()` handed the
+/// decision to the clock the monotonic counter exists to distrust — and did the
+/// same on any forward NTP step.
+fn block_duration_secs(credited_secs: i64, wall_span_secs: i64) -> i64 {
+    if credited_secs > 0 {
+        credited_secs
+    } else {
+        wall_span_secs.max(1)
+    }
+}
+
+/// The per-second counts behind one block's percentages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct ActiveSeconds {
+    /// Seconds containing a keyboard event. Raw — no pause definition applied.
+    keyboard: i64,
+    /// Seconds containing a mouse event. Raw — no pause definition applied.
+    mouse: i64,
+    /// Seconds counted as active once the pause definition is applied.
+    active: i64,
+}
+
+/// Count the active seconds in a block, applying the pause definition.
+///
+/// `kb` and `mouse` hold the absolute unix-second of each second in which an
+/// event of that kind arrived; they are cleared at every block boundary, so they
+/// only ever describe the block being finalized.
+///
+/// Two deliberate properties:
+///
+/// - **Forward fill only.** An event at `t` credits `[t, t + pause_secs)` and
+///   never a second before `t`. Crediting backwards would mean an event
+///   retroactively proving the user was working before they touched anything.
+/// - **Clipped to the block's wall-clock span.** Credit cannot leak past the end
+///   of the block into the next one, nor before its start. The bound is the wall
+///   span rather than `block_duration_secs`, because these sets are keyed on
+///   wall-clock seconds — using the (shorter) credited duration as the bound
+///   would silently discard real input recorded either side of a suspend.
+///
+/// `keyboard` and `mouse` come back RAW, without the pause definition. They are
+/// the uncalibrated signal and the input to divergence-based jiggler detection
+/// (mouse busy while keyboard is flat, and the converse), so smoothing them
+/// would blunt the very check they exist for. Only `active` is smoothed.
+fn count_active_seconds(
+    kb: &HashSet<i64>,
+    mouse: &HashSet<i64>,
+    block_start_ts: i64,
+    wall_end_ts: i64,
+    pause_secs: i64,
+) -> ActiveSeconds {
+    let in_block = |s: i64| s >= block_start_ts && s <= wall_end_ts;
+    let fill = pause_secs.max(1);
+
+    let mut active: HashSet<i64> = HashSet::new();
+    for &t in kb.iter().chain(mouse.iter()) {
+        for s in t..t.saturating_add(fill) {
+            if in_block(s) {
+                active.insert(s);
+            }
+        }
+    }
+
+    ActiveSeconds {
+        keyboard: kb.iter().filter(|&&s| in_block(s)).count() as i64,
+        mouse: mouse.iter().filter(|&&s| in_block(s)).count() as i64,
+        active: active.len() as i64,
+    }
 }
 
 /// Finalize the current block: compute activity %, build the hash-chained payload,
@@ -644,20 +840,28 @@ fn finalize_block(stopping: bool) {
         // which then clamped to 1 and produced a perfect 100.00% activity block.
         let clock_now = ClockSample::now();
         let delta = clock_now.since(&c.block_clock);
-        // Fall back to the wall-clock span only if the monotonic delta is
-        // implausibly small (first sample in a block, or a counter glitch).
-        let block_secs = (delta.credited_secs() as i64)
-            .max((end - c.block_start).num_seconds())
-            .max(1);
+        let block_secs = block_duration_secs(
+            delta.credited_secs() as i64,
+            (end - c.block_start).num_seconds(),
+        );
         let denom = block_secs as f64;
-        let kb = c.kb_secs.len() as f64;
-        let mouse = c.mouse_secs.len() as f64;
-        let active: HashSet<i64> = c.kb_secs.union(&c.mouse_secs).copied().collect();
-        let act = active.len() as f64;
-        let kb_pct = round2((kb / denom * 100.0).min(100.0));
-        let mouse_pct = round2((mouse / denom * 100.0).min(100.0));
-        let act_pct = round2((act / denom * 100.0).min(100.0));
-        let idle = (block_secs - active.len() as i64).max(0);
+        // The pause definition is applied here, at finalization, rather than in
+        // on_input(): keeping the raw event seconds intact means the underlying
+        // signal survives and the expansion stays a single auditable step.
+        let counts = count_active_seconds(
+            &c.kb_secs,
+            &c.mouse_secs,
+            c.block_start.timestamp(),
+            end.timestamp(),
+            PAUSE_DEFINITION_SECS,
+        );
+        let kb_pct = round2((counts.keyboard as f64 / denom * 100.0).min(100.0));
+        let mouse_pct = round2((counts.mouse as f64 / denom * 100.0).min(100.0));
+        // Clamped because the fill can spill a second or two of credit across a
+        // suspend boundary, where the wall span the fill is clipped to is longer
+        // than the credited denominator.
+        let act_pct = round2((counts.active as f64 / denom * 100.0).min(100.0));
+        let idle = (block_secs - counts.active).max(0);
 
         let start_iso = Capture::iso(c.block_start);
         let end_iso = Capture::iso(end);
@@ -685,6 +889,7 @@ fn finalize_block(stopping: bool) {
             credited_seconds: delta.credited_secs(),
             suspended_seconds: delta.suspended_secs(),
             clock_skew_seconds: delta.clock_skew_secs(),
+            pause_definition_secs: PAUSE_DEFINITION_SECS,
         };
         let shots = std::mem::take(&mut c.pending_shots);
         let app_usage: Vec<(String, i64)> = c.app_secs.drain().collect();
@@ -700,6 +905,11 @@ fn finalize_block(stopping: bool) {
         if !stopping {
             c.seq += 1;
             c.prev_hash = hash.clone();
+            // Persist the new head immediately. If the process dies before the
+            // next boundary, `begin()` picks the chain up here instead of
+            // restarting at GENESIS and having the server discard everything
+            // that follows.
+            save_chain_head(&c.queue_dir, &c.session_id, c.seq, &c.prev_hash);
             c.block_start = end;
             // Re-anchor the monotonic sample too, so the next block measures
             // from here rather than from session start.
@@ -1017,4 +1227,232 @@ pub fn capture_health() -> bool {
 /// Whether a tracking session is currently live.
 pub fn is_capturing() -> bool {
     ACTIVE.load(Ordering::Relaxed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Block starting at an arbitrary fixed epoch second, so the tests read in
+    /// block-relative offsets rather than absolute timestamps.
+    const T0: i64 = 1_760_000_000;
+
+    fn secs(offsets: impl IntoIterator<Item = i64>) -> HashSet<i64> {
+        offsets.into_iter().map(|o| T0 + o).collect()
+    }
+
+    /// Percentage exactly as finalize_block computes it, so the tests exercise
+    /// the same arithmetic rather than a paraphrase of it.
+    fn pct(active: i64, block_secs: i64) -> f64 {
+        round2((active as f64 / block_secs as f64 * 100.0).min(100.0))
+    }
+
+    // ── block_duration_secs: the suspend bug ────────────────────────────────
+
+    #[test]
+    fn suspend_does_not_enter_the_denominator() {
+        // Five minutes of work, then the lid closes overnight and the block is
+        // finalized on wake. Credited excludes the sleep; the wall span does not.
+        let credited = 300;
+        let wall_span = 68_700;
+        assert_eq!(block_duration_secs(credited, wall_span), 300);
+
+        // 250 of those 300 seconds had input. Before the fix this reported 0.36%.
+        assert_eq!(pct(250, block_duration_secs(credited, wall_span)), 83.33);
+    }
+
+    #[test]
+    fn forward_clock_step_does_not_deflate_activity() {
+        // NTP corrects an hour forward mid-block. The monotonic counter is
+        // unmoved, so the denominator must be too.
+        assert_eq!(block_duration_secs(600, 4_200), 600);
+    }
+
+    #[test]
+    fn backward_clock_step_cannot_produce_a_perfect_block() {
+        // A negative wall span used to clamp to 1, making any input 100%.
+        assert_eq!(block_duration_secs(600, -3_000), 600);
+    }
+
+    #[test]
+    fn wall_span_is_used_only_when_credited_is_zero() {
+        // Sub-second block: credited_secs() floors to 0, so the wall span is all
+        // there is. Never below 1, or the percentage divides by zero.
+        assert_eq!(block_duration_secs(0, 5), 5);
+        assert_eq!(block_duration_secs(0, 0), 1);
+        assert_eq!(block_duration_secs(0, -7), 1);
+    }
+
+    #[test]
+    fn ordinary_block_is_unaffected() {
+        // No suspend, no skew: the two clocks agree and the answer is unchanged.
+        assert_eq!(block_duration_secs(600, 600), 600);
+    }
+
+    // ── count_active_seconds: the pause definition ──────────────────────────
+
+    #[test]
+    fn pause_of_one_reproduces_legacy_per_second_counting() {
+        // The regression guard: with no fill, this must be exactly the old
+        // `kb ∪ mouse` cardinality.
+        let kb = secs([0, 1, 2, 50, 51]);
+        let mouse = secs([2, 3, 90]);
+        let c = count_active_seconds(&kb, &mouse, T0, T0 + 600, 1);
+        assert_eq!(c.active, 7); // {0,1,2,3,50,51,90}
+        assert_eq!(c.keyboard, 5);
+        assert_eq!(c.mouse, 3);
+    }
+
+    #[test]
+    fn empty_input_scores_zero_at_every_pause_definition() {
+        // The load-bearing property of the whole design: the window only extends
+        // outward from real events, so an absent member scores zero however wide
+        // it is. If this ever fails, the metric has become fabrication.
+        let empty = HashSet::new();
+        for pause in 0..=10 {
+            let c = count_active_seconds(&empty, &empty, T0, T0 + 600, pause);
+            assert_eq!(c.active, 0, "pause={pause} invented activity from nothing");
+        }
+    }
+
+    #[test]
+    fn a_single_event_credits_exactly_the_pause_definition() {
+        let kb = secs([10]);
+        let empty = HashSet::new();
+        let c = count_active_seconds(&kb, &empty, T0, T0 + 600, PAUSE_DEFINITION_SECS);
+        assert_eq!(c.active, 3); // seconds 10, 11, 12
+        assert_eq!(c.keyboard, 1, "the raw signal is not smoothed");
+    }
+
+    #[test]
+    fn overlapping_fills_are_not_double_counted() {
+        // Events one second apart must union, not sum.
+        let kb = secs([10, 11, 12]);
+        let empty = HashSet::new();
+        let c = count_active_seconds(&kb, &empty, T0, T0 + 600, 3);
+        assert_eq!(c.active, 5); // 10..=14, not 9
+    }
+
+    #[test]
+    fn continuous_input_is_100_percent_at_every_pause_definition() {
+        let kb: HashSet<i64> = secs(0..600);
+        let empty = HashSet::new();
+        for pause in 1..=5 {
+            let c = count_active_seconds(&kb, &empty, T0, T0 + 599, pause);
+            assert_eq!(pct(c.active, 600), 100.0, "pause={pause}");
+        }
+    }
+
+    #[test]
+    fn fill_never_credits_past_the_end_of_the_block() {
+        // An event in the last second must not bleed into the next block.
+        let kb = secs([599]);
+        let empty = HashSet::new();
+        let c = count_active_seconds(&kb, &empty, T0, T0 + 599, PAUSE_DEFINITION_SECS);
+        assert_eq!(c.active, 1);
+    }
+
+    #[test]
+    fn fill_never_credits_before_the_start_of_the_block() {
+        // Forward-fill only. A stale second from before block_start (a clock step
+        // during the block) contributes nothing rather than back-dating work.
+        let kb = secs([-5]);
+        let empty = HashSet::new();
+        let c = count_active_seconds(&kb, &empty, T0, T0 + 600, PAUSE_DEFINITION_SECS);
+        assert_eq!(c.active, 0);
+        assert_eq!(c.keyboard, 0);
+    }
+
+    #[test]
+    fn activity_can_never_exceed_one_hundred_percent() {
+        // Input right up to a suspend boundary: the fill is clipped to the wall
+        // span, which is longer than the credited denominator. The clamp holds.
+        let kb: HashSet<i64> = secs(0..300);
+        let empty = HashSet::new();
+        let block_secs = block_duration_secs(300, 68_700);
+        let c = count_active_seconds(&kb, &empty, T0, T0 + 68_700, PAUSE_DEFINITION_SECS);
+        assert!(c.active >= block_secs);
+        assert_eq!(pct(c.active, block_secs), 100.0);
+    }
+
+    #[test]
+    fn keyboard_and_mouse_are_unioned_not_summed() {
+        // The same second touched by both must count once.
+        let kb = secs([0, 1, 2]);
+        let mouse = secs([0, 1, 2]);
+        let c = count_active_seconds(&kb, &mouse, T0, T0 + 600, 1);
+        assert_eq!(c.active, 3);
+        assert_eq!(c.keyboard, 3);
+        assert_eq!(c.mouse, 3);
+    }
+
+    /// The composite case from the research: a realistic bursty 600-second block
+    /// with 210 raw active seconds — typing, reading with periodic scrolls, a
+    /// video call with occasional mouse movement, and some thinking.
+    ///
+    /// This is the number the whole change is justified by, so it is pinned:
+    /// 210 of 600 seconds carry input, which reads as 35.0% under per-second
+    /// counting and 57.5% once the pause definition is applied. The bands below
+    /// are deliberately wider than those two figures — the point is the shape of
+    /// the change, not a fragile equality — but if either escapes its band the
+    /// fill is leaking across a boundary or has stopped applying at all.
+    #[test]
+    fn realistic_bursty_block_moves_from_thirties_into_the_fifties() {
+        let mut kb = HashSet::new();
+        let mut mouse = HashSet::new();
+        // 0-119: typing an email, dense input.
+        for s in 0..120 {
+            kb.insert(T0 + s);
+        }
+        // 120-299: reading, a scroll every 6 seconds.
+        for s in (120..300).step_by(6) {
+            mouse.insert(T0 + s);
+        }
+        // 300-449: on a call, mouse moved every 30 seconds.
+        for s in (300..450).step_by(30) {
+            mouse.insert(T0 + s);
+        }
+        // 450-539: mouse-driven design work, intermittent drags.
+        for s in (450..540).step_by(2) {
+            mouse.insert(T0 + s);
+        }
+        // 540-599: thinking, a handful of scattered keystrokes.
+        for s in (540..600).step_by(6) {
+            kb.insert(T0 + s);
+        }
+
+        let raw = count_active_seconds(&kb, &mouse, T0, T0 + 599, 1);
+        let filled = count_active_seconds(&kb, &mouse, T0, T0 + 599, PAUSE_DEFINITION_SECS);
+
+        let before = pct(raw.active, 600);
+        let after = pct(filled.active, 600);
+
+        assert!(
+            (30.0..40.0).contains(&before),
+            "per-second baseline should land in the thirties, got {before}"
+        );
+        assert!(
+            (50.0..65.0).contains(&after),
+            "pause definition should land in the fifties, got {after}"
+        );
+        assert!(after > before, "the pause definition is monotone");
+        // The raw per-kind signal is untouched by the fill.
+        assert_eq!(raw.keyboard, filled.keyboard);
+        assert_eq!(raw.mouse, filled.mouse);
+    }
+
+    #[test]
+    fn activity_is_monotone_in_the_pause_definition() {
+        let kb = secs([0, 30, 60, 90, 120, 200, 400]);
+        let empty = HashSet::new();
+        let mut previous = 0;
+        for pause in 1..=6 {
+            let c = count_active_seconds(&kb, &empty, T0, T0 + 600, pause);
+            assert!(
+                c.active >= previous,
+                "widening the window from {} lowered activity", pause - 1
+            );
+            previous = c.active;
+        }
+    }
 }

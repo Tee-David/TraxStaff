@@ -13,7 +13,7 @@ import { Toggle } from "@/components/Toggle";
 import { useTheme } from "@/lib/theme";
 import { useMotionPresets } from "@/lib/motion";
 import { toggleThemeWithTransition } from "@/lib/theme-transition";
-import { IconChart, IconClock, IconFlag, IconImage, IconMoon, IconSun, IconUser, IconUsers } from "@/components/icons";
+import { IconChart, IconClock, IconFlag, IconImage, IconMail, IconMoon, IconSun, IconUser, IconUsers } from "@/components/icons";
 
 interface OrgSettings {
   id: string;
@@ -25,9 +25,57 @@ interface OrgSettings {
   showWebsiteUsage: boolean;
   dailyTargetMinutes: number;
   weeklyTargetMinutes: number;
+  timezone: string;
+  emailsEnabled: boolean;
+  notifyDailyShortfall: boolean;
+  notifyWeeklyShortfall: boolean;
+  notifyUnusualActivity: boolean;
+  notifyMemberWeeklySummary: boolean;
 }
 
-type SectionId = "account" | "appearance" | "screenshots" | "tracking" | "reports" | "targets" | "organisation";
+/**
+ * Every email the org can switch off, in the order they appear. Kept as data so
+ * the panel and the master switch stay in step — adding a kind here is the only
+ * change a new digest needs on this page.
+ */
+const EMAIL_KINDS: {
+  key: "notifyDailyShortfall" | "notifyWeeklyShortfall" | "notifyUnusualActivity" | "notifyMemberWeeklySummary";
+  label: string;
+  hint: string;
+}[] = [
+  {
+    key: "notifyDailyShortfall",
+    label: "Daily shortfall digest",
+    hint: "To admins each morning, listing anyone who finished the previous day below the daily target. One digest per day, never one per member.",
+  },
+  {
+    key: "notifyWeeklyShortfall",
+    label: "Weekly shortfall digest",
+    hint: "To admins on Monday morning, covering the week just ended. Independent of the daily digest.",
+  },
+  {
+    key: "notifyUnusualActivity",
+    label: "Unusual activity digest",
+    hint: "To admins the morning after a session is flagged — jiggler detection, clock changes, and the rest. Sent only on days something was actually flagged.",
+  },
+  {
+    key: "notifyMemberWeeklySummary",
+    label: "Member weekly summary",
+    hint: "The only email here that goes to every member rather than to admins: their own hours against their own target, the same figure you see for them.",
+  },
+];
+
+/** IANA zones for the org picker. Falls back to a short list on older browsers. */
+function timezoneOptions(): { value: string; label: string }[] {
+  const supported = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] })
+    .supportedValuesOf;
+  const zones = supported
+    ? supported("timeZone")
+    : ["UTC", "Africa/Lagos", "Europe/London", "America/New_York", "America/Los_Angeles", "Asia/Dubai"];
+  return zones.map((z) => ({ value: z, label: z.replace(/_/g, " ") }));
+}
+
+type SectionId = "account" | "appearance" | "screenshots" | "tracking" | "reports" | "targets" | "emails" | "organisation";
 
 type Section = SettingsNavItem & {
   id: SectionId;
@@ -83,6 +131,14 @@ const SECTIONS: Section[] = [
     icon: IconFlag,
     title: "Work targets",
     subtitle: "Organisation-wide defaults. Members inherit these unless given their own target.",
+    adminOnly: true,
+  },
+  {
+    id: "emails",
+    label: "Emails",
+    icon: IconMail,
+    title: "Emails",
+    subtitle: "Which emails TraxStaff sends on your organisation's behalf, and to whom.",
     adminOnly: true,
   },
   {
@@ -227,6 +283,12 @@ export default function SettingsPage() {
           showWebsiteUsage: settings.showWebsiteUsage,
           dailyTargetMinutes: settings.dailyTargetMinutes,
           weeklyTargetMinutes: settings.weeklyTargetMinutes,
+          timezone: settings.timezone,
+          emailsEnabled: settings.emailsEnabled,
+          notifyDailyShortfall: settings.notifyDailyShortfall,
+          notifyWeeklyShortfall: settings.notifyWeeklyShortfall,
+          notifyUnusualActivity: settings.notifyUnusualActivity,
+          notifyMemberWeeklySummary: settings.notifyMemberWeeklySummary,
         }),
       });
       setSettings(updated);
@@ -469,6 +531,45 @@ export default function SettingsPage() {
       </SettingsPanel>
     ),
 
+    emails: (
+      <>
+        <SettingsPanel title="Sending">
+          <SettingsRow
+            label="Send emails"
+            hint="Master switch. Turning this off stops every notification email below without losing the individual settings — the dashboard notification bell keeps working either way."
+          >
+            <Toggle
+              label="Send notification emails"
+              checked={settings.emailsEnabled}
+              onChange={(v) => setSettings({ ...settings, emailsEnabled: v })}
+            />
+          </SettingsRow>
+        </SettingsPanel>
+
+        <SettingsPanel title="What gets sent">
+          {EMAIL_KINDS.map((kind) => (
+            <SettingsRow key={kind.key} label={kind.label} hint={kind.hint}>
+              <Toggle
+                label={kind.label}
+                checked={settings[kind.key]}
+                disabled={!settings.emailsEnabled}
+                onChange={(v) => setSettings({ ...settings, [kind.key]: v })}
+              />
+            </SettingsRow>
+          ))}
+        </SettingsPanel>
+
+        <SettingsPanel title="Always sent">
+          <SettingsRow
+            label="Invites and password resets"
+            hint="These are how people get into the account and back into it, so they cannot be switched off — disabling them would lock a member out with no way back in."
+          >
+            <span className="text-[13px] text-muted">Always on</span>
+          </SettingsRow>
+        </SettingsPanel>
+      </>
+    ),
+
     organisation: (
       <SettingsPanel title="Details">
         <SettingsRow label="Organisation name" hint="The display name used across the dashboard.">
@@ -480,6 +581,20 @@ export default function SettingsPage() {
             className="sm:min-w-[220px] disabled:cursor-default disabled:opacity-70"
           />
         </SettingsRow>
+        {isAdmin && (
+          <SettingsRow
+            label="Timezone"
+            hint="The working day is measured in this zone. Digests are sent, and days and weeks are bucketed, against your organisation's local clock rather than the server's."
+          >
+            <Select
+              value={settings.timezone}
+              onChange={(v) => setSettings({ ...settings, timezone: v })}
+              options={timezoneOptions()}
+              searchable
+              minWidth={260}
+            />
+          </SettingsRow>
+        )}
       </SettingsPanel>
     ),
   };

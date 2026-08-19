@@ -85,6 +85,15 @@ export default async function screenshotRoutes(fastify: FastifyInstance) {
     if (!block) {
       return reply.code(404).send({ error: "Activity block not found — sync it before confirming screenshots" });
     }
+    // Idempotent on r2Key. The key is deterministic (see /presign above), so a
+    // retried confirm names the same object — but this was a bare `create`, and
+    // `Screenshot` had no unique constraint, so a confirm whose RESPONSE was lost
+    // (connection reset, or the client's 30s timeout against a cold-started
+    // backend) produced a second row on the next pass. The gallery then showed
+    // the same screenshot twice and burned a presigned-URL call on each.
+    const existing = await prisma.screenshot.findFirst({ where: { r2Key: body.r2Key } });
+    if (existing) return reply.code(200).send(existing);
+
     const shot = await prisma.screenshot.create({
       data: {
         sessionId: body.sessionId,

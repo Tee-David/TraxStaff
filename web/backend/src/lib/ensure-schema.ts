@@ -159,6 +159,86 @@ export async function ensureNullableUserFks(log: Logger): Promise<void> {
   }
 }
 
+/**
+ * Adds the notification-settings columns to `Organization` if they are missing.
+ *
+ * Same reasoning and same shape as `ensureWebsiteUsageColumn` below — see its
+ * docblock for why this runs from the app instead of as a migration, and for the
+ * `schema_locked` escalation. Every column is additive, defaulted and
+ * `IF NOT EXISTS`, and the probe short-circuits once they exist.
+ *
+ * Degradation on failure is deliberate: routes/orgs.ts and the digest scheduler
+ * both serve the same defaults for a missing column, so a database that refuses
+ * the change ends up with digests enabled and toggles that do not persist —
+ * never a broken settings page.
+ */
+const NOTIFY_COLUMNS: [name: string, ddlType: string][] = [
+  ["timezone", `STRING NOT NULL DEFAULT 'Africa/Lagos'`],
+  ["emailsEnabled", "BOOL NOT NULL DEFAULT true"],
+  ["notifyDailyShortfall", "BOOL NOT NULL DEFAULT true"],
+  ["notifyWeeklyShortfall", "BOOL NOT NULL DEFAULT true"],
+  ["notifyUnusualActivity", "BOOL NOT NULL DEFAULT true"],
+  // Mirrors schema.prisma: the one that mails every member is opt-in.
+  ["notifyMemberWeeklySummary", "BOOL NOT NULL DEFAULT false"],
+];
+
+export async function ensureShortfallNotifyColumns(log: Logger): Promise<void> {
+  try {
+    // Probing the last one added is enough — they are added together, in order.
+    await prisma.$queryRaw`SELECT "timezone", "notifyMemberWeeklySummary" FROM "Organization" LIMIT 1`;
+    return; // already there — nothing to do
+  } catch {
+    // fall through and add them
+  }
+
+  log.info("[schema] Organization notification columns are missing — adding them");
+
+  // One statement per column: CockroachDB takes ADD COLUMN one at a time here,
+  // and IF NOT EXISTS makes the already-has-some case harmless.
+  const addColumns = async () => {
+    for (const [column, ddlType] of NOTIFY_COLUMNS) {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "Organization" ADD COLUMN IF NOT EXISTS "${column}" ${ddlType}`
+      );
+    }
+  };
+
+  try {
+    // Plain path first — `schema_locked` is CockroachDB-only and is not set on
+    // every table even there, so unlocking unconditionally would fail on any
+    // database that has never heard of the parameter.
+    await addColumns();
+    log.info("[schema] Organization notification columns added");
+    return;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/schema_locked|is locked/i.test(msg)) {
+      log.warn(`[schema] could not add Organization notification columns: ${msg}`);
+      return;
+    }
+    log.info("[schema] table is schema_locked — unlocking to add the columns");
+  }
+
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "Organization" SET (schema_locked = false)`);
+    try {
+      await addColumns();
+      log.info("[schema] Organization notification columns added");
+    } finally {
+      // Restore the lock even if the ADD failed.
+      await prisma
+        .$executeRawUnsafe(`ALTER TABLE "Organization" SET (schema_locked = true)`)
+        .catch(() => {});
+    }
+  } catch (err) {
+    log.warn(
+      `[schema] could not add Organization notification columns (${
+        err instanceof Error ? err.message : err
+      }). The digest toggles will read as on and not persist until they exist.`
+    );
+  }
+}
+
 export async function ensureWebsiteUsageColumn(log: Logger): Promise<void> {
   try {
     await prisma.$queryRaw`SELECT "showWebsiteUsage" FROM "Organization" LIMIT 1`;

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { weightedActivity, type WeightedBlock } from "./reports";
+import { blocksInRange, weightedActivity, type WeightedBlock } from "../lib/activity";
 import {
   DELETED_USER_KEY,
   DELETED_USER_LABEL,
@@ -143,7 +143,10 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
       // figure is clipped to the requested window since `overlapsRange` admits
       // sessions that started before it.
       u.totalSeconds += workedSecondsInRange(s, fromMs, toMs, now);
-      u.blocks.push(...s.activityBlocks);
+      // Clipped to the same window as totalSeconds. Unclipped, a session that
+      // began before the window contributed all of its activity against only the
+      // hours inside it, which is what reordered the leaderboard.
+      u.blocks.push(...blocksInRange(s.activityBlocks, fromMs, toMs));
       byUser.set(key, u);
     }
     const board = [...byUser.values()]

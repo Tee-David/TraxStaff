@@ -48,8 +48,22 @@ export function computeHash(prevHash: string, b: ChainBlock): string {
 }
 
 export interface ChainVerifyResult {
+  /** True when the chain is both complete and unaltered. */
   ok: boolean;
   reasons: string[];
+  /**
+   * A block's own hash does not match its own contents. This is the only
+   * finding that PROVES alteration: it is self-contained, needs no neighbouring
+   * block, and cannot be produced by delivery order.
+   */
+  altered: boolean;
+  /**
+   * A block is missing, so sequence numbers or prevHash links do not line up.
+   * Expected in normal operation — the client is offline-first and a queued
+   * block routinely flushes after later blocks have already synced inline — and
+   * it resolves itself when the gap fills. Not evidence of anything.
+   */
+  incomplete: boolean;
 }
 
 /**
@@ -66,21 +80,26 @@ export function verifyChain(
   const reasons: string[] = [];
   let expectedPrev = startingPrevHash;
   let expectedSeq = startingSequenceNo;
+  let altered = false;
+  let incomplete = false;
 
   for (const b of blocks) {
     if (b.sequenceNo !== expectedSeq) {
       reasons.push(`sequence gap: expected ${expectedSeq}, got ${b.sequenceNo}`);
+      incomplete = true;
     }
     if (b.prevHash !== expectedPrev) {
       reasons.push(`chain break at seq ${b.sequenceNo}: prevHash mismatch`);
+      incomplete = true;
     }
     const recomputed = computeHash(b.prevHash, b);
     if (recomputed !== b.hash) {
       reasons.push(`hash mismatch at seq ${b.sequenceNo}: block was altered`);
+      altered = true;
     }
     expectedPrev = b.hash;
     expectedSeq = b.sequenceNo + 1;
   }
 
-  return { ok: reasons.length === 0, reasons };
+  return { ok: reasons.length === 0, reasons, altered, incomplete };
 }

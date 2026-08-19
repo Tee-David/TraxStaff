@@ -85,5 +85,10 @@ export async function api<T = unknown>(
  * list renders the page's own "nothing here" state instead.
  */
 export function asArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
+  if (!Array.isArray(value)) return [];
+  // A list endpoint that ever serialises a `null` entry (a tombstone, a
+  // shape change, a proxy's JSON) otherwise throws "reading 'x' of null"
+  // inside the first `.map` that touches it — no error boundary above the
+  // dashboard tree means that takes every page down at once.
+  return value.filter((entry): entry is T => entry != null) as T[];
 }

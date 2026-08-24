@@ -158,7 +158,7 @@ export function DateRangePicker({
 
     const days = [];
     for (let i = 0; i < startDay; i++) {
-      days.push(<div key={`empty-${i}`} className="h-7 w-7" />);
+      days.push(<div key={`empty-${i}`} className="h-10 w-full md:h-8" />);
     }
 
     for (let d = 1; d <= daysInMonth; d++) {
@@ -187,22 +187,27 @@ export function DateRangePicker({
         }
       }
 
-      let bgClass = "bg-transparent hover:bg-canvas";
-      let textClass = "text-ink";
-      let roundedClass = "rounded-full";
-
-      if (isSelected) {
-        bgClass = "bg-brand";
-        textClass = "text-white";
-      } else if (isBetween) {
-        bgClass = "bg-brand/10";
-        roundedClass = "rounded-none";
-      }
+      /**
+       * Two layers, because the cell and the mark want different shapes.
+       *
+       * The button fills its grid track so a selected range reads as one
+       * continuous bar — cells narrower than the track leave gaps in it, which
+       * is what the old fixed-width cells did even on desktop. The circle
+       * around a chosen day then lives on an inner square, so it stays a circle
+       * instead of stretching into a pill on a phone where the track is wide.
+       */
+      const trackClass = isBetween ? "bg-brand/10" : "";
+      const markClass = isSelected
+        ? "bg-brand text-white"
+        : "text-ink hover:bg-canvas";
 
       days.push(
         <button
           key={d}
-          className={`h-7 w-7 flex items-center justify-center text-[12px] font-medium transition-colors ${bgClass} ${textClass} ${roundedClass}`}
+          // 40px tall on a phone rather than 28: a date grid is the densest
+          // tap target in the app, and 28px is well under what a thumb hits
+          // reliably.
+          className={`flex h-10 w-full items-center justify-center transition-colors md:h-8 ${trackClass}`}
           onClick={() => {
             setTempType("custom");
             if (picking === "from" || !tempFrom) {
@@ -222,13 +227,20 @@ export function DateRangePicker({
           onMouseEnter={() => setHoverDate(currentDay)}
           onMouseLeave={() => setHoverDate(null)}
         >
-          {d}
+          <span
+            className={`flex h-9 w-9 items-center justify-center rounded-full text-[13px] font-medium transition-colors md:h-7 md:w-7 md:text-[12px] ${markClass}`}
+          >
+            {d}
+          </span>
         </button>
       );
     }
 
     return (
-      <div className="w-[13.5rem] select-none">
+      // Full width on a phone, fixed on desktop where two months sit side by
+      // side. The old fixed width left ~150px of dead space to the right of the
+      // grid on a 390px screen while the cells themselves stayed tiny.
+      <div className="w-full select-none md:w-[13.5rem]">
         <div className="mb-2 flex items-center justify-between px-1">
           {monthOffset === 0 ? (
             <button
@@ -255,7 +267,7 @@ export function DateRangePicker({
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7 gap-y-1 justify-items-center">
+        <div className="grid grid-cols-7 gap-y-1 md:justify-items-center">
           {days}
         </div>
       </div>
@@ -278,9 +290,14 @@ export function DateRangePicker({
           were cut off with no way to reach Apply. From `md` up it goes back to
           being anchored to the button. */}
       {isOpen && (
-        <div className="fixed inset-x-3 top-20 z-50 flex max-h-[78vh] flex-col overflow-y-auto rounded-xl border border-border bg-surface shadow-xl md:absolute md:inset-x-auto md:left-0 md:top-full md:mt-2 md:max-h-none md:flex-row md:overflow-hidden md:min-w-[280px]">
+        <div className="fixed inset-x-3 top-20 z-50 flex max-h-[calc(100dvh-6rem)] flex-col overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface shadow-xl md:absolute md:inset-x-auto md:left-0 md:top-full md:mt-2 md:max-h-none md:flex-row md:overflow-hidden md:min-w-[280px]">
           {/* Left Sidebar - Presets */}
-          <div className="w-full shrink-0 md:w-32 border-b md:border-b-0 md:border-r border-border bg-canvas/30 p-1.5 grid grid-cols-2 gap-1 sm:grid-cols-3 md:flex md:flex-col md:gap-0.5 md:max-h-none">
+          {/* Three across from ~340px up. At two columns the nine presets take
+              five rows before the calendar even starts, which is most of a
+              phone screen spent on shortcuts. Keyed off the panel's own width
+              (it is inset 12px each side) rather than `sm:`, which is the
+              viewport and never fires on a phone. */}
+          <div className="w-full shrink-0 md:w-32 border-b md:border-b-0 md:border-r border-border bg-canvas/30 p-1.5 grid grid-cols-2 gap-1 min-[340px]:grid-cols-3 md:flex md:flex-col md:gap-0.5 md:max-h-none">
             {PRESETS.map((p) => (
               <button
                 key={p.id}
@@ -312,7 +329,12 @@ export function DateRangePicker({
             </div>
 
             {/* Inputs & Actions */}
-            <div className="flex flex-col md:flex-row items-center justify-between gap-3 pt-3 border-t border-border">
+            {/* Sticky on mobile: the panel scrolls, and Apply sitting at the
+                bottom of that scroll meant reaching the primary action
+                required scrolling past the whole calendar. `-mx-4 px-4 -mb-4
+                pb-4` lets it span the padded container's full width so the
+                surface behind it covers the content sliding underneath. */}
+            <div className="sticky bottom-0 -mx-4 -mb-4 flex flex-col items-center justify-between gap-3 border-t border-border bg-surface px-4 pb-4 pt-3 md:static md:mx-0 md:mb-0 md:flex-row md:px-0 md:pb-0">
               <div className="flex items-center gap-2 w-full md:w-auto">
                 <input 
                   className="w-full md:w-[6.5rem] px-2.5 py-1.5 text-[16px] md:text-[13px] rounded-md border border-border bg-surface outline-none focus:border-brand"
@@ -341,16 +363,16 @@ export function DateRangePicker({
                 />
               </div>
 
-              <div className="flex items-center gap-2 w-full md:w-auto justify-end">
-                <button 
+              <div className="flex w-full items-center justify-end gap-2 md:w-auto">
+                <button
                   onClick={() => setIsOpen(false)}
-                  className="px-3 py-1 text-[13px] font-medium rounded-md border border-border hover:bg-canvas transition"
+                  className="flex-1 rounded-md border border-border px-3 py-2.5 text-[13px] font-medium transition hover:bg-canvas md:flex-none md:py-1"
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   onClick={handleApply}
-                  className="px-3 py-1 text-[13px] font-medium rounded-md bg-brand text-white hover:bg-brand-600 transition"
+                  className="flex-1 rounded-md bg-brand px-3 py-2.5 text-[13px] font-medium text-white transition hover:bg-brand-600 md:flex-none md:py-1"
                 >
                   Apply
                 </button>

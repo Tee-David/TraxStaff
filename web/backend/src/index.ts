@@ -15,6 +15,7 @@ import insightsRoutes from "./routes/insights";
 import screenshotRoutes from "./routes/screenshots";
 import orgRoutes from "./routes/orgs";
 import {
+  ensureApprovalColumns,
   ensureAuditLogTable,
   ensureNullableUserFks,
   ensureWebsiteUsageColumn,
@@ -68,6 +69,7 @@ async function main() {
   await ensureWebsiteUsageColumn(fastify.log);
   await ensureAuditLogTable(fastify.log);
   await ensureNullableUserFks(fastify.log);
+  await ensureApprovalColumns(fastify.log);
 
   // Close sessions the tracker never got to stop — an app killed, a machine shut
   // down, a token rejected mid-session. Nothing else ever did, so a single

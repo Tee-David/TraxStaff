@@ -179,8 +179,18 @@ export const TOURS: Record<string, TourDef> = {
         target: '[data-tour="timesheets-add"]',
         title: "Missed some time?",
         content:
-          "Log a stretch the tracker never saw — pick the project, the date and the hours, and say why. It lands on the timesheet marked Manual, and can't overlap time you've already logged.",
+          "Log a stretch the tracker never saw — pick the project, the date and the hours, and say why. It goes to an admin for approval and shows as pending until someone reviews it.",
         icon: "plus",
+        optional: true,
+      },
+      {
+        key: "timesheets-views",
+        target: '[data-tour="timesheets-views"]',
+        title: "Your time, or everyone's",
+        content:
+          "My time is what every role sees by default. Team widens it to the whole organisation, and Approvals is the queue of manual entries still waiting on a decision — the badge counts what's outstanding.",
+        icon: "users",
+        adminOnly: true,
         optional: true,
       },
       {

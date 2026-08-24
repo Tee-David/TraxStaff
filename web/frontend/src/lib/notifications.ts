@@ -38,6 +38,23 @@ export function notificationWhat(n: AppNotification): string {
     const kind = typeof p.type === "string" ? p.type : null;
     return (kind && FLAG_LABELS[kind]) || kind?.replace(/_/g, " ") || "Unusual activity";
   }
+  // Manual-time rows carry the numbers that make them worth reading. "Manual
+  // time submitted" tells an admin nothing they can act on; "submitted 3h 30m
+  // for approval" tells them whether to look now.
+  const duration = typeof p.duration === "string" ? p.duration : null;
+  if (n.type === "manual_time_submitted") {
+    return duration ? `Submitted ${duration} for approval` : "Submitted manual time for approval";
+  }
+  if (n.type === "manual_time_decided") {
+    const decision = p.decision === "rejected" ? "rejected" : "approved";
+    return duration ? `Manual time ${decision} (${duration})` : `Manual time ${decision}`;
+  }
+  if (n.type === "manual_time_added") {
+    const by = typeof p.addedBy === "string" ? p.addedBy.split("@")[0] : "an admin";
+    // No "to their timesheet": the row already names whose timesheet it is, and
+    // the pronoun reads as the admin's once the two names sit side by side.
+    return duration ? `${by} added ${duration}` : `${by} added manual time`;
+  }
   return n.type.replace(/_/g, " ");
 }
 

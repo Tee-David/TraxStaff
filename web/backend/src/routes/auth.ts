@@ -6,6 +6,12 @@ import { hashPassword, verifyPassword } from "../lib/password";
 import { sendInviteEmail, sendPasswordResetEmail } from "../lib/mailer";
 import { auditLog } from "../lib/audit";
 import { env } from "../env";
+import {
+  EMAIL_TYPES,
+  EMAIL_TYPE_META,
+  effectivePrefs,
+  sanitisePrefs,
+} from "../lib/email-prefs";
 
 // Tokens must expire. Without a TTL a copied token stays valid forever, and
 // disabling a member has no effect on any session they already hold.
@@ -74,6 +80,16 @@ const resetPasswordSchema = z.object({
   token: z.string().min(1),
   password: z.string().min(8),
 });
+
+/**
+ * A sparse patch of known toggles. Unknown keys are rejected outright rather
+ * than dropped: a client sending a type this server has never heard of is a
+ * version mismatch, and quietly returning 200 for a preference that was never
+ * stored is the kind of success the user only discovers from an inbox.
+ */
+const emailPrefsSchema = z
+  .object(Object.fromEntries(EMAIL_TYPES.map((t) => [t, z.boolean().optional()])))
+  .strict();
 
 const updateMeSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -356,6 +372,53 @@ export default async function authRoutes(fastify: FastifyInstance) {
       data: { name: body.name },
     });
     return reply.send({ id: user.id, email: user.email, name: user.name, role: user.role });
+  });
+
+  /**
+   * Which emails this account gets.
+   *
+   * Per USER, not per org: in-app notifications are org-wide for every admin
+   * (and stay that way), but a mailbox belongs to one person, and "every admin
+   * gets every email" is how a useful alert becomes a filter rule. Returns the
+   * effective set — defaults already applied — plus the metadata the settings
+   * UI renders, so labels and copy live in one place on the server rather than
+   * being duplicated per client.
+   */
+  fastify.get("/auth/me/email-preferences", { preHandler: [fastify.authenticate] }, async (req, reply) => {
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: req.user.userId },
+      select: { role: true, emailPrefs: true },
+    });
+    return reply.send({
+      preferences: effectivePrefs(user),
+      types: EMAIL_TYPE_META.filter(
+        (t) => !t.adminOnly || user.role === "owner" || user.role === "admin"
+      ),
+    });
+  });
+
+  fastify.patch("/auth/me/email-preferences", { preHandler: [fastify.authenticate] }, async (req, reply) => {
+    const body = emailPrefsSchema.parse(req.body);
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: req.user.userId },
+      select: { role: true, emailPrefs: true },
+    });
+
+    // Merged over what is stored, not replacing it: the UI sends the toggle
+    // that changed, and a member who is later promoted to admin should find
+    // the admin-only preferences they set as an admin still there.
+    const current =
+      user.emailPrefs && typeof user.emailPrefs === "object" && !Array.isArray(user.emailPrefs)
+        ? (user.emailPrefs as Record<string, unknown>)
+        : {};
+    const merged = { ...sanitisePrefs(current), ...sanitisePrefs(body) };
+
+    const updated = await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { emailPrefs: merged },
+      select: { role: true, emailPrefs: true },
+    });
+    return reply.send({ preferences: effectivePrefs(updated) });
   });
 
   // Authenticated password change (current + new), distinct from the

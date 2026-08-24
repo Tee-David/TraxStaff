@@ -37,6 +37,9 @@ const ACTION_LABELS: Record<string, string> = {
   "idle.discarded": "Idle time discarded",
   "idle.kept": "Away time kept",
   "session.end_corrected": "Session end corrected",
+  "manual_time.added_for_member": "Time added for member",
+  "manual_time.approved": "Manual time approved",
+  "manual_time.rejected": "Manual time rejected",
 };
 
 export function actionLabel(action: string): string {
@@ -54,7 +57,10 @@ export function actionTone(action: string): "red" | "accent" | "muted" {
     action === "project.archived" ||
     action === "idle.discarded" ||
     action === "idle.kept" ||
-    action === "session.end_corrected"
+    action === "session.end_corrected" ||
+    // All three move hours a member may be paid for, without the tracker having
+    // witnessed any of it — the same reason session.end_corrected is amber.
+    action.startsWith("manual_time.")
   ) return "accent";
   return "muted";
 }

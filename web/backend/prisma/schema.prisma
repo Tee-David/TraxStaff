@@ -102,6 +102,13 @@ model User {
   // which is a real target of no hours (someone on leave).
   dailyTargetMinutes  Int?
   weeklyTargetMinutes Int?
+  // Per-user EMAIL notification overrides: { [type]: boolean }. Null, and any
+  // absent key, means "use the default for that type" (lib/email-prefs.ts), so
+  // the defaults live in one place in code and a user only ever stores what
+  // they changed. In-app notifications are unaffected — an admin still sees
+  // every org notification in the bell; this only governs what lands in a
+  // mailbox, so one admin muting themselves cannot hide an event from another.
+  emailPrefs         Json?
   createdAt          DateTime          @default(now())
   devices            Device[]
   sessions           TrackingSession[]
@@ -224,6 +231,30 @@ model TrackingSession {
   endReason       SessionEndReason?
   isManual        Boolean           @default(false)
   manualReason    String?
+  // Approval state for a MANUAL entry: "pending" | "approved" | "rejected".
+  // Null on tracked sessions — the tracker witnessed those, so there is nothing
+  // to approve — and on manual rows written before approvals existed, which are
+  // treated as approved (see lib/approval.ts). Every read that means "time that
+  // counts" must go through excludeRejected() there, never a bare `not`.
+  //
+  // A plain String rather than an enum, matching Notification.type and
+  // AuditLog.action: a Postgres/CockroachDB enum needs CREATE TYPE, which the
+  // boot-time schema path (lib/ensure-schema.ts) cannot apply as safely as a
+  // plain additive ADD COLUMN. The allowed set is enforced by zod at the edge.
+  approvalStatus  String?
+  decidedAt       DateTime?
+  // Deliberately scalar columns, NOT relations. Adding a foreign key to
+  // TrackingSession means unlocking a schema_locked table (see
+  // ensureNullableUserFks), and none of this needs a join: the email is
+  // denormalised for display — the same trick AuditLog.payload uses — so a
+  // decision stays readable after the admin who made it has been deleted.
+  decidedById     String?           @db.Uuid
+  decidedByEmail  String?
+  decisionNote    String?
+  // Set when an admin enters time on a member's behalf, so the timesheet can
+  // say who put the entry there rather than implying the member did.
+  addedById       String?           @db.Uuid
+  addedByEmail    String?
   tamperSuspected Boolean           @default(false)
   // Last time this session's device successfully synced. The server-witnessed
   // elapsed cap is measured from here, so it must be set from the server clock

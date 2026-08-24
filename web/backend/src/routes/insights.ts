@@ -8,6 +8,7 @@ import {
   orgScoped,
   orgScopedViaSession,
 } from "../lib/org-scope";
+import { excludeRejected } from "../lib/approval";
 import { evidenceSelect, isAbandoned, overlapsRange, workedSecondsInRange } from "../lib/duration";
 
 const PRESENCE_WINDOW_MS = 3 * 60 * 1000; // "online" if a device beat within 3 min
@@ -109,7 +110,10 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
       q.from ? new Date(q.from) : undefined,
       q.to ? new Date(q.to) : undefined
     );
-    if (range.length) where.AND = range;
+    // Same rule as reports.ts: rejected manual time does not count, and the
+    // leaderboard ranks people against each other — leaving it in would rank
+    // someone on hours an admin has explicitly refused.
+    where.AND = [...range, ...excludeRejected()];
     const sessions = await prisma.trackingSession.findMany({
       where,
       include: {

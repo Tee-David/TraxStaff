@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { GENESIS, verifyChain, type ChainBlock } from "../lib/hashchain";
 import { detectAnomalies } from "../lib/anomaly";
 import { auditLog } from "../lib/audit";
+import { notifyOrg } from "../lib/notify";
 
 const blockSchema = z.object({
   blockStart: z.string().datetime({ offset: true }),
@@ -350,12 +351,4 @@ async function upsertFlag(sessionId: string, type: import("@prisma/client").Flag
   if (existing) return false;
   await prisma.unusualActivityFlag.create({ data: { sessionId, type, details: details as Prisma.InputJsonValue } });
   return true;
-}
-
-async function notifyOrg(userId: string, type: string, payload: Record<string, unknown>) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) return;
-  await prisma.notification.create({
-    data: { orgId: user.orgId, userId, type, payload: { ...payload, memberEmail: user.email } },
-  });
 }

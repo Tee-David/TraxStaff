@@ -9,6 +9,11 @@ import {
   overlapsRange,
   workedSeconds,
 } from "../lib/duration";
+import { APPROVAL_STATUSES, canDecide, effectiveStatus } from "../lib/approval";
+import { orgScoped } from "../lib/org-scope";
+import { auditLog } from "../lib/audit";
+import { notifyManualTimeAdded, notifyManualTimeDecided, notifyManualTimeSubmitted } from "../lib/notify";
+import type { ManualEntryFacts } from "../lib/mailer";
 
 // A session whose device hasn't heartbeat within this window is considered
 // dead and can be taken over by another device. Heartbeats are every 60s, so
@@ -104,6 +109,26 @@ const manualSchema = z.object({
   startedAt: z.string().datetime({ offset: true }),
   endedAt: z.string().datetime({ offset: true }),
   manualReason: z.string().min(1),
+  // Whose timesheet this lands on. Absent (the ordinary case) means the caller's
+  // own. Only an owner/admin may name someone else — a member sending another
+  // member's id is refused rather than quietly filed against themselves, since
+  // silently ignoring it would leave them believing they logged the time.
+  userId: z.string().uuid().optional(),
+});
+
+const listSchema = z.object({
+  userId: z.string().uuid().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  scope: z.enum(["self", "team"]).optional(),
+  approval: z.enum(APPROVAL_STATUSES).optional(),
+});
+
+const decisionSchema = z.object({
+  // Required on a rejection, optional on an approval. Rejecting someone's hours
+  // without saying why leaves them nothing to act on, and the reason is the part
+  // that makes the decision reviewable later.
+  note: z.string().min(1).max(500).optional(),
 });
 
 const noteSchema = z.object({
@@ -154,6 +179,71 @@ async function resolveDevice(
 async function assertProjectInOrg(projectId: string, orgId: string) {
   const project = await prisma.project.findUnique({ where: { id: projectId } });
   return project && project.orgId === orgId ? project : null;
+}
+
+/**
+ * The acting admin's own address.
+ *
+ * Read once per decision and stored on the row rather than joined at display
+ * time — same reasoning as AuditLog's denormalised `actorEmail`: who signed off
+ * a timesheet has to stay legible after that admin's account is gone, and a
+ * relation would render it blank exactly when it matters most.
+ */
+async function actorEmail(userId: string): Promise<string | null> {
+  return prisma.user
+    .findUnique({ where: { id: userId }, select: { email: true } })
+    .then((u) => u?.email ?? null)
+    .catch(() => null);
+}
+
+/** "3h 30m" — the same compact shape the dashboard uses, for notification copy. */
+function shortDuration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return h === 0 ? `${m}m` : `${h}h ${m}m`;
+}
+
+/**
+ * When the entry covers, spelled out for an email.
+ *
+ * Deliberately UTC and labelled as such: the server has no idea what timezone
+ * the reader is in, and an unlabelled local-looking time in an approval request
+ * is exactly the sort of ambiguity that gets the wrong hours signed off.
+ */
+function formatWhen(start: Date, end: Date): string {
+  const day = start.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const time = (d: Date) =>
+    d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+  const sameDay = start.toISOString().slice(0, 10) === end.toISOString().slice(0, 10);
+  return sameDay
+    ? `${day}, ${time(start)}–${time(end)} UTC`
+    : `${day} ${time(start)} – ${end.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })} ${time(end)} UTC`;
+}
+
+/** The facts every manual-time notification and email is built from. */
+function manualFacts(args: {
+  memberLabel: string;
+  projectName: string;
+  taskTitle?: string | null;
+  start: Date;
+  end: Date;
+  reason: string;
+}): ManualEntryFacts {
+  return {
+    memberLabel: args.memberLabel,
+    projectName: args.projectName,
+    taskTitle: args.taskTitle ?? null,
+    when: formatWhen(args.start, args.end),
+    duration: shortDuration((args.end.getTime() - args.start.getTime()) / 1000),
+    reason: args.reason,
+  };
 }
 
 export default async function sessionRoutes(fastify: FastifyInstance) {
@@ -303,7 +393,20 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
     return reply.send({ ok: true });
   });
 
-  // Add a manual (not tracker-verified) time entry.
+  /**
+   * Add a manual (not tracker-verified) time entry.
+   *
+   * Two callers, and the difference decides everything downstream:
+   *
+   *   - a member logging their own missed time → lands `pending`, and the admins
+   *     who asked to hear about it are told;
+   *   - an owner/admin entering time for someone else → lands `approved`, signed
+   *     with their name, and the member is told it was added for them.
+   *
+   * An admin's own manual time takes the first path, not the second. They are
+   * not a special case of "someone the tracker missed", and letting a role sign
+   * off its own hours is precisely the hole this whole flow exists to close.
+   */
   fastify.post("/sessions/manual", async (req, reply) => {
     const body = manualSchema.parse(req.body);
 
@@ -313,18 +416,57 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: "End must be after start" });
     }
 
+    const privileged = req.user.role === "owner" || req.user.role === "admin";
+    const forSomeoneElse = Boolean(body.userId && body.userId !== req.user.userId);
+    if (forSomeoneElse && !privileged) {
+      return reply.code(403).send({ error: "Only an admin can add time for someone else" });
+    }
+
+    const targetId = body.userId ?? req.user.userId;
+    const target = await prisma.user.findUnique({
+      where: { id: targetId },
+      select: { id: true, email: true, orgId: true, role: true, status: true, emailPrefs: true },
+    });
+    if (!target || target.orgId !== req.user.orgId) {
+      return reply.code(404).send({ error: "Member not found" });
+    }
+    // A disabled or never-accepted account cannot track, so time filed against
+    // it would be hours nobody can ever see or dispute on their own timesheet.
+    if (forSomeoneElse && target.status !== "active") {
+      return reply.code(400).send({ error: "That member's account isn't active" });
+    }
+
     const project = await assertProjectInOrg(body.projectId, req.user.orgId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
 
-    // Prevent padding hours by adding a manual entry that overlaps time the user
-    // has already tracked (or another manual entry). Two intervals overlap when
+    // A task from another project would put the entry under a heading it does
+    // not belong to, and every timesheet row renders project + task together.
+    let task: { id: string; title: string } | null = null;
+    if (body.taskId) {
+      const found = await prisma.task.findUnique({
+        where: { id: body.taskId },
+        select: { id: true, title: true, projectId: true },
+      });
+      if (!found || found.projectId !== body.projectId) {
+        return reply.code(404).send({ error: "Task not found on that project" });
+      }
+      task = { id: found.id, title: found.title };
+    }
+
+    // Prevent padding hours by adding a manual entry that overlaps time already
+    // on THE TARGET'S timesheet (tracked or manual). Two intervals overlap when
     // existing.start < new.end AND existing.end > new.start. Open sessions count
     // as running "until now".
+    //
+    // Rejected entries are excluded: an admin who turned an entry down has said
+    // those hours don't count, and leaving it as a blocker would make its own
+    // rejection the reason a corrected re-submission can't be filed.
     const overlap = await prisma.trackingSession.findFirst({
       where: {
-        userId: req.user.userId,
+        userId: targetId,
         startedAt: { lt: end },
         OR: [{ endedAt: null }, { endedAt: { gt: start } }],
+        AND: [{ OR: [{ approvalStatus: null }, { approvalStatus: { not: "rejected" } }] }],
       },
     });
     if (overlap) {
@@ -333,51 +475,231 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
         .send({ error: "This time range overlaps an existing entry", sessionId: overlap.id });
     }
 
-    const device = await resolveDevice(req.user.userId, undefined, "manual", "0.0.0");
+    const now = new Date();
+    const addedBy = forSomeoneElse ? await actorEmail(req.user.userId) : null;
+    const device = await resolveDevice(targetId, undefined, "manual", "0.0.0");
     const session = await prisma.trackingSession.create({
       data: {
-        userId: req.user.userId,
+        userId: targetId,
         projectId: body.projectId,
         taskId: body.taskId,
         deviceId: device.id,
-        startedAt: new Date(body.startedAt),
-        endedAt: new Date(body.endedAt),
+        startedAt: start,
+        endedAt: end,
         endReason: "stopped",
         isManual: true,
         manualReason: body.manualReason,
+        approvalStatus: forSomeoneElse ? "approved" : "pending",
+        ...(forSomeoneElse
+          ? {
+              decidedAt: now,
+              decidedById: req.user.userId,
+              decidedByEmail: addedBy,
+              addedById: req.user.userId,
+              addedByEmail: addedBy,
+            }
+          : {}),
       },
     });
+
+    const facts = manualFacts({
+      memberLabel: target.email,
+      projectName: project.name,
+      taskTitle: task?.title,
+      start,
+      end,
+      reason: body.manualReason,
+    });
+
+    if (forSomeoneElse) {
+      await auditLog({
+        orgId: req.user.orgId,
+        actorId: req.user.userId,
+        action: "manual_time.added_for_member",
+        targetId: target.id,
+        targetLabel: target.email,
+        details: { sessionId: session.id, duration: facts.duration, when: facts.when },
+      });
+      await notifyManualTimeAdded({
+        orgId: req.user.orgId,
+        member: { id: target.id, email: target.email, role: target.role, emailPrefs: target.emailPrefs },
+        sessionId: session.id,
+        addedBy: session.addedByEmail ?? "an admin",
+        facts,
+      });
+    } else {
+      await notifyManualTimeSubmitted({
+        orgId: req.user.orgId,
+        memberId: target.id,
+        memberEmail: target.email,
+        sessionId: session.id,
+        submittedById: req.user.userId,
+        facts,
+      });
+    }
+
     return reply.code(201).send(session);
   });
 
+  /**
+   * Approve or reject a manual entry.
+   *
+   * One handler for both, because everything except the stored word is shared —
+   * and keeping them together is what stops the two paths drifting on who may
+   * decide, what gets audited, and who gets told.
+   *
+   * A decision can be changed: an admin who approves the wrong row needs a way
+   * back, and every decision is audited, so the trail shows the correction
+   * rather than hiding it. What cannot change is that the hours themselves are
+   * never edited or deleted here — a rejected entry stays on the timesheet,
+   * visibly rejected, and simply stops counting.
+   */
+  for (const decision of ["approved", "rejected"] as const) {
+    fastify.post(
+      `/sessions/:id/${decision === "approved" ? "approve" : "reject"}`,
+      { preHandler: [fastify.requireRole(["owner", "admin"])] },
+      async (req, reply) => {
+        const { id } = req.params as { id: string };
+        const body = decisionSchema.parse(req.body ?? {});
+        if (decision === "rejected" && !body.note) {
+          return reply.code(400).send({ error: "A reason is required to reject an entry" });
+        }
+
+        const session = await prisma.trackingSession.findUnique({
+          where: { id },
+          include: {
+            project: { select: { id: true, name: true, orgId: true } },
+            task: { select: { id: true, title: true } },
+            user: { select: { id: true, email: true, role: true, orgId: true, emailPrefs: true } },
+          },
+        });
+        // Reached through the owner when there is one, and through the project
+        // when the owner has been deleted — the same two doors org-wide reads
+        // use everywhere else (lib/org-scope.ts).
+        const inOrg =
+          session &&
+          (session.user ? session.user.orgId === req.user.orgId : session.project.orgId === req.user.orgId);
+        if (!session || !inOrg) return reply.code(404).send({ error: "Session not found" });
+
+        if (!session.isManual) {
+          return reply
+            .code(400)
+            .send({ error: "Only manual entries are approved — the tracker witnessed this one" });
+        }
+        if (!canDecide(req.user, session)) {
+          return reply
+            .code(403)
+            .send({ error: "You can't decide your own manual time — another admin has to review it" });
+        }
+
+        const email = await actorEmail(req.user.userId);
+        const updated = await prisma.trackingSession.update({
+          where: { id },
+          data: {
+            approvalStatus: decision,
+            decidedAt: new Date(),
+            decidedById: req.user.userId,
+            decidedByEmail: email,
+            decisionNote: body.note ?? null,
+          },
+        });
+
+        const facts = manualFacts({
+          memberLabel: session.user?.email ?? "Deleted user",
+          projectName: session.project.name,
+          taskTitle: session.task?.title,
+          start: session.startedAt,
+          end: session.endedAt ?? session.startedAt,
+          reason: session.manualReason ?? "",
+        });
+
+        await auditLog({
+          orgId: req.user.orgId,
+          actorId: req.user.userId,
+          action: `manual_time.${decision}`,
+          targetId: session.userId,
+          targetLabel: session.user?.email ?? null,
+          details: {
+            sessionId: session.id,
+            duration: facts.duration,
+            when: facts.when,
+            note: body.note ?? null,
+          },
+        });
+
+        await notifyManualTimeDecided({
+          orgId: req.user.orgId,
+          member: session.user
+            ? {
+                id: session.user.id,
+                email: session.user.email,
+                role: session.user.role,
+                emailPrefs: session.user.emailPrefs,
+              }
+            : null,
+          sessionId: session.id,
+          decision,
+          decidedBy: email ?? "an admin",
+          note: body.note,
+          facts,
+        });
+
+        return reply.send(updated);
+      }
+    );
+  }
+
   // List sessions. Everyone defaults to seeing only their OWN sessions — this
   // backs ordinary "my work" surfaces (Dashboard, Timesheets) for every role,
-  // admins included. An admin/owner may explicitly look up one other member
-  // via ?userId=, which is how Timesheets' own-org drill-down would work if
-  // ever wired up; without it, a privileged caller is never handed the whole
-  // org by default just for opening their own page.
+  // admins included. A privileged caller can widen that deliberately, and only
+  // deliberately: `?userId=` for one member, `?scope=team` for the whole org.
+  // Without one of those, opening a page is never enough to be handed the org.
+  //
+  // `?approval=` narrows to entries in one state, which is what the admin
+  // approvals queue asks for (`scope=team&approval=pending`).
   fastify.get("/sessions", async (req, reply) => {
-    const q = req.query as { userId?: string; from?: string; to?: string };
+    const q = listSchema.parse(req.query);
 
     const isPrivileged = req.user.role === "owner" || req.user.role === "admin";
     const where: Record<string, unknown> = {};
+    const and: Record<string, unknown>[] = [];
 
     if (isPrivileged) {
-      where.user = { orgId: req.user.orgId };
-      where.userId = q.userId ?? req.user.userId;
+      if (q.scope === "team" && !q.userId) {
+        // Org-wide, orphans included: a session whose owner was hard-deleted
+        // has userId IS NULL and reaches the org through its project instead
+        // (lib/org-scope.ts). Filtering on `user: { orgId }` alone compiles to
+        // an inner join and would drop that work from the team view.
+        where.OR = orgScoped(req.user.orgId);
+      } else {
+        where.user = { orgId: req.user.orgId };
+        where.userId = q.userId ?? req.user.userId;
+      }
     } else {
       where.userId = req.user.userId;
+      // A member may ask for `scope=team`; it simply does nothing for them.
+    }
+
+    if (q.approval) {
+      // Only manual entries carry a status, and a stored null means "approved"
+      // for the two cases in lib/approval.ts (tracked sessions, and manual rows
+      // predating approvals) — so "approved" has to admit null too, or every
+      // historic entry would vanish from the filter that claims to show it.
+      and.push(
+        q.approval === "approved"
+          ? { isManual: true, OR: [{ approvalStatus: "approved" }, { approvalStatus: null }] }
+          : { isManual: true, approvalStatus: q.approval }
+      );
     }
 
     // By overlap, not by start instant — see overlapsRange in lib/duration.ts.
     // The desktop widget asks for `?from=<start of week>` and then attributes time
     // by overlap itself, so filtering on `startedAt` here silently withheld the
     // part of a Sunday-night session that belonged to Monday.
-    const range = overlapsRange(
-      q.from ? new Date(q.from) : undefined,
-      q.to ? new Date(q.to) : undefined
+    and.push(
+      ...overlapsRange(q.from ? new Date(q.from) : undefined, q.to ? new Date(q.to) : undefined)
     );
-    if (range.length) where.AND = range;
+    if (and.length) where.AND = and;
 
     const sessions = await prisma.trackingSession.findMany({
       where,
@@ -429,6 +751,16 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
         idleSpans: idleDiscards
           .filter((d) => d.from && d.to)
           .map((d) => ({ from: d.from.toISOString(), to: d.to.toISOString(), seconds: d.seconds })),
+        /**
+         * The row's approval state as a client should read it, with the
+         * null-means-approved rule already applied (lib/approval.ts).
+         *
+         * Sent alongside the raw `approvalStatus` rather than instead of it:
+         * three clients would otherwise each re-derive "null means approved,
+         * except when it doesn't", and the one that got it wrong would quietly
+         * pay — or refuse to pay — for hours.
+         */
+        approvalState: effectiveStatus(s),
       }))
     );
   });

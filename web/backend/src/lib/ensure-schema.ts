@@ -213,3 +213,107 @@ export async function ensureWebsiteUsageColumn(log: Logger): Promise<void> {
     );
   }
 }
+
+/**
+ * Adds a set of columns to one table, unlocking it first only if the plain
+ * ALTER says the table is `schema_locked`.
+ *
+ * Factored out of `ensureWebsiteUsageColumn` (which predates it and is left
+ * alone) because the approvals work adds seven columns across two tables and
+ * the optimistic-then-escalate dance is the fiddly part — the lock has to be
+ * restored even when the ALTER fails, or a failed boot leaves the table
+ * writable to the next schema change that comes along.
+ *
+ * `probe` is a cheap SELECT of one of the new columns: when it succeeds the
+ * work is already done and the steady state costs one query per boot.
+ */
+async function ensureColumns(
+  log: Logger,
+  table: string,
+  probeColumn: string,
+  columns: string[],
+  degradedWarning: string
+): Promise<void> {
+  try {
+    await prisma.$queryRawUnsafe(`SELECT "${probeColumn}" FROM "${table}" LIMIT 1`);
+    return; // already there — nothing to do
+  } catch {
+    // fall through and add them
+  }
+
+  log.info(`[schema] ${table}.${probeColumn} is missing — adding the approval columns`);
+
+  // Every statement is additive, nullable and `IF NOT EXISTS`, so a partially
+  // applied set (a boot that died halfway) simply completes on the next run.
+  const add = async () => {
+    for (const col of columns) {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS ${col}`);
+    }
+  };
+
+  try {
+    await add();
+    log.info(`[schema] ${table} approval columns added`);
+    return;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/schema_locked|is locked/i.test(msg)) {
+      log.warn(`[schema] could not add columns to ${table}: ${msg}. ${degradedWarning}`);
+      return;
+    }
+    log.info(`[schema] ${table} is schema_locked — unlocking to add the columns`);
+  }
+
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" SET (schema_locked = false)`);
+    try {
+      await add();
+      log.info(`[schema] ${table} approval columns added`);
+    } finally {
+      await prisma
+        .$executeRawUnsafe(`ALTER TABLE "${table}" SET (schema_locked = true)`)
+        .catch(() => {});
+    }
+  } catch (err) {
+    log.warn(
+      `[schema] could not add columns to ${table} (${
+        err instanceof Error ? err.message : err
+      }). ${degradedWarning}`
+    );
+  }
+}
+
+/**
+ * Columns behind manual-time approvals, and the per-user email preference blob.
+ *
+ * Both are additive and nullable, so the API keeps serving on a database where
+ * this could not run: a missing `approvalStatus` degrades to "every manual entry
+ * reads as approved" (which is exactly how rows predating the feature are
+ * treated anyway), and a missing `emailPrefs` degrades to "everyone gets the
+ * default set of emails" — the behaviour before preferences existed.
+ */
+export async function ensureApprovalColumns(log: Logger): Promise<void> {
+  await ensureColumns(
+    log,
+    "TrackingSession",
+    "approvalStatus",
+    [
+      `"approvalStatus" STRING`,
+      `"decidedAt" TIMESTAMP(3)`,
+      `"decidedById" UUID`,
+      `"decidedByEmail" STRING`,
+      `"decisionNote" STRING`,
+      `"addedById" UUID`,
+      `"addedByEmail" STRING`,
+    ],
+    "Manual entries will all read as approved and cannot be reviewed until these columns exist."
+  );
+
+  await ensureColumns(
+    log,
+    "User",
+    "emailPrefs",
+    [`"emailPrefs" JSONB`],
+    "Email preferences will not persist, and every admin keeps receiving the default set."
+  );
+}

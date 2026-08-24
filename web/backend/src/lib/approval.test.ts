@@ -46,13 +46,17 @@ test("excludeRejected admits nulls explicitly, not via NOT", () => {
   });
 });
 
-test("an admin decides other people's time but not their own", () => {
+test("an admin decides any entry, including their own", () => {
+  // Approval authority is the role. An admin queueing behind their own
+  // colleagues bought nothing — a one-admin workspace could never clear its
+  // queue — and accountability for self-added hours lives in the audit trail
+  // (`manual_time.self_added`) rather than in a block.
   const admin = { userId: "admin-1", role: "admin" };
   assert.equal(canDecide(admin, { userId: "member-1" }), true);
-  assert.equal(canDecide(admin, { userId: "admin-1" }), false);
+  assert.equal(canDecide(admin, { userId: "admin-1" }), true);
 });
 
-test("the owner may decide their own — they may be the only admin there is", () => {
+test("the owner decides anything too", () => {
   const owner = { userId: "owner-1", role: "owner" };
   assert.equal(canDecide(owner, { userId: "owner-1" }), true);
   assert.equal(canDecide(owner, { userId: "member-1" }), true);

@@ -38,6 +38,7 @@ const ACTION_LABELS: Record<string, string> = {
   "idle.kept": "Away time kept",
   "session.end_corrected": "Session end corrected",
   "manual_time.added_for_member": "Time added for member",
+  "manual_time.self_added": "Admin added own time",
   "manual_time.approved": "Manual time approved",
   "manual_time.rejected": "Manual time rejected",
 };

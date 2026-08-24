@@ -464,16 +464,17 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
   /**
    * Add a manual (not tracker-verified) time entry.
    *
-   * Two callers, and the difference decides everything downstream:
+   * The role of whoever files it decides everything downstream:
    *
    *   - a member logging their own missed time → lands `pending`, and the admins
    *     who asked to hear about it are told;
-   *   - an owner/admin entering time for someone else → lands `approved`, signed
-   *     with their name, and the member is told it was added for them.
+   *   - an owner/admin → lands `approved`, signed with their name, whether it is
+   *     for themselves or for someone else. Approval authority is the admin role
+   *     itself, so there is nobody left to ask.
    *
-   * An admin's own manual time takes the first path, not the second. They are
-   * not a special case of "someone the tracker missed", and letting a role sign
-   * off its own hours is precisely the hole this whole flow exists to close.
+   * Every admin-created entry is written to the audit log either way — that is
+   * what keeps self-added hours accountable without making an admin queue up
+   * behind their own colleagues.
    */
   fastify.post("/sessions/manual", async (req, reply) => {
     const body = manualSchema.parse(req.body);
@@ -580,7 +581,10 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
     }
 
     const now = new Date();
-    const addedBy = forSomeoneElse ? await actorEmail(req.user.userId) : null;
+    // Recorded for any admin-created entry, not just one filed for someone
+    // else: "who put these hours here" is exactly the question the audit trail
+    // has to answer for an admin's own time too.
+    const addedBy = privileged ? await actorEmail(req.user.userId) : null;
     const device = await resolveDevice(targetId, undefined, "manual", "0.0.0");
     const session = await prisma.trackingSession.create({
       data: {
@@ -593,8 +597,8 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
         endReason: "stopped",
         isManual: true,
         manualReason: body.manualReason,
-        approvalStatus: forSomeoneElse ? "approved" : "pending",
-        ...(forSomeoneElse
+        approvalStatus: privileged ? "approved" : "pending",
+        ...(privileged
           ? {
               decidedAt: now,
               decidedById: req.user.userId,
@@ -615,22 +619,30 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
       reason: body.manualReason,
     });
 
-    if (forSomeoneElse) {
+    if (privileged) {
+      // Two distinct actions, because they are two distinct things to be
+      // accountable for: adding hours to someone else's timesheet, and adding
+      // approved hours to your own. The second is the one an auditor cares
+      // about most, so it gets a name of its own rather than hiding inside the
+      // first.
       await auditLog({
         orgId: req.user.orgId,
         actorId: req.user.userId,
-        action: "manual_time.added_for_member",
+        action: forSomeoneElse ? "manual_time.added_for_member" : "manual_time.self_added",
         targetId: target.id,
         targetLabel: target.email,
-        details: { sessionId: session.id, duration: facts.duration, when: facts.when },
+        details: { sessionId: session.id, duration: facts.duration, when: facts.when, project: project.name },
       });
-      await notifyManualTimeAdded({
-        orgId: req.user.orgId,
-        member: { id: target.id, email: target.email, role: target.role, emailPrefs: target.emailPrefs },
-        sessionId: session.id,
-        addedBy: session.addedByEmail ?? "an admin",
-        facts,
-      });
+      // Only worth telling someone when it is not their own doing.
+      if (forSomeoneElse) {
+        await notifyManualTimeAdded({
+          orgId: req.user.orgId,
+          member: { id: target.id, email: target.email, role: target.role, emailPrefs: target.emailPrefs },
+          sessionId: session.id,
+          addedBy: session.addedByEmail ?? "an admin",
+          facts,
+        });
+      }
     } else {
       await notifyManualTimeSubmitted({
         orgId: req.user.orgId,

@@ -182,7 +182,8 @@ const SECTIONS: Section[] = [
     label: "Emails",
     icon: IconMail,
     title: "Emails",
-    subtitle: "Which emails TraxStaff sends on your organisation's behalf, and to whom.",
+    subtitle:
+      "Which emails TraxStaff sends on your organisation's behalf. Switching one off here stops it for everyone; each person can also opt themselves out under Notifications.",
     adminOnly: true,
   },
   {
@@ -479,7 +480,11 @@ export default function SettingsPage() {
       <>
         <SettingsPanel
           title="Email"
-          description="Every one of these also appears in your in-app notifications, whether or not it's emailed."
+          description={
+            isAdmin
+              ? "Yours alone. The Emails section sets what this organisation sends at all; these switches decide which of it reaches your inbox. Everything still appears in your in-app notifications either way."
+              : "Yours alone. Everything still appears in your in-app notifications, whether or not it's emailed."
+          }
         >
           {!emailPrefs ? (
             <div className="space-y-3 p-4">
@@ -491,11 +496,23 @@ export default function SettingsPage() {
             </p>
           ) : (
             emailPrefs.types.map((t) => (
-              <SettingsRow key={t.type} label={t.label} hint={t.description}>
+              <SettingsRow
+                key={t.type}
+                label={t.label}
+                // A type the org has switched off is shown, disabled, saying so
+                // — rather than hidden, which would read as "this email doesn't
+                // exist", or left toggleable, which would promise something the
+                // org switch is going to override anyway.
+                hint={
+                  t.orgEnabled
+                    ? t.description
+                    : `${t.description} Currently switched off for the whole organisation.`
+                }
+              >
                 <Toggle
-                  checked={emailPrefs.preferences[t.type] ?? t.default}
+                  checked={t.orgEnabled && (emailPrefs.preferences[t.type] ?? t.default)}
                   onChange={(v) => setEmailPref(t.type, v)}
-                  disabled={savingPref === t.type}
+                  disabled={savingPref === t.type || !t.orgEnabled}
                   label={t.label}
                 />
               </SettingsRow>

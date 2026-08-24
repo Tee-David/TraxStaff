@@ -205,6 +205,68 @@ test("member weekly summaries are opt-in, and reach every member when opted into
   );
 });
 
+test("an admin who muted a digest stops getting it, and nobody else is affected", async () => {
+  // The point of per-person preferences: one admin turning a digest off must
+  // narrow their own inbox and nothing else. Before this, the org switch was
+  // the only control, so quietening it for one person meant quietening it for
+  // everyone — or living with the mail.
+  const sent: Sent[] = [];
+  await run(
+    makeDb({
+      members: [
+        { id: "a1", email: "muted@acme.test", name: "Ada", role: "admin", dailyTargetMinutes: null, weeklyTargetMinutes: null, emailPrefs: { daily_shortfall: false } },
+        { id: "a2", email: "listening@acme.test", name: "Bo", role: "admin", dailyTargetMinutes: null, weeklyTargetMinutes: null, emailPrefs: null },
+        { id: "u1", email: "jordan@acme.test", name: "Jordan", role: "member", dailyTargetMinutes: null, weeklyTargetMinutes: null },
+      ],
+    }),
+    TUESDAY_MORNING,
+    sent
+  );
+
+  assert.deepEqual(
+    sent.filter((s) => s.kind === "daily").map((s) => s.to),
+    ["listening@acme.test"]
+  );
+});
+
+test("muting one digest leaves the others alone", async () => {
+  const sent: Sent[] = [];
+  await run(
+    makeDb({
+      members: [
+        { id: "a1", email: "admin@acme.test", name: "Ada", role: "admin", dailyTargetMinutes: null, weeklyTargetMinutes: null, emailPrefs: { weekly_shortfall: false } },
+        { id: "u1", email: "jordan@acme.test", name: "Jordan", role: "member", dailyTargetMinutes: null, weeklyTargetMinutes: null },
+      ],
+    }),
+    MONDAY_MORNING,
+    sent
+  );
+
+  assert.deepEqual(sent.filter((s) => s.kind === "weekly"), []);
+  assert.deepEqual(sent.filter((s) => s.kind === "daily").map((s) => s.to), ["admin@acme.test"]);
+});
+
+test("a member can opt out of their own weekly summary", async () => {
+  const sent: Sent[] = [];
+  await run(
+    makeDb({
+      org: { notifyMemberWeeklySummary: true },
+      members: [
+        { id: "a1", email: "admin@acme.test", name: "Ada", role: "admin", dailyTargetMinutes: null, weeklyTargetMinutes: null },
+        { id: "u1", email: "jordan@acme.test", name: "Jordan", role: "member", dailyTargetMinutes: null, weeklyTargetMinutes: null, emailPrefs: { member_weekly_summary: false } },
+      ],
+    }),
+    MONDAY_MORNING,
+    sent
+  );
+
+  // Jordan opted out; Ada never expressed a view and still gets hers.
+  assert.deepEqual(
+    sent.filter((s) => s.kind === "memberWeekly").map((s) => s.to),
+    ["admin@acme.test"]
+  );
+});
+
 test("a quiet day sends no unusual-activity mail at all", async () => {
   // Mailing "no anomalies" every morning trains admins to ignore the channel.
   const sent: Sent[] = [];

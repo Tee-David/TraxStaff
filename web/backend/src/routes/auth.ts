@@ -8,9 +8,9 @@ import { auditLog } from "../lib/audit";
 import { env } from "../env";
 import {
   EMAIL_TYPES,
-  EMAIL_TYPE_META,
   effectivePrefs,
   sanitisePrefs,
+  visibleTypes,
 } from "../lib/email-prefs";
 
 // Tokens must expire. Without a TTL a copied token stays valid forever, and
@@ -387,13 +387,29 @@ export default async function authRoutes(fastify: FastifyInstance) {
   fastify.get("/auth/me/email-preferences", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: req.user.userId },
-      select: { role: true, emailPrefs: true },
+      select: { role: true, emailPrefs: true, orgId: true },
     });
+    // The org's switches decide what is sent at all; this endpoint reports them
+    // alongside each type so the UI can show "off for the whole workspace"
+    // rather than a toggle that silently does nothing. Read defensively: a
+    // database missing these columns must degrade to "everything is on", never
+    // to a failed request.
+    const org = await prisma.organization
+      .findUnique({
+        where: { id: user.orgId },
+        select: {
+          emailsEnabled: true,
+          notifyDailyShortfall: true,
+          notifyWeeklyShortfall: true,
+          notifyUnusualActivity: true,
+          notifyMemberWeeklySummary: true,
+        },
+      })
+      .catch(() => null);
+
     return reply.send({
       preferences: effectivePrefs(user),
-      types: EMAIL_TYPE_META.filter(
-        (t) => !t.adminOnly || user.role === "owner" || user.role === "admin"
-      ),
+      types: visibleTypes(user, org ?? {}),
     });
   });
 

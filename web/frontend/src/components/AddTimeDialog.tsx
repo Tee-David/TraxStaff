@@ -55,15 +55,13 @@ function flooredNow() {
  * already on that person's timesheet (409), and this form additionally refuses
  * a stretch that ends in the future, since that is time nobody has worked yet.
  *
- * Who it is for depends on who is filling it in, and the dialog says so rather
- * than leaving it implied:
+ * What happens next depends on who is filling it in, and the dialog says so
+ * rather than leaving it implied:
  *
- *   - a member (or an admin logging their own missed time) submits it for
- *     approval — it counts once an admin signs it off;
- *   - an admin picking someone else from the Member field is entering it on
- *     their behalf, so it counts immediately and is signed with the admin's
- *     name. An admin's own time is never in that second case: nobody approves
- *     their own hours.
+ *   - a member submits it for approval — it counts once an admin signs it off;
+ *   - an owner/admin is the approval authority, so theirs counts immediately
+ *     and is signed with their name, whether it is for themselves or for
+ *     someone else. Either way it goes to the audit log.
  *
  * Modal shell mirrors TargetDialog (members/page.tsx) with the shared
  * backdrop/dialog motion presets the screenshots lightbox uses.
@@ -331,7 +329,9 @@ export function AddTimeDialog({
                   <p className="mt-1.5 text-[12px] text-muted">
                     {forSomeoneElse
                       ? "Sent to the member with the entry, so they can see why it was added."
-                      : "Goes to whoever reviews this, so the manual hours can be read in context."}
+                      : isAdmin
+                        ? "Stored with the entry and shown in the audit log, so the hours can be read in context."
+                        : "Goes to whoever reviews this, so the manual hours can be read in context."}
                   </p>
                 </div>
 
@@ -342,7 +342,9 @@ export function AddTimeDialog({
                 <p className="rounded-lg border border-border px-3 py-2.5 text-[12px] text-muted">
                   {forSomeoneElse
                     ? "You're adding this on their behalf, so it counts immediately and is recorded against your name. They'll be notified."
-                    : "This goes to an admin for approval. It shows on your timesheet as pending until someone reviews it."}
+                    : isAdmin
+                      ? "As an admin this counts immediately, without review. It's recorded in the audit log against your name."
+                      : "This goes to an admin for approval. It shows on your timesheet as pending until someone reviews it."}
                 </p>
               </div>
             )}
@@ -356,7 +358,7 @@ export function AddTimeDialog({
             <div className="mt-6 flex justify-end gap-2">
               <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
               <Button onClick={save} disabled={!canSave}>
-                {saving ? "Adding…" : forSomeoneElse ? "Add time" : "Submit for approval"}
+                {saving ? "Adding…" : isAdmin ? "Add time" : "Submit for approval"}
               </Button>
             </div>
           </Card>

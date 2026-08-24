@@ -47,19 +47,22 @@ export function excludeRejected() {
 }
 
 /**
- * Who may decide a manual entry.
+ * Who may decide a manual entry: any owner or admin, including on their own.
  *
- * Nobody signs off their own hours — an admin's own manual time waits for
- * another admin, exactly like a member's. The owner is the one exception: they
- * are the top of the org and may be its only privileged account, so a rule
- * without this carve-out would leave a one-admin workspace unable to ever clear
- * its own queue.
+ * Approval authority is the admin role itself, so an admin entering time —
+ * whether for themselves or for someone else — is the authority signing it off,
+ * and it lands approved. Only a member's entry ever waits in a queue.
+ *
+ * An earlier version made an admin's own time wait for a *different* admin.
+ * That was dropped deliberately: it left a one-admin workspace unable to ever
+ * clear its own queue, and the accountability it was reaching for is better
+ * served by the audit trail — every admin-created entry and every decision is
+ * recorded in AuditLog with who did it, so self-added hours are visible after
+ * the fact rather than blocked before it.
  */
 export function canDecide(
   actor: { userId: string; role: string },
-  session: { userId: string | null }
+  _session: { userId: string | null }
 ): boolean {
-  if (actor.role !== "owner" && actor.role !== "admin") return false;
-  if (session.userId !== actor.userId) return true;
-  return actor.role === "owner";
+  return actor.role === "owner" || actor.role === "admin";
 }

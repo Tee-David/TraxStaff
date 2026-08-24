@@ -18,6 +18,7 @@
  * is an email every fifteen minutes.
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { wantsEmail, type EmailType } from "./email-prefs";
 import { env } from "../env";
 import {
   addDays,
@@ -143,7 +144,10 @@ async function loadOrgs(db: DigestDb): Promise<OrgRow[]> {
   });
 }
 
-async function loadMembers(db: DigestDb, orgId: string): Promise<(MemberInput & { role: string })[]> {
+async function loadMembers(
+  db: DigestDb,
+  orgId: string
+): Promise<(MemberInput & { role: string; emailPrefs?: unknown })[]> {
   const rows = await db.user.findMany({
     where: { orgId, status: "active" },
     // Explicit select, never a bare findMany: a not-yet-migrated column must not
@@ -155,9 +159,11 @@ async function loadMembers(db: DigestDb, orgId: string): Promise<(MemberInput & 
       role: true,
       dailyTargetMinutes: true,
       weeklyTargetMinutes: true,
+      // Needed to decide who actually wants each digest — see recipientsFor.
+      emailPrefs: true,
     },
   });
-  return rows as unknown as (MemberInput & { role: string })[];
+  return rows as unknown as (MemberInput & { role: string; emailPrefs?: unknown })[];
 }
 
 async function loadSessions(
@@ -242,6 +248,22 @@ async function record(
 const adminsOf = <T extends { role: string }>(members: T[]): T[] =>
   members.filter((m) => m.role === "owner" || m.role === "admin");
 
+/**
+ * The admins who want THIS digest in their inbox.
+ *
+ * The org switch above already decided whether the digest is produced at all;
+ * this is the second layer, per person (lib/email-prefs.ts). Without it every
+ * admin in the org gets every digest, which is how a useful daily mail turns
+ * into a filter rule — the whole reason these preferences exist.
+ *
+ * The in-app Notification row is written once for the org either way, before
+ * any of this, so muting an email never removes the event from anyone's bell.
+ */
+const recipientsFor = <T extends { role: string; emailPrefs?: unknown }>(
+  members: T[],
+  type: EmailType
+): T[] => adminsOf(members).filter((m) => wantsEmail(m, type));
+
 /** Rows as the mailer wants them — it takes plain hours, not member records. */
 const toMailRows = (rows: Shortfall[]) =>
   rows.map((r) => ({
@@ -295,7 +317,7 @@ async function runDailyShortfall(
 
   const dashboardUrl = `${appUrl()}/app/timesheets`;
   const dateLabel = formatDayLabel(yesterday, org.timezone);
-  for (const admin of adminsOf(members)) {
+  for (const admin of recipientsFor(members, "daily_shortfall")) {
     await mail.daily(admin.email, {
       orgName: org.name,
       dateLabel,
@@ -348,7 +370,7 @@ async function runWeeklyShortfall(
 
   const dashboardUrl = `${appUrl()}/app/reports`;
   const rangeLabel = formatWeekLabel(lastWeekStart, org.timezone);
-  for (const admin of adminsOf(members)) {
+  for (const admin of recipientsFor(members, "weekly_shortfall")) {
     await mail.weekly(admin.email, {
       orgName: org.name,
       rangeLabel,
@@ -398,6 +420,9 @@ async function runMemberWeeklySummary(
   for (const row of totals) {
     const member = byId.get(row.userId);
     if (!member) continue;
+    // This one goes to the member about their own hours, so the preference
+    // consulted is theirs — `wantsEmail` directly, not the admin filter.
+    if (!wantsEmail(member, "member_weekly_summary")) continue;
     await mail.memberWeekly(member.email, {
       orgName: org.name,
       rangeLabel,
@@ -463,7 +488,7 @@ async function runUnusualActivity(
 
   const rangeLabel = formatDayLabel(yesterday, org.timezone);
   const dashboardUrl = `${appUrl()}/app/insights`;
-  for (const admin of adminsOf(members)) {
+  for (const admin of recipientsFor(members, "unusual_activity_digest")) {
     await mail.unusual(admin.email, { orgName: org.name, rangeLabel, flags, dashboardUrl });
   }
   log.info(`[digests] unusual-activity digest for ${org.name}: ${flags.length} flags on ${yesterday}`);

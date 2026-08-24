@@ -179,7 +179,7 @@ export const TOURS: Record<string, TourDef> = {
         target: '[data-tour="timesheets-add"]',
         title: "Missed some time?",
         content:
-          "Log a stretch the tracker never saw — pick the project, the date and the hours, and say why. It goes to an admin for approval and shows as pending until someone reviews it.",
+          "Log a stretch the tracker never saw — pick the project, the date and the hours, and say why. A member's entry goes to an admin for approval and shows as pending until it's reviewed; an admin's counts straight away and is recorded in the audit log.",
         icon: "plus",
         optional: true,
       },

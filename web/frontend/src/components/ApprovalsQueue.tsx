@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { api, ApiError } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
 import type { Session } from "@/lib/types";
 import { Badge, Button, Card, EmptyState, Input, Label } from "@/components/ui";
 import { useMotionPresets } from "@/lib/motion";
@@ -17,7 +16,20 @@ import { ownerName } from "@/lib/format";
  * decision here rests on the member's stated reason — free text, often a
  * sentence — and a table column either truncates that or wrecks the row height
  * for every other entry. The reason is the evidence; it gets room.
+ *
+ * Which is also why it pages: at a card each, a backlog of eighty requests is a
+ * wall nobody scrolls to the end of.
  */
+
+/**
+ * Requests shown before "Show more" appears, and how many each press adds.
+ *
+ * Paged in the client rather than the server: the queue is already loaded in
+ * one request (unfiltered by date, so the count on the tab is honest), and
+ * refetching to reveal rows the browser is holding would be slower and could
+ * shift the list under a half-made decision.
+ */
+const PAGE = 20;
 
 /** Reject needs a reason, so it needs a dialog. Approve is a single click. */
 function RejectDialog({
@@ -97,11 +109,14 @@ export function ApprovalsQueue({
   sessions: Session[];
   onDecided: () => void;
 }) {
-  const { user } = useAuth();
   const m = useMotionPresets();
   const [busy, setBusy] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shown, setShown] = useState(PAGE);
+
+  const visible = sessions.slice(0, shown);
+  const remaining = sessions.length - visible.length;
 
   async function decide(session: Session, decision: "approve" | "reject", note?: string) {
     setBusy(session.id);
@@ -139,14 +154,7 @@ export function ApprovalsQueue({
         </p>
       )}
 
-      {sessions.map((s) => {
-        // Nobody signs off their own hours; the server enforces it, and the UI
-        // says why rather than offering a button that returns 403. The owner is
-        // the exception — they may be the only privileged account there is.
-        const isOwn = s.user?.id === user?.id;
-        const canDecide = !isOwn || user?.role === "owner";
-
-        return (
+      {visible.map((s) => (
           <motion.div key={s.id} {...m.hover}>
             <Card className="p-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -172,17 +180,10 @@ export function ApprovalsQueue({
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    disabled={busy === s.id || !canDecide}
-                    onClick={() => setRejecting(s)}
-                  >
+                  <Button variant="ghost" disabled={busy === s.id} onClick={() => setRejecting(s)}>
                     Reject
                   </Button>
-                  <Button
-                    disabled={busy === s.id || !canDecide}
-                    onClick={() => decide(s, "approve")}
-                  >
+                  <Button disabled={busy === s.id} onClick={() => decide(s, "approve")}>
                     {busy === s.id ? "Saving…" : "Approve"}
                   </Button>
                 </div>
@@ -194,16 +195,26 @@ export function ApprovalsQueue({
                   {s.manualReason}
                 </p>
               )}
-
-              {!canDecide && (
-                <p className="mt-3 text-[12px] text-muted">
-                  This is your own entry — another admin has to review it.
-                </p>
-              )}
             </Card>
           </motion.div>
-        );
-      })}
+      ))}
+
+      {remaining > 0 && (
+        <button
+          onClick={() => setShown((n) => n + PAGE)}
+          className="w-full rounded-xl border border-border bg-surface px-4 py-3 text-[13px] font-semibold text-ink transition hover:bg-canvas"
+        >
+          Show {Math.min(remaining, PAGE)} more
+          {/* Only worth a total when it differs from the number this press
+              reveals — "Show 8 more · 8 still waiting" says one thing twice.
+              The leading space is inside the string on purpose: JSX drops the
+              newline between the two, and `ml-1.5` styles the gap without
+              putting one in the accessible name a screen reader announces. */}
+          {remaining > PAGE && (
+            <span className="ml-1.5 font-normal text-muted">{` · ${remaining} still waiting`}</span>
+          )}
+        </button>
+      )}
 
       {rejecting && (
         <RejectDialog

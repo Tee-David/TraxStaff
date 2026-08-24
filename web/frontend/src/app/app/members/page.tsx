@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "@/lib/api";
 import type { Member } from "@/lib/types";
-import { Badge, Button, Card, EmptyState, Input, Label, PageHeader, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, Input, Label, Modal, ModalCard, PageHeader, Skeleton } from "@/components/ui";
 import { Select } from "@/components/Select";
+import { useDismissable } from "@/components/use-dismissable";
 import { formatDate } from "@/lib/format";
 
 const ROLE_CONFIG = {
@@ -73,29 +74,11 @@ function ActionMenu({ items }: { items: { label: string; danger?: boolean; onCli
   const menuRef = useRef<HTMLDivElement>(null);
   const open = rect !== null;
 
-  useEffect(() => {
-    if (!open) return;
-    function outside(e: MouseEvent) {
-      const t = e.target as Node;
-      if (!btnRef.current?.contains(t) && !menuRef.current?.contains(t)) setRect(null);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setRect(null);
-    }
-    // Fixed coordinates go stale the moment anything scrolls, so close instead
-    // of leaving the menu stranded away from its row.
-    const close = () => setRect(null);
-    document.addEventListener("mousedown", outside);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", outside);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [open]);
+  // Dismissal (including the mobile resize/scroll traps) lives in one place —
+  // see components/use-dismissable.ts for why this is not a plain listener.
+  const close = useCallback(() => setRect(null), []);
+  useDismissable(open, close, { trigger: btnRef, panel: menuRef });
+
 
   // Right-aligned to the button, flipped above it when there is no room below.
   const pos = rect
@@ -195,9 +178,8 @@ function TargetDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <Card className="relative z-10 w-full max-w-sm p-6">
+    <Modal label="Work targets" onClose={onClose} busy={saving} size="sm">
+      <ModalCard>
         <h2 className="font-heading text-[15px] font-semibold text-ink">Work targets</h2>
         <p className="mt-1 text-[12px] text-muted">
           For {member.email}. Leave blank to use the organisation default.
@@ -212,7 +194,7 @@ function TargetDialog({
             <Input type="number" min={0} max={168} step={0.5} value={weekly} placeholder="Org default" onChange={(e) => setWeekly(e.target.value)} />
           </div>
         </div>
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button
             onClick={async () => {
@@ -229,8 +211,8 @@ function TargetDialog({
             {saving ? "Saving…" : "Save"}
           </Button>
         </div>
-      </Card>
-    </div>
+      </ModalCard>
+    </Modal>
   );
 }
 
@@ -257,9 +239,8 @@ function RemoveDialog({
   const matches = confirmText.trim().toLowerCase() === shown.toLowerCase();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <Card className="relative z-10 w-full max-w-sm p-6">
+    <Modal label="Delete user" onClose={onClose} busy={saving} size="sm">
+      <ModalCard>
         <h2 className="font-heading text-[15px] font-semibold text-ink">Delete user</h2>
         <p className="mt-1 text-[12px] text-muted">
           This permanently deletes {shown}&rsquo;s account. It cannot be undone, and unlike
@@ -279,7 +260,7 @@ function RemoveDialog({
             autoFocus
           />
         </div>
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button
             variant="danger"
@@ -297,8 +278,8 @@ function RemoveDialog({
             {saving ? "Deleting…" : "Delete user"}
           </Button>
         </div>
-      </Card>
-    </div>
+      </ModalCard>
+    </Modal>
   );
 }
 

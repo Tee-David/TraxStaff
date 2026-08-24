@@ -322,7 +322,7 @@ export default function ScreenshotsPage() {
       <AnimatePresence>
         {lightbox && (
           <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-3 sm:p-4"
             role="dialog"
             aria-modal="true"
             aria-label="Screenshot detail"
@@ -330,7 +330,15 @@ export default function ScreenshotsPage() {
             onClick={() => setLightbox(null)}
           >
             <motion.div
-              className="relative max-h-[90vh] max-w-5xl w-full overflow-hidden rounded-2xl bg-surface shadow-2xl"
+              // Kept as its own shell rather than the shared `Modal`: this is an
+              // image viewer, so it wants the dark blurred backdrop and a panel
+              // sized to the picture, not a padded card. `dvh` for the same
+              // reason `Modal` uses it — `90vh` on a phone measures the viewport
+              // with the browser chrome retracted, so the panel overhangs the
+              // screen while the URL bar is showing and the close button ends up
+              // under it. `overflow-y-auto` so a tall detail panel can still be
+              // read on a short screen.
+              className="relative flex max-h-[90dvh] w-full max-w-5xl flex-col overflow-y-auto overscroll-contain rounded-2xl bg-surface shadow-2xl"
               {...m.dialog}
               onClick={(e) => e.stopPropagation()}
             >

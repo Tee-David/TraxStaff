@@ -132,6 +132,47 @@ h1, h2, h3, h4, h5, h6 {
   * { scroll-behavior: auto; }
 }
 
+/* ---------- Mobile form controls ----------
+
+   iOS Safari zooms the whole page in when you focus a form control whose font
+   is under 16px, and it does not zoom back out afterwards. That is the cause of
+   both mobile complaints about this app: tapping a field magnifies the page,
+   and the magnified layout is then wider than the screen, so every dialog
+   suddenly scrolls sideways. Nothing was actually overflowing — the page was
+   just zoomed.
+
+   16px is the threshold, so 16px is the rule, applied to every control rather
+   than the handful we happened to notice: the next `text-sm` input somebody adds
+   should not reintroduce this. `text-[16px]` in a component is not enough on its
+   own either — the utility and this rule would race on specificity — hence one
+   place, keyed off the viewport.
+
+   Deliberately NOT `maximum-scale=1` / `user-scalable=no` in the viewport meta:
+   that stops the zoom by stopping pinch-zoom entirely, which takes the page
+   away from anyone who needs to magnify it to read at all. Sizing the text
+   correctly fixes the same problem without removing the capability.
+
+   640px matches Tailwind's `sm` breakpoint — above it we are on a device with
+   no auto-zoom behaviour and the denser type is fine. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* A control must be allowed to shrink inside a flex or grid track. Both default
+   children to `min-width: auto`, and native date/time inputs carry an intrinsic
+   width wide enough to push a two-column row past the edge of a small screen —
+   the one thing here that would be a real overflow rather than a zoom artefact. */
+input,
+select,
+textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* Native date/time pickers draw their own calendar icon, spinners and popover
    from the UA colour scheme, not from our tokens — left at the default they
    render a light widget on the dark canvas. */

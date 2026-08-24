@@ -1,14 +1,15 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "@/lib/api";
 import type { Member, Project } from "@/lib/types";
-import { Badge, Button, Card, EmptyState, Input } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, Input, Modal, ModalCard } from "@/components/ui";
 import { SearchInput } from "@/components/filters";
 import { Select } from "@/components/Select";
+import { useDismissable } from "@/components/use-dismissable";
 
 const DOTS = ["var(--color-cat-focus)", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b"];
 
@@ -89,9 +90,8 @@ function AssignMembersDialog({
   const assignable = members.filter((m) => m.status === "active");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <Card className="relative z-10 w-full max-w-sm p-6">
+    <Modal label="Assign members" onClose={onClose} busy={saving} size="sm">
+      <ModalCard>
         <h2 className="font-heading text-[15px] font-semibold text-ink">Assign members</h2>
         <p className="mt-1 text-[12px] text-muted">
           Choose who can see and track time against &ldquo;{project.name}&rdquo;. Admins and owners
@@ -120,7 +120,7 @@ function AssignMembersDialog({
             ))
           )}
         </div>
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button
             onClick={async () => {
@@ -137,8 +137,8 @@ function AssignMembersDialog({
             {saving ? "Saving…" : "Save"}
           </Button>
         </div>
-      </Card>
-    </div>
+      </ModalCard>
+    </Modal>
   );
 }
 
@@ -172,27 +172,11 @@ function ActionMenu({ project, onRefresh, onAssign }: { project: Project; onRefr
   const menuRef = useRef<HTMLDivElement>(null);
   const open = rect !== null;
 
-  useEffect(() => {
-    if (!open) return;
-    function outside(e: MouseEvent) {
-      const t = e.target as Node;
-      if (!btnRef.current?.contains(t) && !menuRef.current?.contains(t)) setRect(null);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setRect(null);
-    }
-    const close = () => setRect(null);
-    document.addEventListener("mousedown", outside);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", outside);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [open]);
+  // Dismissal (including the mobile resize/scroll traps) lives in one place —
+  // see components/use-dismissable.ts for why this is not a plain listener.
+  const close = useCallback(() => setRect(null), []);
+  useDismissable(open, close, { trigger: btnRef, panel: menuRef });
+
 
   async function toggleArchive() {
     await api(`/projects/${project.id}`, { method: "PATCH", body: JSON.stringify({ archived: !project.archivedAt }) });
@@ -304,9 +288,8 @@ function ConfirmDeleteDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={busy ? undefined : onCancel} />
-      <Card className="relative z-10 w-full max-w-md p-6">
+    <Modal label="Delete projects" onClose={onCancel} busy={busy}>
+      <ModalCard>
         <h2 className="font-heading text-[15px] font-semibold text-[var(--color-negative)]">
           Delete {projects.length} project{projects.length === 1 ? "" : "s"}?
         </h2>
@@ -351,8 +334,8 @@ function ConfirmDeleteDialog({
             {busy ? "Deleting…" : "Delete permanently"}
           </Button>
         </div>
-      </Card>
-    </div>
+      </ModalCard>
+    </Modal>
   );
 }
 

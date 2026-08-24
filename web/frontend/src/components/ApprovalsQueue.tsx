@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import { api, ApiError } from "@/lib/api";
 import type { Session } from "@/lib/types";
-import { Badge, Button, Card, EmptyState, Input, Label } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, Input, Label, Modal, ModalCard } from "@/components/ui";
 import { useMotionPresets } from "@/lib/motion";
 import { formatDate, formatDurationShort, formatTime, sessionSeconds } from "@/lib/format";
 import { ownerName } from "@/lib/format";
@@ -41,64 +41,52 @@ function RejectDialog({
   onClose: () => void;
   onConfirm: (note: string) => Promise<void>;
 }) {
-  const m = useMotionPresets();
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const who = ownerName(session.user);
 
   return (
-    <AnimatePresence>
-      <motion.div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Reject manual time"
-        {...m.backdrop}
-      >
-        <div className="absolute inset-0 bg-black/40" onClick={() => !saving && onClose()} />
-        <motion.div className="relative z-10 w-full max-w-sm" {...m.dialog}>
-          <Card className="p-6">
-            <h2 className="font-heading text-[15px] font-semibold text-ink">Reject this entry</h2>
-            <p className="mt-1 text-[12px] text-muted">
-              {formatDurationShort(sessionSeconds(session))} on {formatDate(session.startedAt)} for{" "}
-              {who}. The entry stays on their timesheet marked rejected — nothing is deleted — and
-              stops counting toward reports.
-            </p>
-            <div className="mt-4">
-              <Label>Reason</Label>
-              <Input
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Already covered by tracked time…"
-                maxLength={500}
-                autoFocus
-              />
-              <p className="mt-1.5 text-[12px] text-muted">
-                Sent to {who}. Required — a rejection with no reason gives them nothing to act on.
-              </p>
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-              <Button
-                variant="danger"
-                disabled={saving || note.trim() === ""}
-                onClick={async () => {
-                  setSaving(true);
-                  try {
-                    await onConfirm(note.trim());
-                    onClose();
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-              >
-                {saving ? "Rejecting…" : "Reject entry"}
-              </Button>
-            </div>
-          </Card>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+    <Modal label="Reject manual time" onClose={onClose} busy={saving} size="sm">
+      <ModalCard>
+        <h2 className="font-heading text-[15px] font-semibold text-ink">Reject this entry</h2>
+        <p className="mt-1 text-[12px] text-muted">
+          {formatDurationShort(sessionSeconds(session))} on {formatDate(session.startedAt)} for{" "}
+          {who}. The entry stays on their timesheet marked rejected — nothing is deleted — and
+          stops counting toward reports.
+        </p>
+        <div className="mt-4">
+          <Label>Reason</Label>
+          <Input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Already covered by tracked time…"
+            maxLength={500}
+            autoFocus
+          />
+          <p className="mt-1.5 text-[12px] text-muted">
+            Sent to {who}. Required — a rejection with no reason gives them nothing to act on.
+          </p>
+        </div>
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button
+            variant="danger"
+            disabled={saving || note.trim() === ""}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await onConfirm(note.trim());
+                onClose();
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >
+            {saving ? "Rejecting…" : "Reject entry"}
+          </Button>
+        </div>
+      </ModalCard>
+    </Modal>
   );
 }
 

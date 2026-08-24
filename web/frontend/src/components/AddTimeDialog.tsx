@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
 import { api, asArray, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Member, Project, Session } from "@/lib/types";
-import { Button, Card, Input, Label } from "@/components/ui";
+import { Button, Input, Label, Modal, ModalCard } from "@/components/ui";
 import { Select } from "@/components/Select";
-import { useMotionPresets } from "@/lib/motion";
 import { formatDurationShort } from "@/lib/format";
 
 const NO_TASK = "";
@@ -63,8 +61,8 @@ function flooredNow() {
  *     and is signed with their name, whether it is for themselves or for
  *     someone else. Either way it goes to the audit log.
  *
- * Modal shell mirrors TargetDialog (members/page.tsx) with the shared
- * backdrop/dialog motion presets the screenshots lightbox uses.
+ * Sits in the shared `Modal` shell, which caps its height and scrolls it — a
+ * form this long has to stay usable on a phone with the keyboard up.
  */
 export function AddTimeDialog({
   onClose,
@@ -73,7 +71,6 @@ export function AddTimeDialog({
   onClose: () => void;
   onAdded: (session: Session, startedAt: Date, seconds: number) => void;
 }) {
-  const m = useMotionPresets();
   const { user } = useAuth();
   const isAdmin = user?.role === "owner" || user?.role === "admin";
 
@@ -116,19 +113,6 @@ export function AddTimeDialog({
       .then((res) => setMembers(asArray<Member>(res).filter((mem) => mem.status === "active")))
       .catch(() => setMembers([]));
   }, [isAdmin]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || saving) return;
-      // A `Select` open inside this dialog answers Escape by closing its own
-      // option panel; without this the same keypress would tear the whole
-      // form down underneath it.
-      if (document.querySelector("[data-select-panel]")) return;
-      onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, saving]);
 
   const projectOptions = useMemo(
     () => projects.map((p) => ({ value: p.id, label: p.clientTag ? `${p.name} · ${p.clientTag}` : p.name })),
@@ -219,151 +203,146 @@ export function AddTimeDialog({
   }
 
   return (
-    <AnimatePresence>
-      <motion.div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Add time"
-        {...m.backdrop}
-      >
-        <div className="absolute inset-0 bg-black/40" onClick={() => !saving && onClose()} />
-        <motion.div className="relative z-10 w-full max-w-md" {...m.dialog}>
-          <Card className="max-h-[85vh] overflow-y-auto p-6">
-            <h2 className="font-heading text-[15px] font-semibold text-ink">Add time</h2>
-            <p className="mt-1 text-[12px] text-muted">
-              For time the tracker missed. It lands marked{" "}
-              <strong className="text-ink">Manual</strong>, and can&rsquo;t overlap time already
-              logged.
-            </p>
+    <Modal label="Add time" onClose={onClose} busy={saving}>
+      <ModalCard>
+        <h2 className="font-heading text-[15px] font-semibold text-ink">Add time</h2>
+        <p className="mt-1 text-[12px] text-muted">
+          For time the tracker missed. It lands marked{" "}
+          <strong className="text-ink">Manual</strong>, and can&rsquo;t overlap time already
+          logged.
+        </p>
 
-            {loadingProjects ? (
-              <div className="mt-5 space-y-3">
-                {[0, 1, 2].map((i) => <div key={i} className="skeleton h-10" />)}
+        {loadingProjects ? (
+          <div className="mt-5 space-y-3">
+            {[0, 1, 2].map((i) => <div key={i} className="skeleton h-10" />)}
+          </div>
+        ) : projects.length === 0 ? (
+          <p className="mt-5 rounded-lg bg-canvas px-3 py-4 text-center text-[13px] text-muted">
+            {isAdmin
+              ? "There are no active projects to log time against yet. Create one first."
+              : "You're not assigned to any project yet, and manual time is always logged against one. Ask an admin to assign you."}
+          </p>
+        ) : (
+          <div className="mt-5 space-y-4">
+            {isAdmin && (
+              <div>
+                <Label>Staff member</Label>
+                <Select
+                  value={memberId}
+                  onChange={setMemberId}
+                  options={memberOptions}
+                  minWidth={280}
+                  searchable
+                  block
+                />
               </div>
-            ) : projects.length === 0 ? (
-              <p className="mt-5 rounded-lg bg-canvas px-3 py-4 text-center text-[13px] text-muted">
-                {isAdmin
-                  ? "There are no active projects to log time against yet. Create one first."
-                  : "You're not assigned to any project yet, and manual time is always logged against one. Ask an admin to assign you."}
-              </p>
-            ) : (
-              <div className="mt-5 space-y-4">
-                {isAdmin && (
-                  <div>
-                    <Label>Staff member</Label>
-                    <Select
-                      value={memberId}
-                      onChange={setMemberId}
-                      options={memberOptions}
-                      minWidth={280}
-                      searchable
-                      block
-                    />
-                  </div>
-                )}
+            )}
 
-                <div>
-                  <Label>Project</Label>
-                  <Select
-                    value={projectId}
-                    onChange={(v) => {
-                      setProjectId(v);
-                      setTaskId(NO_TASK);
-                    }}
-                    options={projectOptions}
-                    placeholder="Pick a project"
-                    minWidth={280}
-                    searchable
-                    block
-                  />
-                </div>
+            <div>
+              <Label>Project</Label>
+              <Select
+                value={projectId}
+                onChange={(v) => {
+                  setProjectId(v);
+                  setTaskId(NO_TASK);
+                }}
+                options={projectOptions}
+                placeholder="Pick a project"
+                minWidth={280}
+                searchable
+                block
+              />
+            </div>
 
-                {taskOptions.length > 1 && (
-                  <div>
-                    <Label>Task (optional)</Label>
-                    <Select value={taskId} onChange={setTaskId} options={taskOptions} minWidth={280} block />
-                  </div>
-                )}
+            {taskOptions.length > 1 && (
+              <div>
+                <Label>Task (optional)</Label>
+                <Select value={taskId} onChange={setTaskId} options={taskOptions} minWidth={280} block />
+              </div>
+            )}
 
-                <div>
-                  <Label>Date</Label>
-                  <Input type="date" value={date} max={dateValue(new Date())} onChange={(e) => setDate(e.target.value)} />
-                </div>
+            <div>
+              <Label>Date</Label>
+              <Input type="date" value={date} max={dateValue(new Date())} onChange={(e) => setDate(e.target.value)} />
+            </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Start</Label>
-                    <Input type="time" value={from} onChange={(e) => setFrom(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>End</Label>
-                    <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
-                  </div>
-                </div>
+            {/* Side by side wherever they fit, stacked below ~360px. At 320px
+                two time inputs at 16px (the size iOS needs to not zoom) clip
+                their own AM/PM — "11:20 AN" — which is not a legible way to
+                ask someone to check a start time. */}
+            <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
+              <div>
+                <Label>Start</Label>
+                <Input type="time" value={from} onChange={(e) => setFrom(e.target.value)} />
+              </div>
+              <div>
+                <Label>End</Label>
+                <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
+              </div>
+            </div>
 
-                <div className="rounded-lg bg-canvas px-3 py-2.5 text-[13px]">
-                  {problem ? (
-                    <span className="text-muted">{problem}</span>
-                  ) : (
-                    <span className="text-ink">
-                      <span className="tnum font-semibold">{formatDurationShort(seconds)}</span>
-                      {spansMidnight && (
-                        <span className="text-muted">
-                          {" "}
-                          · ends the next day{end ? ` (${end.toLocaleDateString([], { month: "short", day: "numeric" })})` : ""}
-                        </span>
-                      )}
+            <div className="rounded-lg bg-canvas px-3 py-2.5 text-[13px]">
+              {problem ? (
+                <span className="text-muted">{problem}</span>
+              ) : (
+                <span className="text-ink">
+                  <span className="tnum font-semibold">{formatDurationShort(seconds)}</span>
+                  {spansMidnight && (
+                    <span className="text-muted">
+                      {" "}
+                      · ends the next day{end ? ` (${end.toLocaleDateString([], { month: "short", day: "numeric" })})` : ""}
                     </span>
                   )}
-                </div>
-
-                <div>
-                  <Label>Why it wasn&rsquo;t tracked</Label>
-                  <Input
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    placeholder="Laptop was offline, worked on site…"
-                    maxLength={200}
-                  />
-                  <p className="mt-1.5 text-[12px] text-muted">
-                    {forSomeoneElse
-                      ? "Sent to the member with the entry, so they can see why it was added."
-                      : isAdmin
-                        ? "Stored with the entry and shown in the audit log, so the hours can be read in context."
-                        : "Goes to whoever reviews this, so the manual hours can be read in context."}
-                  </p>
-                </div>
-
-                {/* What pressing the button will actually do. The two outcomes
-                    differ in whether the time counts straight away, and finding
-                    that out afterwards — from a queue, or from a total that
-                    moved — is how an approval flow loses people's trust. */}
-                <p className="rounded-lg border border-border px-3 py-2.5 text-[12px] text-muted">
-                  {forSomeoneElse
-                    ? "You're adding this on their behalf, so it counts immediately and is recorded against your name. They'll be notified."
-                    : isAdmin
-                      ? "As an admin this counts immediately, without review. It's recorded in the audit log against your name."
-                      : "This goes to an admin for approval. It shows on your timesheet as pending until someone reviews it."}
-                </p>
-              </div>
-            )}
-
-            {error && (
-              <p className="mt-4 rounded-lg bg-[var(--color-negative)]/10 px-3 py-2.5 text-[13px] text-[var(--color-negative)]">
-                {error}
-              </p>
-            )}
-
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-              <Button onClick={save} disabled={!canSave}>
-                {saving ? "Adding…" : isAdmin ? "Add time" : "Submit for approval"}
-              </Button>
+                </span>
+              )}
             </div>
-          </Card>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+
+            <div>
+              <Label>Why it wasn&rsquo;t tracked</Label>
+              <Input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Laptop was offline, worked on site…"
+                maxLength={200}
+              />
+              <p className="mt-1.5 text-[12px] text-muted">
+                {forSomeoneElse
+                  ? "Sent to the member with the entry, so they can see why it was added."
+                  : isAdmin
+                    ? "Stored with the entry and shown in the audit log, so the hours can be read in context."
+                    : "Goes to whoever reviews this, so the manual hours can be read in context."}
+              </p>
+            </div>
+
+            {/* What pressing the button will actually do. The two outcomes
+                differ in whether the time counts straight away, and finding
+                that out afterwards — from a queue, or from a total that
+                moved — is how an approval flow loses people's trust. */}
+            <p className="rounded-lg border border-border px-3 py-2.5 text-[12px] text-muted">
+              {forSomeoneElse
+                ? "You're adding this on their behalf, so it counts immediately and is recorded against your name. They'll be notified."
+                : isAdmin
+                  ? "As an admin this counts immediately, without review. It's recorded in the audit log against your name."
+                  : "This goes to an admin for approval. It shows on your timesheet as pending until someone reviews it."}
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <p className="mt-4 rounded-lg bg-[var(--color-negative)]/10 px-3 py-2.5 text-[13px] text-[var(--color-negative)]">
+            {error}
+          </p>
+        )}
+
+        {/* Wraps rather than overflowing: at 320px "Submit for approval" beside
+            "Cancel" is wider than the screen. */}
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={save} disabled={!canSave}>
+            {saving ? "Adding…" : isAdmin ? "Add time" : "Submit for approval"}
+          </Button>
+        </div>
+      </ModalCard>
+    </Modal>
   );
 }

@@ -1,3 +1,8 @@
+"use client";
+
+import { useEffect } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { useMotionPresets } from "@/lib/motion";
 import type { ReactNode, ButtonHTMLAttributes, InputHTMLAttributes, HTMLAttributes } from "react";
 
 /* ---------- surfaces ---------- */
@@ -218,5 +223,109 @@ export function Badge({
       {dot && <span className={`h-1.5 w-1.5 rounded-full ${dotColors[tone]}`} />}
       {children}
     </span>
+  );
+}
+
+/* ---------- modal shell ---------- */
+
+/**
+ * The shell every dialog in the app sits in.
+ *
+ * Seven dialogs had each rebuilt this by hand, and they had drifted: only one
+ * capped its height, so on a short screen — or any phone once the keyboard is
+ * up — the others ran off the bottom with their Cancel/Save buttons
+ * unreachable and no way to scroll to them. This is that fix in one place, so
+ * the eighth dialog inherits it instead of repeating the bug.
+ *
+ * What it guarantees:
+ *
+ *   - never taller than the screen: the card scrolls internally past `85dvh`,
+ *     so the actions are always reachable. `dvh` over `vh` on purpose — `vh`
+ *     on mobile means the viewport with the browser chrome *retracted*, so a
+ *     `85vh` card is taller than what you can actually see whenever the URL bar
+ *     is showing, which is exactly when someone is typing into it;
+ *   - never wider than the screen: `w-full` under a `max-w-*` cap, inside a
+ *     gutter that shrinks on small phones;
+ *   - Escape closes it, and a click on the backdrop does too — but never while
+ *     it is mid-save, when closing would hide the outcome of the thing it is
+ *     doing;
+ *   - the panel is a labelled `role="dialog"`, which the hand-rolled ones were
+ *     inconsistent about.
+ *
+ * `busy` exists so a dialog that is saving can refuse both dismissals with one
+ * prop rather than each one guarding separately.
+ */
+export function Modal({
+  label,
+  onClose,
+  busy = false,
+  size = "md",
+  children,
+}: {
+  /** Accessible name for the dialog — what it is, in a few words. */
+  label: string;
+  onClose: () => void;
+  busy?: boolean;
+  size?: "sm" | "md" | "lg";
+  children: ReactNode;
+}) {
+  const widths = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-2xl" };
+  // The shared presets, applied here rather than per dialog — two of the seven
+  // animated and five appeared instantly, which read as two different apps.
+  // They collapse to a plain fade under `prefers-reduced-motion` (lib/motion).
+  const m = useMotionPresets();
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || busy) return;
+      // A `Select` open inside the dialog answers Escape by closing its own
+      // option panel; without this the same keypress would tear the whole
+      // dialog down underneath it.
+      if (document.querySelector("[data-select-panel]")) return;
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, busy]);
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        {...m.backdrop}
+      >
+        <div className="absolute inset-0 bg-black/40" onClick={() => !busy && onClose()} />
+        <motion.div
+          className={`relative z-10 flex max-h-[85dvh] w-full flex-col ${widths[size]}`}
+          {...m.dialog}
+        >
+          {children}
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+/**
+ * The card inside a `Modal` — scrolls internally once the content is taller
+ * than the shell allows.
+ *
+ * Padding steps down on small phones: `p-6` is 48px of the 320px a small screen
+ * has, and a form does not need to spend it on margins.
+ */
+export function ModalCard({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Card className={`min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6 ${className}`}>
+      {children}
+    </Card>
   );
 }

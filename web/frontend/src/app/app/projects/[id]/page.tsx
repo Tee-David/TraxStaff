@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { api } from "@/lib/api";
 import type { Project, Session, Task } from "@/lib/types";
-import { Badge, Button, Card, Input, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, Input, Modal, ModalCard, Skeleton } from "@/components/ui";
 import { Select } from "@/components/Select";
 import { WorkloadCard, workloadCounts } from "@/components/WorkloadCard";
 import { TimesheetCard, weekdayHoursFromSessions } from "@/components/TimesheetCard";
@@ -440,17 +440,19 @@ function TaskLists({ project, onChange, archived }: { project: Project; onChange
 
       {/* Delete task confirmation dialog */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="rounded-lg bg-surface border border-border shadow-lg max-w-sm w-full">
-            <div className="px-6 py-4 border-b border-border/60">
-              <h2 className="font-semibold text-ink">Delete task?</h2>
-            </div>
-            <div className="px-6 py-4">
-              <p className="text-sm text-muted">
-                Delete "{deleteConfirm.title}"? This action cannot be undone. Any sessions assigned to this task will keep their tracked time but lose the task reference.
-              </p>
-            </div>
-            <div className="px-6 py-4 border-t border-border/60 flex items-center justify-end gap-2">
+        <Modal
+          label="Delete task"
+          onClose={() => setDeleteConfirm(null)}
+          busy={deleting}
+          size="sm"
+        >
+          <ModalCard>
+            <h2 className="font-heading text-[15px] font-semibold text-ink">Delete task?</h2>
+            <p className="mt-1 text-[12px] text-muted">
+              Delete &ldquo;{deleteConfirm.title}&rdquo;? This cannot be undone. Any sessions
+              assigned to this task keep their tracked time but lose the task reference.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
               <Button variant="ghost" onClick={() => setDeleteConfirm(null)} disabled={deleting}>
                 Cancel
               </Button>
@@ -458,8 +460,8 @@ function TaskLists({ project, onChange, archived }: { project: Project; onChange
                 {deleting ? "Deleting…" : "Delete"}
               </Button>
             </div>
-          </div>
-        </div>
+          </ModalCard>
+        </Modal>
       )}
     </div>
   );

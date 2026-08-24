@@ -175,6 +175,15 @@ export const TOURS: Record<string, TourDef> = {
     route: "/app/timesheets",
     steps: [
       {
+        key: "timesheets-add",
+        target: '[data-tour="timesheets-add"]',
+        title: "Missed some time?",
+        content:
+          "Log a stretch the tracker never saw — pick the project, the date and the hours, and say why. It lands on the timesheet marked Manual, and can't overlap time you've already logged.",
+        icon: "plus",
+        optional: true,
+      },
+      {
         key: "timesheets-filter",
         target: '[data-tour="timesheets-filter"]',
         title: "Pick a range",

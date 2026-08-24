@@ -132,6 +132,14 @@ h1, h2, h3, h4, h5, h6 {
   * { scroll-behavior: auto; }
 }
 
+/* Native date/time pickers draw their own calendar icon, spinners and popover
+   from the UA colour scheme, not from our tokens — left at the default they
+   render a light widget on the dark canvas. */
+:root[data-theme="dark"] input[type="date"],
+:root[data-theme="dark"] input[type="time"] {
+  color-scheme: dark;
+}
+
 /* Thin, quiet scrollbars */
 * {
   scrollbar-width: thin;

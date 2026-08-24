@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import type { Session } from "@/lib/types";
-import { Badge, EmptyState, PageHeader, Skeleton, StatTile } from "@/components/ui";
+import { AddTimeDialog } from "@/components/AddTimeDialog";
+import { Badge, Button, EmptyState, PageHeader, Skeleton, StatTile } from "@/components/ui";
 import { DataTable, type Column } from "@/components/DataTable";
 import { DateRange, FilterBar, rangeToParams, type DateRangeValue } from "@/components/filters";
+import { IconPlus } from "@/components/icons";
 import { TimesheetCard, weekdayHoursFromSessions } from "@/components/TimesheetCard";
 import { formatDurationShort, formatDate, formatTime, sessionSeconds } from "@/lib/format";
 
@@ -13,6 +15,8 @@ export default function TimesheetsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<DateRangeValue>({ type: "preset", preset: "week" });
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -31,6 +35,26 @@ export default function TimesheetsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /**
+   * A manual entry is dated by the member, not by now, so it can easily land
+   * outside the range being viewed — and then the table would look unchanged
+   * after a successful save. Say what was added, and say where it went when
+   * that isn't the list right below.
+   */
+  const onAdded = useCallback(
+    (_session: Session, startedAt: Date, seconds: number) => {
+      const { from, to } = rangeToParams(range);
+      const inRange =
+        (!from || startedAt >= new Date(from)) && (!to || startedAt < new Date(to));
+      setAdded(
+        `Added ${formatDurationShort(seconds)} on ${formatDate(startedAt.toISOString())}.` +
+          (inRange ? "" : " It sits outside the range you're viewing — widen it to see the entry.")
+      );
+      load();
+    },
+    [range, load]
+  );
 
   const totalSecs = useMemo(() => sessions.reduce((a, s) => a + sessionSeconds(s), 0), [sessions]);
   const manualSecs = useMemo(
@@ -64,7 +88,30 @@ export default function TimesheetsPage() {
 
   return (
     <div>
-      <PageHeader title="Timesheets" subtitle="Your tracked time" />
+      <PageHeader
+        title="Timesheets"
+        subtitle="Your tracked time"
+        actions={
+          <span data-tour="timesheets-add">
+            <Button onClick={() => setAdding(true)}>
+              <IconPlus width={16} height={16} />
+              Add time
+            </Button>
+          </span>
+        }
+      />
+
+      {added && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-border bg-canvas px-4 py-3">
+          <p className="text-[13px] text-ink">{added}</p>
+          <button
+            onClick={() => setAdded(null)}
+            className="shrink-0 text-[12px] font-semibold text-muted hover:text-ink"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div data-tour="timesheets-filter">
         <FilterBar>
@@ -99,11 +146,20 @@ export default function TimesheetsPage() {
               rows={sessions}
               columns={columns}
               rowId={(s) => s.id}
-              empty={<EmptyState icon="🕐" title="No time entries in this range" hint="Track time from the desktop app, or widen the date range." />}
+              empty={
+                <EmptyState
+                  icon="🕐"
+                  title="No time entries in this range"
+                  hint="Track time from the desktop app, widen the date range, or add an entry the tracker missed."
+                  action={<Button onClick={() => setAdding(true)}>Add time</Button>}
+                />
+              }
             />
           </div>
         </>
       )}
+
+      {adding && <AddTimeDialog onClose={() => setAdding(false)} onAdded={onAdded} />}
     </div>
   );
 }

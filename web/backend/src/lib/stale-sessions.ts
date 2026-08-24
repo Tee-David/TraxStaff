@@ -20,17 +20,42 @@
 // cluster that runs DDL on connect. Importing it here would make this module
 // unloadable — and therefore untestable — without touching production.
 import type { PrismaClient } from "@prisma/client";
-import { STALE_GRACE_MS, lastEvidenceAt } from "./duration";
+import { lastEvidenceAt } from "./duration";
 
 /** How often the sweeper runs once the server is up. */
 export const SWEEP_INTERVAL_MS = 5 * 60_000;
 
 /**
- * Never touch a session that started within the grace window — it may be a
+ * How long a session must go without evidence before this sweeper writes an end
+ * time into the database.
+ *
+ * NOT `STALE_GRACE_MS`. That constant is 150 seconds and it is correct for what
+ * it does: bounding what an open session *displays* while it is quiet. Being
+ * wrong there is free — the row is untouched, and the next heartbeat restores
+ * the full duration. This threshold governs an irreversible WRITE, where being
+ * wrong destroys work that really happened.
+ *
+ * At 150 seconds it did exactly that. Every witness requires the network; the
+ * desktop tracker is offline-first and keeps recording through an outage; and
+ * nothing reopened the row afterwards. So a wifi drop at 09:10 closed the
+ * session at 09:10, the member worked until 17:00, and the timesheet said ten
+ * minutes — with screenshots and activity blocks on disk proving otherwise. The
+ * boot-time sweep made it org-wide: any deploy taking longer than 150 seconds
+ * closed every session that was tracking at the time.
+ *
+ * Six hours is longer than any credible outage, deploy or suspend-and-resume,
+ * and still bounded. Combined with `reopenIfStillAlive` in routes/sync.ts —
+ * which extends a session this sweeper closed when its blocks turn up later —
+ * being early is now recoverable rather than final.
+ */
+export const ABANDON_AFTER_MS = Number(process.env.TRAX_ABANDON_AFTER_MS ?? 6 * 3_600_000);
+
+/**
+ * Never touch a session that started within the abandonment window — it may be a
  * client that has begun locally and not yet had a chance to heartbeat (the
  * desktop app is offline-first and registers when it can).
  */
-const MIN_AGE_MS = STALE_GRACE_MS;
+const MIN_AGE_MS = ABANDON_AFTER_MS;
 
 export type SweepResult = {
   scanned: number;
@@ -44,7 +69,6 @@ type OpenSession = {
   userId: string | null;
   startedAt: Date;
   lastSyncAt: Date | null;
-  device: { lastSeenAt: Date } | null;
   activityBlocks: { blockEnd: Date }[];
 };
 
@@ -66,12 +90,11 @@ async function findAbandoned(db: PrismaClient, now: Date): Promise<OpenSession[]
       userId: true,
       startedAt: true,
       lastSyncAt: true,
-      device: { select: { lastSeenAt: true } },
       activityBlocks: { select: { blockEnd: true }, orderBy: { blockEnd: "desc" }, take: 1 },
     },
   });
-  const cutoff = now.getTime() - STALE_GRACE_MS;
-  return rows.filter((r) => lastEvidenceAt(r).getTime() < cutoff);
+  const cutoff = now.getTime() - ABANDON_AFTER_MS;
+  return rows.filter((r) => lastEvidenceAt(r, now).getTime() < cutoff);
 }
 
 /**
@@ -89,7 +112,7 @@ export async function sweepStaleSessions(
   const ids: string[] = [];
 
   for (const s of abandoned) {
-    const endedAt = lastEvidenceAt(s);
+    const endedAt = lastEvidenceAt(s, now);
     // `endedAt: null` in the predicate makes this idempotent under concurrency:
     // if another instance (or a real /stop arriving late) closed it first, this
     // updates nothing rather than overwriting a truthful end time.

@@ -6,12 +6,21 @@ import { excludeRejected } from "../lib/approval";
 import {
   effectiveEnd,
   evidenceSelect,
-  grossSeconds,
   overlapSeconds,
   overlapsRange,
   workedSeconds,
   workedSecondsInRange,
 } from "../lib/duration";
+import {
+  activitySeconds,
+  blocksInRange,
+  weightedActivity,
+  type WeightedBlock,
+} from "../lib/activity";
+
+// Activity arithmetic lives in lib/activity.ts, alongside lib/duration.ts and
+// for the same reasons: several routes need it, and it must stay reachable
+// without importing a module that opens a database connection.
 
 const rangeSchema = z.object({
   from: z.string().datetime({ offset: true }).optional(),
@@ -87,64 +96,6 @@ function splitByLocalDay(start: Date, end: Date, tz: string): Map<string, number
 // definitions of hours worked" in plans/checklist.md §1.4. That formula treats an
 // abandoned session as still running, and nothing in the system ever closed one,
 // so a single forgotten row grew without bound across every report.
-
-export type WeightedBlock = {
-  activityPct: number;
-  creditedSeconds: number | null;
-  blockStart: Date;
-  blockEnd: Date;
-};
-
-/**
- * Duration-weighted mean activity, equivalent to
- * `total active seconds / total tracked seconds`.
- *
- * A plain mean of per-block percentages is badly wrong here because blocks are
- * NOT uniform: every pause, stop and project switch finalizes a short block, and
- * a 5-second block scoring 90% (a stray mouse move) would otherwise carry the
- * same weight as a full 600-second block at 15%. That is what made the number
- * read ~81% during barely-active sessions.
- *
- * Weight by credited (monotonic) seconds where the client reported them, else by
- * the block's wall-clock span. Blocks with no usable duration are skipped rather
- * than silently counted as one unit.
- */
-/**
- * Actual seconds of measured activity — the sum of each block's own active
- * portion, not a percentage applied to some other total.
- *
- * This exists because the obvious shortcut is wrong. Multiplying
- * `weightedActivity()` by a worked-seconds total mixes two different
- * denominators: the percentage is weighted over *block* seconds, while worked
- * time is session wall-clock. Blocks only cover the stretches the tracker
- * actually sampled, so block seconds are typically well short of wall-clock —
- * and multiplying the block-weighted percentage by the larger wall-clock figure
- * inflates the result, sometimes by a lot.
- *
- * Summing per block keeps one denominator throughout and yields a number that
- * means what it says: how long input was actually detected.
- */
-export function activitySeconds(blocks: WeightedBlock[]): number {
-  let total = 0;
-  for (const b of blocks) {
-    const secs = b.creditedSeconds ?? (b.blockEnd.getTime() - b.blockStart.getTime()) / 1000;
-    if (!Number.isFinite(secs) || secs <= 0) continue;
-    total += (b.activityPct / 100) * secs;
-  }
-  return Math.round(total);
-}
-
-export function weightedActivity(blocks: WeightedBlock[]): number | null {
-  let num = 0;
-  let den = 0;
-  for (const b of blocks) {
-    const secs = b.creditedSeconds ?? (b.blockEnd.getTime() - b.blockStart.getTime()) / 1000;
-    if (!Number.isFinite(secs) || secs <= 0) continue;
-    num += b.activityPct * secs;
-    den += secs;
-  }
-  return den > 0 ? +(num / den).toFixed(1) : null;
-}
 
 export default async function reportRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", fastify.authenticate);
@@ -306,7 +257,8 @@ export default async function reportRoutes(fastify: FastifyInstance) {
         blocks: [] as WeightedBlock[],
       };
       p.totalSeconds += workedSecondsInRange(s, fromMs, toMs, now);
-      p.blocks.push(...s.activityBlocks);
+      // Clipped to the same window as totalSeconds above — see blocksInRange().
+      p.blocks.push(...blocksInRange(s.activityBlocks, fromMs, toMs));
       byProject.set(s.projectId, p);
     }
     const out = [...byProject.values()]
@@ -381,19 +333,25 @@ export default async function reportRoutes(fastify: FastifyInstance) {
     let discardedSeconds = 0;
     const blocks: WeightedBlock[] = [];
     for (const s of sessions) {
-      totalSeconds += workedSecondsInRange(s, fromMs, toMs, now);
       // Gross clock and the idle taken off it, reported alongside the net so a
       // client can show why "worked" is smaller than the time on the timer.
       // Without these the two numbers look like synonyms that disagree, and the
       // only way to reconcile them was to read this file.
-      // Gross and discarded are scaled to the same window as `totalSeconds`, or
-      // the "X tracked − Y idle removed" line the Activity panel shows would not
-      // add up to the figure above it.
-      const gross = grossSeconds(s, now);
-      const share = gross > 0 ? overlapSeconds(s, fromMs, toMs, now) / gross : 0;
-      trackedSeconds += gross * share;
-      discardedSeconds += s.idleDiscards.reduce((sum, d) => sum + d.seconds, 0) * share;
-      blocks.push(...s.activityBlocks);
+      //
+      // Derived so that `tracked − discarded === total`, by construction. The
+      // Activity panel renders that subtraction literally, and it used to be
+      // false: `totalSeconds` honours each discard's exact span while the old
+      // `discardedSeconds` spread every discard proportionally across the
+      // session. A two-hour Monday lunch on a Monday-to-Wednesday session showed
+      // up as one invented hour in a Tuesday-only report, printed directly under
+      // a worked figure that had correctly excluded it.
+      const inWindow = overlapSeconds(s, fromMs, toMs, now);
+      const worked = workedSecondsInRange(s, fromMs, toMs, now);
+      totalSeconds += worked;
+      trackedSeconds += inWindow;
+      discardedSeconds += Math.max(0, inWindow - worked);
+      // Clipped to the same window as the totals above — see blocksInRange().
+      blocks.push(...blocksInRange(s.activityBlocks, fromMs, toMs));
     }
     return reply.send({
       totalSeconds: Math.round(totalSeconds),

@@ -4,7 +4,6 @@ import {
   sendManualTimeAddedEmail,
   sendManualTimeDecisionEmail,
   sendManualTimeSubmittedEmail,
-  sendUnusualActivityEmail,
   type ManualEntryFacts,
 } from "./mailer";
 
@@ -63,18 +62,6 @@ function fanOut(
   }
 }
 
-const FLAG_LABELS: Record<string, string> = Object.fromEntries(
-  [
-    ["sustained_high_activity", "Sustained high activity"],
-    ["low_variance_robotic", "Robotic / low-variance input"],
-    ["input_channel_imbalance", "Input channel imbalance"],
-    ["jiggler_process_detected", "Mouse-jiggler detected"],
-    ["clock_skew_detected", "System clock changed"],
-    ["exceeds_elapsed_cap", "Claimed more time than elapsed"],
-    ["block_outside_session_window", "Activity outside session window"],
-  ] as const
-);
-
 /**
  * Record an org-level event about `userId`, and email the admins who want it.
  *
@@ -84,8 +71,17 @@ const FLAG_LABELS: Record<string, string> = Object.fromEntries(
  * no org to attribute the notification to. (`auditLog` deliberately does NOT do
  * this — see the note there — because the events it records are precisely the
  * ones where the subject disappears.)
+ *
+ * `userId` is nullable for the same reason: a session outlives the member who
+ * created it, so the ingestion path genuinely holds a null here, and narrowing
+ * at every call site would be four copies of this same early return.
  */
-export async function notifyOrg(userId: string, type: string, payload: Record<string, unknown>) {
+export async function notifyOrg(
+  userId: string | null,
+  type: string,
+  payload: Record<string, unknown>
+) {
+  if (!userId) return;
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return;
 
@@ -93,16 +89,11 @@ export async function notifyOrg(userId: string, type: string, payload: Record<st
     data: { orgId: user.orgId, userId, type, payload: { ...payload, memberEmail: user.email } },
   });
 
-  if (type !== "unusual_activity") return;
-  const flag = typeof payload.type === "string" ? payload.type : "";
-  const recipients = await privilegedRecipients(user.orgId);
-  fanOut(recipients, "unusual_activity", (to) =>
-    sendUnusualActivityEmail(to, {
-      memberLabel: user.email,
-      flagLabel: FLAG_LABELS[flag] ?? flag.replace(/_/g, " ") ?? "Unusual activity",
-      when: new Date().toUTCString(),
-    })
-  );
+  // No email from here, on purpose. Flags arrive in bursts — one misbehaving
+  // device can produce a dozen in an hour — and lib/digest-scheduler.ts already
+  // batches them into a single next-morning digest for exactly that reason. A
+  // per-flag mail alongside it would be the pattern that digest exists to
+  // replace. The bell still shows every flag the moment it lands.
 }
 
 /**

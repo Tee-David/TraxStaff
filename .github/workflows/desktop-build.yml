@@ -15,7 +15,48 @@ on:
   workflow_dispatch:
 
 jobs:
+  # The tracker's arithmetic — block durations, the pause definition, the
+  # away/idle accounting — decides what appears on a person's timesheet, and it
+  # cannot be run on a Windows dev machine without the MSVC toolchain. If it is
+  # not exercised here it is not exercised anywhere, which is how a `.max()` that
+  # let suspended time into the activity denominator survived: clock.rs was well
+  # tested, and capture.rs's use of it was not tested at all.
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Same libraries the build needs: the crate links rdev against X11 and
+      # tauri against webkit2gtk even to compile a test harness.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libx11-dev libxi-dev libxtst-dev libxdo-dev \
+            build-essential file patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+          key: test
+
+      - name: Run Rust tests
+        working-directory: desktop/src-tauri
+        run: cargo test --lib -- --nocapture
+
   build:
+    # Never publish a build whose timing arithmetic is failing its own tests.
+    needs: test
     strategy:
       # Windows is what ships today; a Linux regression must not stop its build.
       fail-fast: false

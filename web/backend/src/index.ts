@@ -18,9 +18,11 @@ import {
   ensureApprovalColumns,
   ensureAuditLogTable,
   ensureNullableUserFks,
+  ensureShortfallNotifyColumns,
   ensureWebsiteUsageColumn,
 } from "./lib/ensure-schema";
 import { startStaleSessionSweeper } from "./lib/stale-sessions";
+import { startDigestScheduler } from "./lib/digest-scheduler";
 import { prisma } from "./lib/prisma";
 
 async function main() {
@@ -65,10 +67,11 @@ async function main() {
   await fastify.register(screenshotRoutes);
   await fastify.register(orgRoutes);
 
-  // Neither blocks startup: they log and move on if the database refuses.
+  // None of these block startup: they log and move on if the database refuses.
   await ensureWebsiteUsageColumn(fastify.log);
   await ensureAuditLogTable(fastify.log);
   await ensureNullableUserFks(fastify.log);
+  await ensureShortfallNotifyColumns(fastify.log);
   await ensureApprovalColumns(fastify.log);
 
   // Close sessions the tracker never got to stop — an app killed, a machine shut
@@ -77,6 +80,11 @@ async function main() {
   // once at boot (which also catches whatever accumulated while we were down) and
   // then on an interval; failures are logged, never fatal.
   startStaleSessionSweeper(fastify.log, prisma);
+
+  // Work-target digests: daily the morning after, weekly on Monday, in each
+  // org's own timezone. Ticks every 15 minutes and asks whether the period has
+  // already been sent, so a redeploy at 08:00 neither skips nor repeats a day.
+  startDigestScheduler(fastify.log, prisma);
 
   await fastify.listen({ port: env.PORT, host: "0.0.0.0" });
 }

@@ -36,7 +36,22 @@ export default async function memberRoutes(fastify: FastifyInstance) {
       select: memberSelect,
       orderBy: { createdAt: "asc" },
     });
-    return reply.send(members);
+    // The frontend picks this payload apart with `.map((m) => m.email)` and
+    // `.filter((m) => m.status)` — never hand it rows that aren't complete
+    // Member objects. `email`/`id` are non-nullable in the schema, so the
+    // shape is guaranteed; spell it out anyway so a future schema drift
+    // cannot silently ship nulls into the dashboard tree.
+    return reply.send(
+      members.map((m) => ({
+        id: m.id,
+        email: m.email,
+        role: m.role,
+        status: m.status,
+        createdAt: m.createdAt,
+        dailyTargetMinutes: m.dailyTargetMinutes,
+        weeklyTargetMinutes: m.weeklyTargetMinutes,
+      }))
+    );
   });
 
   fastify.patch(

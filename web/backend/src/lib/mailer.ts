@@ -96,6 +96,9 @@ function emailLayout(bodyHtml: string, preheader: string): string {
     .body { color:#b8bad0 !important; }
     .muted { color:#8d90ab !important; }
     .hair { border-color:#282844 !important; }
+    /* The unfilled half of a progress bar is a light hairline — on a dark card
+       it reads as the *filled* portion unless it's darkened too. */
+    .bar-track { background:#282844 !important; }
     /* Navy-on-navy is invisible: lift the detail card off the surface. */
     .tint { background:#1d1d3c !important; }
     /* The navy pill all but disappears on a dark card (and clients then
@@ -205,6 +208,317 @@ export async function sendInviteEmail(to: string, inviteUrl: string, orgName: st
     `You've been invited to join ${orgName} on TraxStaff.\n\nAccept your invite: ${inviteUrl}\n\nThis link expires in 24 hours.`,
     "invite email"
   );
+}
+
+/* ──────────────────────  Work-target shortfall digests  ──────────────────────
+
+   One digest per period, not one mail per person: at ten-ish staff a per-user
+   mail turns a quiet week into twenty notifications and admins filter the lot.
+   Tone is deliberately neutral — "below target", never "failed" — because the
+   same number can mean annual leave, and an admin reading a shaming email about
+   someone on holiday stops trusting the whole feature.                          */
+
+export type ShortfallRow = {
+  /** Display name if the member has set one, otherwise their email. */
+  name: string;
+  trackedHours: number;
+  targetHours: number;
+  /** Weekly digest only: how many working days they met the daily target on. */
+  daysMet?: number;
+  daysExpected?: number;
+};
+
+/** `6.4` → `"6h 24m"`. Whole hours drop the minutes: `8` → `"8h"`. */
+function fmtHours(hours: number): string {
+  const total = Math.max(0, Math.round(hours * 60));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/**
+ * Per-member rows. A table, not divs: flex/grid don't exist in Outlook, and the
+ * `width="N%"` *attribute* (not the CSS property) is the only bar-chart trick
+ * that survives Word's rendering engine.
+ */
+function shortfallRows(rows: ShortfallRow[]): string {
+  return rows
+    .map((r) => {
+      const short = Math.max(0, r.targetHours - r.trackedHours);
+      const pct = r.targetHours > 0
+        ? Math.min(100, Math.round((r.trackedHours / r.targetHours) * 100))
+        : 0;
+      const days =
+        r.daysMet !== undefined && r.daysExpected !== undefined
+          ? `<div class="muted" style="font-size:12px;line-height:1.5;color:${C.muted};padding-top:2px;">Met the daily target on ${r.daysMet} of ${r.daysExpected} days</div>`
+          : "";
+      // Zero-width bars collapse and the border-radius renders as a dot, so the
+      // filled cell is omitted entirely at 0%.
+      const bar = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>
+        ${pct > 0 ? `<td width="${pct}%" class="bar-fill" style="background:${C.accent};height:4px;line-height:4px;font-size:0;border-radius:2px;">&nbsp;</td>` : ""}
+        ${pct < 100 ? `<td width="${100 - pct}%" class="bar-track" style="background:${C.hair};height:4px;line-height:4px;font-size:0;border-radius:2px;">&nbsp;</td>` : ""}
+      </tr></table>`;
+
+      return `<tr>
+        <td class="hair" style="padding:14px 0 12px;border-bottom:1px solid ${C.hair};">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:15px;line-height:1.4;">
+              <span class="ink" style="font-weight:600;color:${C.ink};">${r.name}</span>
+              ${days}
+            </td>
+            <td align="right" style="font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:15px;line-height:1.4;white-space:nowrap;padding-left:16px;">
+              <span class="ink" style="font-weight:600;color:${C.ink};">${fmtHours(r.trackedHours)}</span><span class="muted" style="color:${C.muted};"> / ${fmtHours(r.targetHours)}</span>
+              <div class="muted" style="font-size:12px;line-height:1.5;color:${C.muted};padding-top:2px;">${fmtHours(short)} short</div>
+            </td>
+          </tr></table>
+          ${bar}
+        </td>
+      </tr>`;
+    })
+    .join("");
+}
+
+/** The "everyone hit target" case. Worth sending: silence is indistinguishable
+ *  from a broken cron job, and admins asked to be told either way. */
+function allClearBlock(scopeLabel: string, totalMembers: number): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="tint" style="background:${C.tint};border-radius:12px;margin:0 0 26px;">
+    <tr><td class="pad-tint" style="padding:20px 24px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
+      <p class="ink" style="margin:0;font-size:15px;font-weight:600;color:${C.ink};">Everyone met their target ${scopeLabel}.</p>
+      <p class="body" style="margin:6px 0 0;font-size:14px;color:${C.body};">All ${totalMembers} tracked members reached the work target. Nothing needs your attention.</p>
+    </td></tr>
+  </table>`;
+}
+
+type DigestInput = {
+  orgName: string;
+  rows: ShortfallRow[];
+  /** Members counted, i.e. the denominator — excludes disabled/removed users. */
+  totalMembers: number;
+  dashboardUrl: string;
+  targetHours: number;
+};
+
+export async function sendDailyShortfallEmail(
+  to: string,
+  input: DigestInput & { /** e.g. "Monday, 17 August" */ dateLabel: string }
+) {
+  const { orgName, rows, totalMembers, dashboardUrl, dateLabel, targetHours } = input;
+  const n = rows.length;
+  const subject =
+    n === 0
+      ? `All targets met — ${dateLabel}`
+      : `${n} of ${totalMembers} below target — ${dateLabel}`;
+
+  const html = emailLayout(
+    `
+    <p class="muted" style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:${C.muted};">Daily summary · ${orgName}</p>
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">${dateLabel}</p>
+    <p class="body" style="margin:0 0 24px;color:${C.body};">${
+      n === 0
+        ? `Daily target is ${fmtHours(targetHours)}.`
+        : `${n} of ${totalMembers} tracked members finished below the ${fmtHours(targetHours)} daily target.`
+    }</p>
+    ${
+      n === 0
+        ? allClearBlock("yesterday", totalMembers)
+        : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 26px;border-collapse:collapse;">${shortfallRows(rows)}</table>`
+    }
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Open dashboard", "→")}</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">Hours below target can mean leave, a public holiday, or approved time off — this is a prompt to look, not a verdict. Turn these off under Settings → Work targets.</p>
+  `,
+    n === 0
+      ? `Everyone met the ${fmtHours(targetHours)} daily target on ${dateLabel}.`
+      : `${rows.map((r) => r.name).join(", ")} finished below target on ${dateLabel}.`
+  );
+
+  const text =
+    n === 0
+      ? `${orgName} — ${dateLabel}\n\nAll ${totalMembers} tracked members met the ${fmtHours(targetHours)} daily target.\n\n${dashboardUrl}`
+      : `${orgName} — ${dateLabel}\n\n${n} of ${totalMembers} tracked members were below the ${fmtHours(targetHours)} daily target:\n\n` +
+        rows
+          .map(
+            (r) =>
+              `  ${r.name}: ${fmtHours(r.trackedHours)} of ${fmtHours(r.targetHours)} (${fmtHours(Math.max(0, r.targetHours - r.trackedHours))} short)`
+          )
+          .join("\n") +
+        `\n\nOpen dashboard: ${dashboardUrl}\n\nHours below target can mean leave or approved time off. Turn these off under Settings > Work targets.`;
+
+  return send(to, subject, html, text, "daily shortfall digest");
+}
+
+export async function sendWeeklyShortfallEmail(
+  to: string,
+  input: DigestInput & { /** e.g. "11–17 August 2026" */ rangeLabel: string }
+) {
+  const { orgName, rows, totalMembers, dashboardUrl, rangeLabel, targetHours } = input;
+  const n = rows.length;
+  const subject =
+    n === 0
+      ? `All weekly targets met — week of ${rangeLabel}`
+      : `${n} of ${totalMembers} below the weekly target — ${rangeLabel}`;
+
+  const html = emailLayout(
+    `
+    <p class="muted" style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:${C.muted};">Weekly summary · ${orgName}</p>
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">${rangeLabel}</p>
+    <p class="body" style="margin:0 0 24px;color:${C.body};">${
+      n === 0
+        ? `Weekly target is ${fmtHours(targetHours)}.`
+        : `${n} of ${totalMembers} tracked members finished the week below the ${fmtHours(targetHours)} target.`
+    }</p>
+    ${
+      n === 0
+        ? allClearBlock("last week", totalMembers)
+        : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 26px;border-collapse:collapse;">${shortfallRows(rows)}</table>`
+    }
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Open reports", "→")}</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">A short week can mean leave, a public holiday, or approved time off. Turn these off under Settings → Work targets.</p>
+  `,
+    n === 0
+      ? `Everyone met the ${fmtHours(targetHours)} weekly target for ${rangeLabel}.`
+      : `${rows.map((r) => r.name).join(", ")} finished the week below target.`
+  );
+
+  const text =
+    n === 0
+      ? `${orgName} — week of ${rangeLabel}\n\nAll ${totalMembers} tracked members met the ${fmtHours(targetHours)} weekly target.\n\n${dashboardUrl}`
+      : `${orgName} — week of ${rangeLabel}\n\n${n} of ${totalMembers} tracked members were below the ${fmtHours(targetHours)} weekly target:\n\n` +
+        rows
+          .map(
+            (r) =>
+              `  ${r.name}: ${fmtHours(r.trackedHours)} of ${fmtHours(r.targetHours)} (${fmtHours(Math.max(0, r.targetHours - r.trackedHours))} short)` +
+              (r.daysMet !== undefined ? `, daily target met ${r.daysMet}/${r.daysExpected} days` : "")
+          )
+          .join("\n") +
+        `\n\nOpen reports: ${dashboardUrl}\n\nA short week can mean leave or approved time off. Turn these off under Settings > Work targets.`;
+
+  return send(to, subject, html, text, "weekly shortfall digest");
+}
+
+/* ────────────────────  Unusual-activity digest (admins)  ────────────────────
+
+   These flags already existed as in-app notification rows, written by sync.ts
+   behind `upsertFlag()`'s dedupe. Email is a second delivery of the same rows,
+   batched over a period — never one mail per flag, which an offline backlog
+   would turn into dozens at once.                                             */
+
+/** Mirrors the frontend's FLAG_LABELS so both surfaces name a flag identically. */
+const FLAG_LABELS: Record<string, string> = {
+  sustained_high_activity: "Sustained high activity",
+  low_variance_robotic: "Robotic / low-variance input",
+  input_channel_imbalance: "Input channel imbalance",
+  jiggler_process_detected: "Mouse-jiggler detected",
+  clock_skew_detected: "System clock changed",
+  exceeds_elapsed_cap: "Claimed more time than elapsed",
+  block_outside_session_window: "Activity outside session window",
+};
+
+export type FlagRow = { member: string; type: string };
+
+export async function sendUnusualActivityEmail(
+  to: string,
+  input: { orgName: string; rangeLabel: string; flags: FlagRow[]; dashboardUrl: string }
+) {
+  const { orgName, rangeLabel, flags, dashboardUrl } = input;
+  const n = flags.length;
+  const label = (type: string) => FLAG_LABELS[type] ?? type.replace(/_/g, " ");
+
+  const rows = flags
+    .map(
+      (f) => `<tr>
+        <td class="hair" style="padding:13px 0;border-bottom:1px solid ${C.hair};font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:15px;line-height:1.45;">
+          <span class="ink" style="font-weight:600;color:${C.ink};">${f.member}</span>
+          <div class="muted" style="font-size:13px;line-height:1.5;color:${C.muted};padding-top:2px;">${label(f.type)}</div>
+        </td>
+      </tr>`
+    )
+    .join("");
+
+  const html = emailLayout(
+    `
+    <p class="muted" style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:${C.muted};">Unusual activity · ${orgName}</p>
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">${rangeLabel}</p>
+    <p class="body" style="margin:0 0 24px;color:${C.body};">${n} ${n === 1 ? "session was" : "sessions were"} flagged for review.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 26px;border-collapse:collapse;">${rows}</table>
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Review flags", "→")}</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">A flag is a signal to look, not proof of anything — several have innocent causes, such as a laptop resuming from sleep. Turn these off under Settings → Emails.</p>
+  `,
+    `${n} flagged ${n === 1 ? "session" : "sessions"} for ${rangeLabel}.`
+  );
+
+  const text =
+    `${orgName} — ${rangeLabel}\n\n${n} flagged ${n === 1 ? "session" : "sessions"}:\n\n` +
+    flags.map((f) => `  ${f.member}: ${label(f.type)}`).join("\n") +
+    `\n\nReview: ${dashboardUrl}\n\nA flag is a signal to look, not proof. Turn these off under Settings > Emails.`;
+
+  return send(
+    to,
+    `${n} flagged ${n === 1 ? "session" : "sessions"} — ${rangeLabel}`,
+    html,
+    text,
+    "unusual activity digest"
+  );
+}
+
+/* ──────────────────  Member's own weekly summary (staff)  ──────────────────
+
+   The reciprocal of the admin digest: the same numbers, sent to the person they
+   are about. Nobody in this category ships it, and it is what turns the
+   shortfall digest from surveillance into something the member can act on
+   before an admin ever raises it.                                             */
+
+export async function sendMemberWeeklySummaryEmail(
+  to: string,
+  input: {
+    orgName: string;
+    rangeLabel: string;
+    name: string;
+    trackedHours: number;
+    targetHours: number;
+    dashboardUrl: string;
+  }
+) {
+  const { orgName, rangeLabel, name, trackedHours, targetHours, dashboardUrl } = input;
+  const met = targetHours <= 0 || trackedHours >= targetHours;
+  const short = Math.max(0, targetHours - trackedHours);
+  const pct = targetHours > 0 ? Math.min(100, Math.round((trackedHours / targetHours) * 100)) : 100;
+
+  const html = emailLayout(
+    `
+    <p class="muted" style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:${C.muted};">Your week · ${orgName}</p>
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">${rangeLabel}</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">Hi ${name} — here is what TraxStaff recorded for you last week.</p>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="tint" style="background:${C.tint};border-radius:12px;margin:0 0 26px;">
+      <tr><td style="padding:22px 24px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
+        <p class="ink" style="margin:0;font-size:28px;font-weight:700;line-height:1.2;color:${C.ink};">${fmtHours(trackedHours)}</p>
+        <p class="muted" style="margin:4px 0 0;font-size:14px;color:${C.muted};">tracked of a ${fmtHours(targetHours)} target${met ? "" : ` · ${fmtHours(short)} short`}</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;"><tr>
+          ${pct > 0 ? `<td width="${pct}%" class="bar-fill" style="background:${C.accent};height:6px;line-height:6px;font-size:0;border-radius:3px;">&nbsp;</td>` : ""}
+          ${pct < 100 ? `<td width="${100 - pct}%" class="bar-track" style="background:${C.hair};height:6px;line-height:6px;font-size:0;border-radius:3px;">&nbsp;</td>` : ""}
+        </tr></table>
+      </td></tr>
+    </table>
+
+    <p class="body" style="margin:0 0 24px;color:${C.body};">${
+      met
+        ? "You met your target — nothing to do."
+        : "If that looks wrong, check for time that never synced, or add any missing entries from your timesheet."
+    }</p>
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "View your timesheet", "→")}</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">This is the same figure your admins see for you — no more, no less.</p>
+  `,
+    `${fmtHours(trackedHours)} tracked of a ${fmtHours(targetHours)} target for ${rangeLabel}.`
+  );
+
+  const text =
+    `${orgName} — your week, ${rangeLabel}\n\n` +
+    `Tracked: ${fmtHours(trackedHours)} of a ${fmtHours(targetHours)} target` +
+    (met ? " — target met.\n" : ` (${fmtHours(short)} short).\n`) +
+    `\nView your timesheet: ${dashboardUrl}\n\nThis is the same figure your admins see for you.`;
+
+  return send(to, `Your week at ${orgName} — ${rangeLabel}`, html, text, "member weekly summary");
 }
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string) {
@@ -377,31 +691,3 @@ export async function sendManualTimeAddedEmail(
   );
 }
 
-/** To the admins who asked for them: a session the tracker flagged for review. */
-export async function sendUnusualActivityEmail(
-  to: string,
-  facts: { memberLabel: string; flagLabel: string; when: string }
-) {
-  const html = emailLayout(
-    `
-    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">A session was flagged for review</p>
-    <p class="body" style="margin:0 0 22px;color:${C.body};">The tracker recorded something worth a second look. Flags are never used to drop time on their own — they mark a session for a person to judge.</p>
-    ${detailRows([
-      ["Member", facts.memberLabel],
-      ["Flag", facts.flagLabel],
-      ["When", facts.when],
-    ])}
-    <p style="margin:0 0 8px;">${emailButton(`${ASSETS}/app/insights`, "Open Insights", "→")}</p>
-    ${prefsFooter("&ldquo;Unusual activity flags&rdquo;")}
-  `,
-    `${facts.memberLabel}: ${facts.flagLabel}`
-  );
-
-  return send(
-    to,
-    `Flagged for review: ${facts.memberLabel}`,
-    html,
-    `A session was flagged for review.\n\nMember: ${facts.memberLabel}\nFlag: ${facts.flagLabel}\nWhen: ${facts.when}\n\n${ASSETS}/app/insights`,
-    "unusual activity email"
-  );
-}

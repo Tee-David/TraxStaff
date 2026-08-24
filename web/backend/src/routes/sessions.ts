@@ -108,7 +108,7 @@ const manualSchema = z.object({
   taskId: z.string().uuid().optional(),
   startedAt: z.string().datetime({ offset: true }),
   endedAt: z.string().datetime({ offset: true }),
-  manualReason: z.string().min(1),
+  manualReason: z.string().min(1).max(500),
   // Whose timesheet this lands on. Absent (the ordinary case) means the caller's
   // own. Only an owner/admin may name someone else — a member sending another
   // member's id is refused rather than quietly filed against themselves, since
@@ -130,6 +130,21 @@ const decisionSchema = z.object({
   // that makes the decision reviewable later.
   note: z.string().min(1).max(500).optional(),
 });
+
+/**
+ * Bounds on a manual entry, which is the one route that writes hours on nothing
+ * but the member's word.
+ *
+ * There were none. `POST /sessions/manual` validated only that the timestamps
+ * parsed and that the end followed the start, so a single request claiming
+ * 2020-01-01 to 2030-01-01 was accepted: one row worth 87,600 hours, no approval
+ * step, straight into every report, the leaderboard and the CSV export.
+ * `/sessions/start` has bounded its own claim to [now-72h, now+2min] all along;
+ * this route simply never got the same treatment.
+ */
+const MANUAL_MAX_SECONDS = 24 * 3600;
+const MANUAL_MAX_BACKDATE_MS = 90 * 86_400_000;
+const MANUAL_MAX_FUTURE_MS = 60_000;
 
 const noteSchema = z.object({
   body: z.string().min(1).max(500),
@@ -266,25 +281,33 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
       }
     }
 
-    const device = await resolveDevice(req.user.userId, body.deviceId, body.platform, body.appVersion);
-
     // RECONCILIATION INVARIANT: a user may have at most one OPEN session at any
     // instant. But switching projects on the SAME device is not double-tracking —
     // only a *different* device with a live heartbeat is (the fraud case).
+    //
+    // Read BEFORE resolveDevice(), which stamps `lastSeenAt = now` on the device
+    // row. When the open session belongs to the same device — the ordinary
+    // desktop case — that write landed first and the evidence read below saw its
+    // own timestamp, so `isFresh` was unconditionally true and every abandoned
+    // session was closed at `now` and labelled a clean `stopped`. That is the
+    // bug the comment further down says was removed; it had been reintroduced by
+    // ordering alone.
     const open = await prisma.trackingSession.findFirst({
       where: { userId: req.user.userId, endedAt: null },
       // Newest first: with more than one open row (which shouldn't happen, but
       // did), closing an arbitrary one leaves the others to keep accruing.
       orderBy: { startedAt: "desc" },
       include: {
-        device: true,
         activityBlocks: { select: { blockEnd: true }, orderBy: { blockEnd: "desc" }, take: 1 },
       },
     });
+
+    const device = await resolveDevice(req.user.userId, body.deviceId, body.platform, body.appVersion);
     if (open) {
       const sameDevice = open.deviceId === device.id;
-      const evidence = lastEvidenceAt(open);
-      const isFresh = Date.now() - evidence.getTime() < STALE_SESSION_MS;
+      const now = new Date();
+      const evidence = lastEvidenceAt(open, now);
+      const isFresh = now.getTime() - evidence.getTime() < STALE_SESSION_MS;
       if (!sameDevice && isFresh) {
         // A second live timer on another machine — reject.
         return reply.code(409).send({
@@ -356,7 +379,18 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
     if (!session || session.userId !== req.user.userId) {
       return reply.code(404).send({ error: "Session not found" });
     }
-    if (session.endedAt) {
+    // A session WE closed can still be stopped by the client that owns it.
+    //
+    // The sweeper closes on silence, and silence is ambiguous: the tracker is
+    // offline-first and keeps recording through an outage. When it comes back
+    // and posts the stop it has been holding, a flat 409 meant the member's real
+    // end time was refused and the swept guess stood — the row stayed at the
+    // moment the network dropped, and the rest of the shift was gone.
+    //
+    // Only our own `abrupt_exit` is eligible, and the new end still comes from
+    // evidence via `effectiveEnd`, so this cannot extend a session past what it
+    // can prove. A genuine `stopped` is the member's own statement and stays 409.
+    if (session.endedAt && session.endReason !== "abrupt_exit") {
       return reply.code(409).send({ error: "Session already stopped" });
     }
 
@@ -374,22 +408,56 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
     // `effectiveEnd` also floors at `startedAt`, which preserves the old guard
     // against a legacy row whose start is somehow ahead of the server clock.
     const now = new Date();
-    const endedAt = body.discard ? session.startedAt : effectiveEnd(session, now);
+    // Recomputed as though the session were open. `effectiveEnd` treats a closed
+    // session as its own authority and returns `endedAt` unchanged — correct for
+    // a real end time, wrong for one the sweeper guessed, which is exactly what
+    // we are here to revise. Taking the later of the two means this can only
+    // ever restore time, never take any away.
+    const swept = session.endedAt;
+    const fromEvidence = effectiveEnd({ ...session, endedAt: null }, now);
+    const endedAt = body.discard
+      ? session.startedAt
+      : swept
+        ? new Date(Math.max(fromEvidence.getTime(), swept.getTime()))
+        : fromEvidence;
+
     const updated = await prisma.trackingSession.update({
       where: { id },
       data: { endedAt, endReason: body.endReason },
     });
+    if (swept && endedAt.getTime() > swept.getTime()) {
+      req.log.info(
+        { sessionId: id, was: swept.toISOString(), now: endedAt.toISOString() },
+        "restored time on an auto-closed session: the client posted its real stop"
+      );
+    }
     return reply.send(updated);
   });
 
-  // Heartbeat — keeps device presence fresh (drives "who's online").
+  // Heartbeat — keeps device presence fresh (drives "who's online") AND records
+  // that this specific session is still alive.
   fastify.post("/sessions/:id/heartbeat", async (req, reply) => {
     const { id } = req.params as { id: string };
     const session = await prisma.trackingSession.findUnique({ where: { id } });
     if (!session || session.userId !== req.user.userId) {
       return reply.code(404).send({ error: "Session not found" });
     }
-    await prisma.device.update({ where: { id: session.deviceId }, data: { lastSeenAt: new Date() } });
+    const now = new Date();
+    await prisma.device.update({ where: { id: session.deviceId }, data: { lastSeenAt: now } });
+
+    // Stamp the session too. Presence and evidence-of-life are different
+    // questions and this route used to answer only the first: `Device` is shared
+    // by every session that machine has ever run, so the beat could not say
+    // WHICH session was alive. lib/duration.ts consequently read one live
+    // session's heartbeat as proof that an older, dead row on the same device
+    // was also still running — making it unsweepable and unbounded.
+    //
+    // Guarded on `endedAt: null` so a late beat from a client that has not yet
+    // noticed it was stopped cannot reopen a closed session or move its end.
+    await prisma.trackingSession.updateMany({
+      where: { id, endedAt: null },
+      data: { lastSyncAt: now },
+    });
     return reply.send({ ok: true });
   });
 
@@ -414,6 +482,17 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
     const end = new Date(body.endedAt);
     if (end <= start) {
       return reply.code(400).send({ error: "End must be after start" });
+    }
+
+    const nowMs = Date.now();
+    if ((end.getTime() - start.getTime()) / 1000 > MANUAL_MAX_SECONDS) {
+      return reply.code(400).send({ error: "A manual entry cannot be longer than 24 hours" });
+    }
+    if (end.getTime() > nowMs + MANUAL_MAX_FUTURE_MS) {
+      return reply.code(400).send({ error: "A manual entry cannot be in the future" });
+    }
+    if (start.getTime() < nowMs - MANUAL_MAX_BACKDATE_MS) {
+      return reply.code(400).send({ error: "A manual entry cannot be backdated more than 90 days" });
     }
 
     const privileged = req.user.role === "owner" || req.user.role === "admin";
@@ -451,6 +530,31 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
         return reply.code(404).send({ error: "Task not found on that project" });
       }
       task = { id: found.id, title: found.title };
+    }
+
+    // Membership, not just org. `ProjectMember` exists to scope which projects a
+    // member can see; without this check any member could log time against any
+    // project UUID in the org, including one they have no access to. Projects
+    // with no members are open to the org, which is the existing convention.
+    //
+    // Checked against THE TARGET, not the caller. The entry lands on the
+    // target's timesheet, so it is their access that decides whether the
+    // project belongs there — an admin picking from the org-wide list must not
+    // be able to file a member against a project they were never assigned to.
+    const memberships = await prisma.projectMember.count({ where: { projectId: project.id } });
+    if (memberships > 0) {
+      const theirs = await prisma.projectMember.count({
+        where: { projectId: project.id, userId: targetId },
+      });
+      if (theirs === 0) {
+        return reply
+          .code(403)
+          .send({
+            error: forSomeoneElse
+              ? "That member isn't assigned to this project"
+              : "You are not a member of this project",
+          });
+      }
     }
 
     // Prevent padding hours by adding a manual entry that overlaps time already
@@ -724,22 +828,22 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
     // session as running and none of them could see IdleDiscard rows at all. The
     // server has the evidence; it should do the arithmetic once.
     //
-    // `activityBlocks` and `device` are stripped from the response: they were loaded
-    // to compute these fields, not to be sent.
+    // `activityBlocks` is stripped from the response: it was loaded to compute
+    // these fields, not to be sent.
     const now = new Date();
     return reply.send(
-      sessions.map(({ activityBlocks, device, idleDiscards, ...s }) => ({
+      sessions.map(({ activityBlocks, idleDiscards, ...s }) => ({
         ...s,
         /**
          * When this session effectively ended. Equals `endedAt` when closed; for an
          * open one it is `now` while it is still heartbeating, and its last evidence
          * of life once it isn't. Clients should measure against this, not `endedAt`.
          */
-        effectiveEndAt: effectiveEnd({ ...s, activityBlocks, device }, now).toISOString(),
+        effectiveEndAt: effectiveEnd({ ...s, activityBlocks }, now).toISOString(),
         /** Gross clock minus idle the member discarded — the canonical "worked". */
-        workedSeconds: Math.round(workedSeconds({ ...s, activityBlocks, device, idleDiscards }, now)),
+        workedSeconds: Math.round(workedSeconds({ ...s, activityBlocks, idleDiscards }, now)),
         /** True once this row stopped proving it was alive: open, but not tracking. */
-        abandoned: !s.endedAt && effectiveEnd({ ...s, activityBlocks, device }, now) < now,
+        abandoned: !s.endedAt && effectiveEnd({ ...s, activityBlocks }, now) < now,
         /**
          * The deducted stretches, WITH their spans.
          *

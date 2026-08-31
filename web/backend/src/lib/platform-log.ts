@@ -103,7 +103,38 @@ export interface SnapshotPayload {
   sessions: Record<string, unknown>[];
   activityBlocks: Record<string, unknown>[];
   screenshots: Record<string, unknown>[];
+  /**
+   * Prior figures for blocks that are being OVERWRITTEN rather than deleted.
+   *
+   * A separate field because it needs the opposite restore. Everything else in
+   * a snapshot describes rows that will not exist afterwards, so putting them
+   * back is `createMany`. An activity rewrite leaves every row exactly where it
+   * was and changes four columns, so `createMany` would skip all of it as
+   * duplicates and restore nothing at all.
+   */
+  blockActivity?: BlockActivitySnapshot[];
 }
+
+/** The four columns an activity rewrite touches, plus the chain it belongs to. */
+export interface BlockActivitySnapshot {
+  id: string;
+  keyboardPct: number;
+  mousePct: number;
+  activityPct: number;
+  idleSeconds: number;
+  prevHash: string;
+  hash: string;
+}
+
+/**
+ * How many blocks one activity snapshot may hold.
+ *
+ * A whole-team month is tens of thousands of blocks, and the payload is a
+ * single JSONB column. The cap exists so the failure is an explicit refusal
+ * ("narrow the range") rather than a write that succeeds until one day it is
+ * too big and the undo silently is not there.
+ */
+export const MAX_SNAPSHOT_BLOCKS = 20_000;
 
 /**
  * Capture everything belonging to these sessions, before they are deleted.
@@ -127,6 +158,38 @@ export async function captureSessions(sessionIds: string[]): Promise<SnapshotPay
     activityBlocks: activityBlocks as unknown as Record<string, unknown>[],
     screenshots: screenshots as unknown as Record<string, unknown>[],
   };
+}
+
+/**
+ * Capture what an activity rewrite is about to overwrite.
+ *
+ * Returns null when there are more blocks than one snapshot should carry — see
+ * MAX_SNAPSHOT_BLOCKS. The caller must treat that the same way it treats a
+ * failed save: refuse, rather than proceed without a way back.
+ */
+export async function captureBlockActivity(
+  sessionIds: string[]
+): Promise<SnapshotPayload | null> {
+  if (sessionIds.length === 0) {
+    return { sessions: [], activityBlocks: [], screenshots: [], blockActivity: [] };
+  }
+
+  const blocks = await prisma.activityBlock.findMany({
+    where: { sessionId: { in: sessionIds } },
+    select: {
+      id: true,
+      keyboardPct: true,
+      mousePct: true,
+      activityPct: true,
+      idleSeconds: true,
+      prevHash: true,
+      hash: true,
+    },
+  });
+
+  if (blocks.length > MAX_SNAPSHOT_BLOCKS) return null;
+
+  return { sessions: [], activityBlocks: [], screenshots: [], blockActivity: blocks };
 }
 
 export interface SnapshotRef {
@@ -208,6 +271,44 @@ export interface RestoreResult {
  * screenshots that reference both.
  */
 export async function restoreSnapshot(payload: SnapshotPayload): Promise<RestoreResult> {
+  // An in-place snapshot restores by UPDATE, not by insert — the rows never
+  // went away. Handled first and returned early, because the two shapes are
+  // mutually exclusive and mixing them would mean guessing which one a payload
+  // meant.
+  if (payload.blockActivity && payload.blockActivity.length > 0) {
+    let restored = 0;
+    // Chunked: a single transaction of twenty thousand updates is refused by
+    // CockroachDB, and one update per round trip would take minutes.
+    const CHUNK = 200;
+    for (let i = 0; i < payload.blockActivity.length; i += CHUNK) {
+      const slice = payload.blockActivity.slice(i, i + CHUNK);
+      const done = await prisma.$transaction(
+        slice.map((b) =>
+          prisma.activityBlock.updateMany({
+            where: { id: b.id },
+            data: {
+              keyboardPct: b.keyboardPct,
+              mousePct: b.mousePct,
+              activityPct: b.activityPct,
+              idleSeconds: b.idleSeconds,
+              prevHash: b.prevHash,
+              hash: b.hash,
+            },
+          })
+        )
+      );
+      restored += done.reduce((sum, r) => sum + r.count, 0);
+    }
+    return {
+      sessions: 0,
+      activityBlocks: restored,
+      screenshots: 0,
+      // A block deleted since the snapshot was taken cannot be put back by an
+      // update; it is reported as skipped rather than silently missing.
+      skipped: payload.blockActivity.length - restored,
+    };
+  }
+
   const sessions = payload.sessions.map((r) => reviveDates(r, SESSION_DATES));
   const blocks = payload.activityBlocks.map((r) => reviveDates(r, BLOCK_DATES));
   const shots = payload.screenshots.map((r) => reviveDates(r, SHOT_DATES));

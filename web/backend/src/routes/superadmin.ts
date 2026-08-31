@@ -52,7 +52,12 @@ import {
 import { addDays, localDayKey, localDayStartMs, weekStartKey } from "../lib/digests";
 import { effectiveEnd, workedSeconds } from "../lib/duration";
 import { weightedActivity } from "../lib/activity";
-import { captureSessions, platformLog, saveSnapshot } from "../lib/platform-log";
+import {
+  captureBlockActivity,
+  captureSessions,
+  platformLog,
+  saveSnapshot,
+} from "../lib/platform-log";
 
 /**
  * Flip to `true` to start writing an audit trail for the actions in this file.
@@ -1396,6 +1401,33 @@ export default async function superAdminRoutes(fastify: FastifyInstance) {
 
     if (body.dryRun) return reply.send({ ...summary, updated: 0, dryRun: true });
 
+    // An activity rewrite overwrites the tracker's own measurements in place.
+    // Deleted sessions were always recoverable — the R2 images survive a row
+    // delete — but overwritten percentages were not, which made this the one
+    // destructive platform action with no way back. Snapshot first, and refuse
+    // outright if it cannot be stored: an undo the operator was promised and
+    // does not have is worse than none.
+    const priorBlocks = await captureBlockActivity(targets.map((t) => t.id));
+    if (!priorBlocks) {
+      return reply.code(413).send({
+        error:
+          "That period holds too many activity blocks to snapshot for undo. Narrow the range and apply it in parts.",
+      });
+    }
+    const snapshot = await saveSnapshot({
+      actorId: req.user.userId,
+      kind: "activity.rewrite",
+      userId: id,
+      orgId: user.orgId,
+      payload: priorBlocks,
+    });
+    if (!snapshot) {
+      return reply.code(503).send({
+        error:
+          "Could not store an undo snapshot, so nothing was changed. Check that PlatformSnapshot exists.",
+      });
+    }
+
     let straddling = 0;
     let updated = 0;
     let rechained = 0;
@@ -1494,10 +1526,18 @@ export default async function superAdminRoutes(fastify: FastifyInstance) {
         rechained,
         generated,
         straddling,
+        snapshotId: snapshot.id,
       },
     });
 
-    return reply.send({ ...summary, updated, rechained, generated, straddling });
+    return reply.send({
+      ...summary,
+      updated,
+      rechained,
+      generated,
+      straddling,
+      snapshotId: snapshot.id,
+    });
   });
 
   /**

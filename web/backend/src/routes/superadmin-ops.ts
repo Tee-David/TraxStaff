@@ -29,6 +29,7 @@ import {
   captureSessions,
   platformLog,
   restoreSnapshot,
+  captureBlockActivity,
   saveSnapshot,
   type SnapshotPayload,
 } from "../lib/platform-log";
@@ -681,6 +682,47 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
       error?: string;
     }[] = [];
 
+    /**
+     * One snapshot for the whole run, taken before anything is written.
+     *
+     * Collected in its own pass rather than per member as the loop goes, for
+     * the same reason the bulk time route plans everybody first: one operation
+     * should have one undo, not twelve that have to be found and applied in
+     * order to get back to where you started.
+     */
+    let snapshotId: string | null = null;
+    if (!body.dryRun) {
+      const ids = await prisma.trackingSession.findMany({
+        where: {
+          userId: { in: members.map((m) => m.id) },
+          ...(body.includeCaptured ? {} : { isManual: true }),
+          startedAt: { lt: rangeTo },
+          OR: [{ endedAt: null }, { endedAt: { gt: rangeFrom } }],
+        },
+        select: { id: true },
+      });
+      const prior = await captureBlockActivity(ids.map((r) => r.id));
+      if (!prior) {
+        return reply.code(413).send({
+          error:
+            "That period holds too many activity blocks to snapshot for undo. Narrow the range, or apply it to fewer people at a time.",
+        });
+      }
+      const snap = await saveSnapshot({
+        actorId: req.user.userId,
+        kind: "activity.rewrite",
+        orgId,
+        payload: prior,
+      });
+      if (!snap) {
+        return reply.code(503).send({
+          error:
+            "Could not store an undo snapshot, so nothing was changed. Check that PlatformSnapshot exists.",
+        });
+      }
+      snapshotId = snap.id;
+    }
+
     for (const member of members) {
       try {
         const sessions = await prisma.trackingSession.findMany({
@@ -840,6 +882,7 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
           sessions: results.reduce((s, r) => s + r.sessions, 0),
           failed: results.filter((r) => r.error).length,
           reason: body.reason,
+          snapshotId,
         },
       });
     }
@@ -854,6 +897,7 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
       members: results,
       totalSessions: results.reduce((s, r) => s + r.sessions, 0),
       failed: results.filter((r) => r.error).length,
+      snapshotId,
     });
   });
 

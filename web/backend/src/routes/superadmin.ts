@@ -1402,7 +1402,12 @@ export default async function superAdminRoutes(fastify: FastifyInstance) {
     let generated = 0;
 
     for (const sn of targets) {
-      if (!sn.endedAt) continue;
+      // Skip only what genuinely cannot be acted on: a session with no blocks
+      // AND no end has neither a chain to rewrite nor a span to generate one
+      // over. An OPEN session WITH blocks is the common case on "today" — it is
+      // usually the largest session there is — and skipping it was why setting
+      // today's activity appeared to do nothing.
+      if (!sn.endedAt && sn.activityBlocks.length === 0) continue;
 
       if (sn.activityBlocks.length > 0) {
         // The session already has blocks — rewrite them where they are, so the

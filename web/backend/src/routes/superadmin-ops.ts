@@ -750,7 +750,10 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
           if (sn.activityBlocks.length > 0) rechained += 1;
           else generated += 1;
 
-          if (body.dryRun || !sn.endedAt) continue;
+          if (body.dryRun) continue;
+          // Same reasoning as the single-member route: an open session with
+          // blocks can be re-chained; only one with neither is unactionable.
+          if (!sn.endedAt && sn.activityBlocks.length === 0) continue;
 
           if (sn.activityBlocks.length > 0) {
             const blocks = rechainActivity(

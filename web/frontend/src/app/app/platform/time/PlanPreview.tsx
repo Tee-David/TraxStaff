@@ -46,6 +46,8 @@ export interface BulkPlanResponse {
 export function PlanPreview({ plan }: { plan: TimePlanResponse }) {
   const superseded = plan.supersededSessions ?? [];
   const capturedCount = plan.supersededCaptured ?? 0;
+  // A session with no end is still being tracked right now.
+  const openNow = (plan.sessions ?? []).filter((s) => s.endedAt === null).length;
 
   return (
     <div className="space-y-4">
@@ -153,6 +155,17 @@ export function PlanPreview({ plan }: { plan: TimePlanResponse }) {
               &ldquo;Rewritten in place&rdquo; keeps every screenshot and rebuilds the hash chain.
             </p>
           </div>
+        )}
+
+        {openNow > 0 && (
+          <p className="mt-3 rounded-lg border border-[var(--color-warning,#b45309)]/40 bg-amber-500/10 p-3 text-xs text-muted">
+            <strong className="text-ink">
+              {openNow} session{openNow === 1 ? " is" : "s are"} still being tracked right now.
+            </strong>{" "}
+            The change applies immediately, but the tracker keeps adding blocks at whatever it
+            actually measures, so the figure will drift back down as the session continues. Set it
+            again once they have stopped if you need it to stick.
+          </p>
         )}
 
         {plan.straddling !== undefined && plan.straddling > 0 && (

@@ -15,9 +15,16 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { effectiveEnd, workedSeconds } from "../lib/duration";
-import { MAX_DAYS_PER_REQUEST, planBackfill } from "../lib/backfill";
-import { addDays, localDayStartMs } from "../lib/digests";
-import { orgTimezone, resolveRange } from "./superadmin";
+import {
+  MAX_DAYS_PER_REQUEST,
+  formatTimeOfDay,
+  planBackfill,
+  rechainActivity,
+  replanActivity,
+  type PlannedDay,
+} from "../lib/backfill";
+import { addDays, localDayKey, localDayStartMs } from "../lib/digests";
+import { loadPattern, orgTimezone, resolveRange } from "./superadmin";
 import {
   captureSessions,
   platformLog,
@@ -310,11 +317,17 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
   /**
    * Apply one time plan to many members of an org at once.
    *
-   * Each member is planned and written independently, and a failure on one is
-   * reported rather than aborting the rest — a single member with an overlapping
-   * session should not cost the other eleven their entry. The response is a
-   * per-member result either way, which is also what makes the dry run useful:
-   * it shows exactly who would get what before anything is written.
+   * Two-phase on purpose: every member is PLANNED first, then — only once the
+   * whole set is known and only when this is not a dry run — the writes happen.
+   * The single-member route can get away with plan-then-write inline because
+   * there is nothing to be half-way through. Here, `replace` deletes existing
+   * rows, and a snapshot taken per member as the loop went would leave a partial
+   * failure with several separate undos to find and apply in the right order.
+   * One operation gets one undo.
+   *
+   * A member whose plan cannot be computed is recorded against their own row and
+   * the loop carries on. One person with a clashing session should not cost the
+   * other eleven their entry.
    */
   fastify.post("/admin/orgs/:orgId/time/bulk", async (req, reply) => {
     const { orgId } = req.params as { orgId: string };
@@ -333,7 +346,13 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
         activityJitter: z.number().min(0).max(50).optional(),
         lengthJitterPct: z.number().min(0).max(50).optional(),
         startJitterMinutes: z.number().int().min(0).max(180).optional(),
+        breakMinutes: z.number().int().min(0).max(8 * 60).optional(),
         includeWeekends: z.boolean().optional(),
+        // Previously hardcoded to `topUp`, which meant this route could only
+        // ever serve one of the intents the single-member route supports.
+        fill: z.enum(["topUp", "add", "replace"]).default("topUp"),
+        recordAs: z.enum(["manual", "tracked"]).default("manual"),
+        matchMemberPattern: z.boolean().default(true),
         reason: z.string().trim().min(1).max(500),
         dryRun: z.boolean().default(true),
       })
@@ -376,16 +395,34 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
     const rangeFrom = new Date(localDayStartMs(range.from, timezone));
     const rangeTo = new Date(localDayStartMs(addDays(range.to, 1), timezone));
 
-    const results: {
+    interface MemberPlan {
       userId: string;
       email: string;
       days: number;
       seconds: number;
-      skippedDays: string[];
+      supersededIds: string[];
+      supersededSeconds: number;
+      supersededCaptured: number;
+      plan: PlannedDay[];
       error?: string;
-    }[] = [];
+    }
+
+    /* ── phase 1: plan everybody ─────────────────────────────────────────── */
+
+    const planned: MemberPlan[] = [];
 
     for (const member of members) {
+      const blank: MemberPlan = {
+        userId: member.id,
+        email: member.email,
+        days: 0,
+        seconds: 0,
+        supersededIds: [],
+        supersededSeconds: 0,
+        supersededCaptured: 0,
+        plan: [],
+      };
+
       try {
         const existing = await prisma.trackingSession.findMany({
           where: {
@@ -393,12 +430,26 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
             startedAt: { lt: rangeTo },
             OR: [{ endedAt: null }, { endedAt: { gt: rangeFrom } }],
           },
-          select: { startedAt: true, endedAt: true, lastSyncAt: true },
+          select: { id: true, startedAt: true, endedAt: true, lastSyncAt: true, isManual: true },
         });
-        const busy = existing.map((s) => ({
-          startMs: s.startedAt.getTime(),
-          endMs: effectiveEnd(s).getTime(),
-        }));
+
+        // In `replace` the manual rows are not "busy" — they are what is being
+        // superseded. Captured rows always are: bulk deliberately offers no
+        // equivalent of `replaceCaptured`, because destroying real tracked work
+        // across a whole team is not something to do behind one checkbox.
+        const superseded = body.fill === "replace" ? existing.filter((s) => s.isManual) : [];
+        const supersededIds = new Set(superseded.map((s) => s.id));
+
+        const busy = existing
+          .filter((s) => !supersededIds.has(s.id))
+          .map((s) => ({ startMs: s.startedAt.getTime(), endMs: effectiveEnd(s).getTime() }));
+
+        // Defaults taken from this member's own history, so a bulk write does
+        // not give twelve people the same synthetic 09:00 start.
+        const pattern = body.matchMemberPattern
+          ? await loadPattern(member.id, timezone, rangeFrom)
+          : null;
+        const usable = pattern && pattern.sampleDays >= 3 ? pattern : null;
 
         // `totalHours` is per MEMBER, not split between them: "everyone did 40
         // hours last week" is the request, not "40 hours shared out".
@@ -419,71 +470,320 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
         const plan = planBackfill({
           ...range,
           hoursPerDay,
-          activityPct: body.activityPct,
+          startTime: usable ? formatTimeOfDay(usable.startMinutes) : undefined,
+          breakMinutes: body.breakMinutes,
+          activityPct: body.activityPct ?? usable?.activityPct,
           activityJitter: body.activityJitter,
           lengthJitterPct: body.lengthJitterPct,
           startJitterMinutes: body.startJitterMinutes,
           includeWeekends: body.includeWeekends,
           timezone,
-          fill: "topUp",
+          // `replace` plans like `add`: the rows it would otherwise top up
+          // against are the ones being removed.
+          fill: body.fill === "replace" ? "add" : body.fill,
           busy,
           sessionIdFor: () => crypto.randomUUID(),
         });
 
-        results.push({
-          userId: member.id,
-          email: member.email,
+        planned.push({
+          ...blank,
           days: new Set(plan.map((d) => d.dayKey)).size,
           seconds: plan.reduce((sum, d) => sum + d.seconds, 0),
-          skippedDays: [],
+          supersededIds: [...supersededIds],
+          supersededSeconds: superseded.reduce((sum, s) => sum + Math.round(workedSeconds(s)), 0),
+          supersededCaptured: 0,
+          plan,
+        });
+      } catch (err) {
+        planned.push({ ...blank, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    const summary = {
+      org: { id: org.id, name: org.name },
+      project: { id: project.id, name: project.name },
+      range,
+      timezone,
+      fill: body.fill,
+      recordAs: body.recordAs,
+      members: planned.map(({ plan: _plan, ...rest }) => rest),
+      totalSeconds: planned.reduce((s, r) => s + r.seconds, 0),
+      supersededSeconds: planned.reduce((s, r) => s + r.supersededSeconds, 0),
+      failed: planned.filter((r) => r.error).length,
+    };
+
+    if (body.dryRun) return reply.send({ ...summary, dryRun: true, written: false });
+
+    /* ── phase 2: one snapshot, then write ───────────────────────────────── */
+
+    const allSuperseded = planned.flatMap((p) => p.supersededIds);
+    let snapshotId: string | null = null;
+
+    if (allSuperseded.length > 0) {
+      const snapshot = await saveSnapshot({
+        actorId: req.user.userId,
+        kind: "time.replace",
+        orgId,
+        payload: await captureSessions(allSuperseded),
+      });
+      if (!snapshot) {
+        return reply.code(503).send({
+          error:
+            "Could not store an undo snapshot, so nothing was changed. Check that PlatformSnapshot exists.",
+        });
+      }
+      snapshotId = snapshot.id;
+
+      for (const id of allSuperseded) {
+        await prisma.$transaction([
+          prisma.screenshot.deleteMany({ where: { sessionId: id } }),
+          prisma.unusualActivityFlag.deleteMany({ where: { sessionId: id } }),
+          prisma.activityBlock.deleteMany({ where: { sessionId: id } }),
+          prisma.appUsage.deleteMany({ where: { sessionId: id } }),
+          prisma.urlUsage.deleteMany({ where: { sessionId: id } }),
+          prisma.idleDiscard.deleteMany({ where: { sessionId: id } }),
+          prisma.timeNote.deleteMany({ where: { sessionId: id } }),
+          prisma.trackingSession.delete({ where: { id } }),
+        ]);
+      }
+    }
+
+    for (const entry of planned) {
+      if (entry.error || entry.plan.length === 0) continue;
+
+      const device = await prisma.device.create({
+        data: {
+          userId: entry.userId,
+          platform: body.recordAs === "manual" ? "manual" : "desktop",
+          appVersion: "superadmin",
+        },
+      });
+
+      for (const day of entry.plan) {
+        await prisma.$transaction([
+          prisma.trackingSession.create({
+            data: {
+              id: day.sessionId,
+              userId: entry.userId,
+              projectId: project.id,
+              deviceId: device.id,
+              startedAt: day.startedAt,
+              endedAt: day.endedAt,
+              endReason: "stopped",
+              isManual: body.recordAs === "manual",
+              manualReason: body.reason,
+            },
+          }),
+          prisma.activityBlock.createMany({
+            data: day.blocks.map((b) => ({
+              sessionId: day.sessionId,
+              blockStart: b.blockStart,
+              blockEnd: b.blockEnd,
+              keyboardPct: b.keyboardPct,
+              mousePct: b.mousePct,
+              activityPct: b.activityPct,
+              idleSeconds: b.idleSeconds,
+              sequenceNo: b.sequenceNo,
+              prevHash: b.prevHash,
+              hash: b.hash,
+              creditedSeconds: b.creditedSeconds,
+            })),
+          }),
+        ]);
+      }
+    }
+
+    await platformLog({
+      actorId: req.user.userId,
+      action: "time.bulk_written",
+      orgId,
+      details: {
+        range,
+        members: planned.length,
+        totalSeconds: summary.totalSeconds,
+        supersededSessions: allSuperseded.length,
+        failed: summary.failed,
+        fill: body.fill,
+        recordAs: body.recordAs,
+        reason: body.reason,
+        snapshotId,
+      },
+    });
+
+    return reply.send({ ...summary, dryRun: false, written: true, snapshotId });
+  });
+
+  /**
+   * Set activity across a period for many members at once.
+   *
+   * The single-member route (`PATCH /admin/users/:id/activity`) is per-user by
+   * construction, so "several people" needed a sibling here rather than a flag
+   * there. Same two-phase shape and same per-member isolation as the time bulk
+   * route above.
+   *
+   * Blocks are re-chained IN PLACE wherever they exist, so screenshots survive —
+   * see `rechainActivity` in lib/backfill.ts for why that matters.
+   */
+  fastify.post("/admin/orgs/:orgId/activity/bulk", async (req, reply) => {
+    const { orgId } = req.params as { orgId: string };
+    const body = z
+      .object({
+        userIds: z.array(z.string().uuid()).min(1).max(200).optional(),
+        mode: z.enum(["day", "week", "range", "days"]).default("range"),
+        date: dateKey.optional(),
+        days: z.array(dateKey).min(1).max(MAX_DAYS_PER_REQUEST).optional(),
+        from: dateKey.optional(),
+        to: dateKey.optional(),
+        activityPct: z.number().min(0).max(100),
+        activityJitter: z.number().min(0).max(50).default(8),
+        includeCaptured: z.boolean().default(false),
+        reason: z.string().trim().min(1).max(500),
+        dryRun: z.boolean().default(true),
+      })
+      .parse(req.body);
+
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) return reply.code(404).send({ error: "Org not found" });
+
+    let range: { from: string; to: string; only?: string[] };
+    try {
+      range = resolveRange(body);
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : "Invalid range" });
+    }
+
+    const members = await prisma.user.findMany({
+      where: {
+        orgId,
+        status: "active",
+        isSuperAdmin: false,
+        ...(body.userIds ? { id: { in: body.userIds } } : {}),
+      },
+      select: { id: true, email: true },
+      orderBy: { email: "asc" },
+    });
+    if (members.length === 0) {
+      return reply.code(400).send({ error: "No matching active members in that organization" });
+    }
+
+    const timezone = await orgTimezone(orgId);
+    const rangeFrom = new Date(localDayStartMs(range.from, timezone));
+    const rangeTo = new Date(localDayStartMs(addDays(range.to, 1), timezone));
+    const only = range.only ? new Set(range.only) : null;
+
+    const results: {
+      userId: string;
+      email: string;
+      sessions: number;
+      rechained: number;
+      generated: number;
+      screenshotsKept: number;
+      error?: string;
+    }[] = [];
+
+    for (const member of members) {
+      try {
+        const sessions = await prisma.trackingSession.findMany({
+          where: {
+            userId: member.id,
+            ...(body.includeCaptured ? {} : { isManual: true }),
+            endedAt: { not: null },
+            startedAt: { lt: rangeTo, gte: rangeFrom },
+          },
+          select: {
+            id: true,
+            startedAt: true,
+            endedAt: true,
+            _count: { select: { screenshots: true } },
+            activityBlocks: {
+              select: { id: true, sequenceNo: true, blockStart: true, blockEnd: true },
+              orderBy: { sequenceNo: "asc" },
+            },
+          },
+          orderBy: { startedAt: "asc" },
         });
 
-        if (!body.dryRun && plan.length > 0) {
-          const device = await prisma.device.create({
-            data: { userId: member.id, platform: "manual", appVersion: "superadmin" },
-          });
-          for (const day of plan) {
-            await prisma.$transaction([
-              prisma.trackingSession.create({
-                data: {
-                  id: day.sessionId,
-                  userId: member.id,
-                  projectId: project.id,
-                  deviceId: device.id,
-                  startedAt: day.startedAt,
-                  endedAt: day.endedAt,
-                  endReason: "stopped",
-                  isManual: true,
-                  manualReason: body.reason,
-                },
-              }),
-              prisma.activityBlock.createMany({
-                data: day.blocks.map((b) => ({
-                  sessionId: day.sessionId,
-                  blockStart: b.blockStart,
-                  blockEnd: b.blockEnd,
-                  keyboardPct: b.keyboardPct,
-                  mousePct: b.mousePct,
-                  activityPct: b.activityPct,
-                  idleSeconds: b.idleSeconds,
-                  sequenceNo: b.sequenceNo,
-                  prevHash: b.prevHash,
-                  hash: b.hash,
-                  creditedSeconds: b.creditedSeconds,
-                })),
-              }),
-            ]);
+        // `days` mode names specific days inside a wider span, so the set has to
+        // be re-applied after the query rather than trusted from the range.
+        const targets = sessions.filter(
+          (sn) => !only || only.has(localDayKey(sn.startedAt, timezone))
+        );
+
+        let rechained = 0;
+        let generated = 0;
+        let shots = 0;
+
+        for (const sn of targets) {
+          shots += sn._count.screenshots;
+          if (sn.activityBlocks.length > 0) rechained += 1;
+          else generated += 1;
+
+          if (body.dryRun || !sn.endedAt) continue;
+
+          if (sn.activityBlocks.length > 0) {
+            const blocks = rechainActivity(
+              sn.id,
+              sn.activityBlocks,
+              body.activityPct,
+              body.activityJitter
+            );
+            await prisma.$transaction(
+              blocks.map((b) =>
+                prisma.activityBlock.update({
+                  where: { id: b.id },
+                  data: {
+                    keyboardPct: b.keyboardPct,
+                    mousePct: b.mousePct,
+                    activityPct: b.activityPct,
+                    idleSeconds: b.idleSeconds,
+                    prevHash: b.prevHash,
+                    hash: b.hash,
+                  },
+                })
+              )
+            );
+          } else {
+            const blocks = replanActivity(
+              sn.id,
+              sn.startedAt,
+              sn.endedAt,
+              body.activityPct,
+              body.activityJitter
+            );
+            await prisma.activityBlock.createMany({
+              data: blocks.map((b) => ({
+                sessionId: sn.id,
+                blockStart: b.blockStart,
+                blockEnd: b.blockEnd,
+                keyboardPct: b.keyboardPct,
+                mousePct: b.mousePct,
+                activityPct: b.activityPct,
+                idleSeconds: b.idleSeconds,
+                sequenceNo: b.sequenceNo,
+                prevHash: b.prevHash,
+                hash: b.hash,
+                creditedSeconds: b.creditedSeconds,
+              })),
+            });
           }
         }
-      } catch (err) {
-        // Recorded against the member and the loop carries on. One person's
-        // clash must not cost everyone else their entry.
+
         results.push({
           userId: member.id,
           email: member.email,
-          days: 0,
-          seconds: 0,
-          skippedDays: [],
+          sessions: targets.length,
+          rechained,
+          generated,
+          screenshotsKept: shots,
+        });
+      } catch (err) {
+        results.push({
+          userId: member.id,
+          email: member.email,
+          sessions: 0,
+          rechained: 0,
+          generated: 0,
+          screenshotsKept: 0,
           error: err instanceof Error ? err.message : String(err),
         });
       }
@@ -492,12 +792,14 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
     if (!body.dryRun) {
       await platformLog({
         actorId: req.user.userId,
-        action: "time.bulk_written",
+        action: "activity.rewritten",
         orgId,
         details: {
           range,
           members: results.length,
-          totalSeconds: results.reduce((s, r) => s + r.seconds, 0),
+          activityPct: body.activityPct,
+          includeCaptured: body.includeCaptured,
+          sessions: results.reduce((s, r) => s + r.sessions, 0),
           failed: results.filter((r) => r.error).length,
           reason: body.reason,
         },
@@ -506,12 +808,14 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       org: { id: org.id, name: org.name },
-      project: { id: project.id, name: project.name },
       range,
       timezone,
+      activityPct: body.activityPct,
       dryRun: body.dryRun,
+      written: !body.dryRun,
       members: results,
-      totalSeconds: results.reduce((s, r) => s + r.seconds, 0),
+      totalSessions: results.reduce((s, r) => s + r.sessions, 0),
+      failed: results.filter((r) => r.error).length,
     });
   });
 

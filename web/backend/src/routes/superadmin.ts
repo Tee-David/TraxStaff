@@ -251,7 +251,7 @@ export async function orgTimezone(orgId: string): Promise<string> {
 }
 
 /** Local minutes past midnight, for derivePattern. */
-function localMinutesOf(d: Date, tz: string): number {
+export function localMinutesOf(d: Date, tz: string): number {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: tz,
     hour12: false,
@@ -271,7 +271,7 @@ function localMinutesOf(d: Date, tz: string): number {
  * including it would let one guessed default reinforce itself into a habit the
  * member never had.
  */
-async function loadPattern(
+export async function loadPattern(
   userId: string,
   timezone: string,
   before: Date

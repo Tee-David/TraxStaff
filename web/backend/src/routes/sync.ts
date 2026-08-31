@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { GENESIS, verifyChain, type ChainBlock } from "../lib/hashchain";
 import { detectAnomalies } from "../lib/anomaly";
 import { auditLog } from "../lib/audit";
+import { notifyOrg } from "../lib/notify";
 
 const blockSchema = z.object({
   blockStart: z.string().datetime({ offset: true }),
@@ -537,15 +538,3 @@ async function upsertFlag(sessionId: string, type: import("@prisma/client").Flag
   return true;
 }
 
-// `userId` is nullable because a session outlives the member who created it (see
-// loadSyncableSession). There is nobody to notify about an orphaned session's
-// activity, and no org to attribute it to, so this returns quietly rather than
-// forcing every call site to narrow.
-async function notifyOrg(userId: string | null, type: string, payload: Record<string, unknown>) {
-  if (!userId) return;
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) return;
-  await prisma.notification.create({
-    data: { orgId: user.orgId, userId, type, payload: { ...payload, memberEmail: user.email } },
-  });
-}

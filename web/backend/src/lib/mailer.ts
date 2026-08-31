@@ -650,3 +650,152 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
     { ttlMs: 3_600_000 }
   );
 }
+
+/* ───────────────────────  Manual-time approval mail  ───────────────────────
+
+   Three templates, all reusing `emailLayout` so they inherit the dark-mode and
+   client-compatibility work above. Each one leads with the fact and the
+   numbers, because the decision they support is "does this look right?" and the
+   answer is in the who/when/how-long — not in the prose.
+
+   Every one of these is opt-out per recipient (lib/email-prefs.ts), so the
+   footer says which setting produced it and where to change it.                */
+
+const TIMESHEETS_URL = `${ASSETS}/app/timesheets`;
+const SETTINGS_URL = `${ASSETS}/app/settings`;
+
+/** Shared "why am I getting this" line — every preference-governed email ends with it. */
+function prefsFooter(what: string): string {
+  return `<p class="muted" style="margin:22px 0 0;font-size:12px;color:${C.muted};">You're getting this because ${what} is on for your account. <a href="${SETTINGS_URL}" style="color:${C.brand};">Change your email preferences</a>.</p>`;
+}
+
+/** Detail card — the facts of the entry, laid out as rows an eye can scan. */
+function detailRows(rows: [string, string][]): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="tint" style="background:${C.tint};border-radius:12px;padding:4px 0;margin:0 0 24px;">
+    ${rows
+      .map(
+        ([label, value]) =>
+          `<tr><td class="muted" style="padding:8px 18px;font-size:13px;color:${C.muted};width:38%;">${label}</td><td class="ink" style="padding:8px 18px;font-size:14px;font-weight:600;color:${C.ink};">${value}</td></tr>`
+      )
+      .join("")}
+  </table>`;
+}
+
+export interface ManualEntryFacts {
+  memberLabel: string;
+  projectName: string;
+  taskTitle?: string | null;
+  when: string;
+  duration: string;
+  reason: string;
+}
+
+/** To the admins who review time: someone added an entry the tracker didn't see. */
+export async function sendManualTimeSubmittedEmail(to: string, facts: ManualEntryFacts) {
+  const rows: [string, string][] = [
+    ["Member", facts.memberLabel],
+    ["Project", facts.taskTitle ? `${facts.projectName} — ${facts.taskTitle}` : facts.projectName],
+    ["When", facts.when],
+    ["Duration", facts.duration],
+    ["Reason", facts.reason],
+  ];
+  const html = emailLayout(
+    `
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">Manual time needs your approval</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">${facts.memberLabel} added ${facts.duration} the tracker didn't record. It won't count as approved time until an admin reviews it.</p>
+    ${detailRows(rows)}
+    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Review this entry", "→")}</p>
+    ${prefsFooter("&ldquo;Manual time awaiting approval&rdquo;")}
+  `,
+    `${facts.memberLabel} added ${facts.duration} of manual time — awaiting approval.`
+  );
+
+  return send(
+    to,
+    `${facts.memberLabel} added ${facts.duration} of manual time`,
+    html,
+    `${facts.memberLabel} added manual time awaiting approval.\n\nProject: ${facts.projectName}\nWhen: ${facts.when}\nDuration: ${facts.duration}\nReason: ${facts.reason}\n\nReview it: ${TIMESHEETS_URL}`,
+    "manual time submitted email"
+  );
+}
+
+/** To the member: an admin has decided. A rejection always carries its reason. */
+export async function sendManualTimeDecisionEmail(
+  to: string,
+  decision: "approved" | "rejected",
+  facts: ManualEntryFacts & { decidedBy: string; note?: string | null }
+) {
+  const approved = decision === "approved";
+  const rows: [string, string][] = [
+    ["Project", facts.taskTitle ? `${facts.projectName} — ${facts.taskTitle}` : facts.projectName],
+    ["When", facts.when],
+    ["Duration", facts.duration],
+    ["Reviewed by", facts.decidedBy],
+  ];
+  if (facts.note) rows.push([approved ? "Note" : "Reason", facts.note]);
+
+  const lead = approved
+    ? `Your ${facts.duration} entry has been approved and counts toward your timesheet.`
+    : `Your ${facts.duration} entry was rejected, so it won't count toward your timesheet. The entry stays on your timesheet marked as rejected — nothing was deleted.`;
+
+  const html = emailLayout(
+    `
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">Manual time ${approved ? "approved" : "rejected"}</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">${lead}</p>
+    ${detailRows(rows)}
+    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Open your timesheet", "→")}</p>
+    ${prefsFooter("&ldquo;Your manual time was reviewed&rdquo;")}
+  `,
+    lead
+  );
+
+  return send(
+    to,
+    `Your manual time was ${approved ? "approved" : "rejected"}`,
+    html,
+    `${lead}\n\nProject: ${facts.projectName}\nWhen: ${facts.when}\nDuration: ${facts.duration}\nReviewed by: ${facts.decidedBy}${facts.note ? `\nNote: ${facts.note}` : ""}\n\n${TIMESHEETS_URL}`,
+    "manual time decision email"
+  );
+}
+
+/**
+ * To the member: an admin put time on their timesheet for them.
+ *
+ * A separate template from the decision one on purpose. "Your entry has been
+ * approved" is the wrong sentence for time the member never submitted, and
+ * getting that wrong in an email about someone's paid hours is not a small
+ * thing — the point of telling them at all is that they can dispute it.
+ */
+export async function sendManualTimeAddedEmail(
+  to: string,
+  facts: ManualEntryFacts & { addedBy: string }
+) {
+  const rows: [string, string][] = [
+    ["Project", facts.taskTitle ? `${facts.projectName} — ${facts.taskTitle}` : facts.projectName],
+    ["When", facts.when],
+    ["Duration", facts.duration],
+    ["Added by", facts.addedBy],
+    ["Reason", facts.reason],
+  ];
+  const lead = `${facts.addedBy} added ${facts.duration} to your timesheet. It counts as approved time. If that doesn't look right, take it up with them — nothing here is hidden from you.`;
+
+  const html = emailLayout(
+    `
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">Time was added to your timesheet</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">${lead}</p>
+    ${detailRows(rows)}
+    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Open your timesheet", "→")}</p>
+    ${prefsFooter("&ldquo;Your manual time was reviewed&rdquo;")}
+  `,
+    lead
+  );
+
+  return send(
+    to,
+    `${facts.addedBy} added ${facts.duration} to your timesheet`,
+    html,
+    `${lead}\n\nProject: ${facts.projectName}\nWhen: ${facts.when}\nDuration: ${facts.duration}\nReason: ${facts.reason}\n\n${TIMESHEETS_URL}`,
+    "manual time added email"
+  );
+}
+

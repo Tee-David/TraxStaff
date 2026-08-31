@@ -32,6 +32,8 @@ export interface Member {
   weeklyTargetMinutes: number | null;
 }
 
+export type ApprovalState = "pending" | "approved" | "rejected";
+
 export interface Session {
   id: string;
   /** null once the owner has been hard-deleted — see `user` below. */
@@ -60,6 +62,22 @@ export interface Session {
   endReason: "stopped" | "idle_timeout" | "abrupt_exit" | null;
   isManual: boolean;
   manualReason: string | null;
+  /**
+   * How this entry's approval reads, with the server's null-means-approved rule
+   * already applied. Read this, never the raw `approvalStatus` below: null there
+   * covers both a tracked session and a manual entry predating approvals, and
+   * every client that re-derived that rule would eventually get it wrong.
+   */
+  approvalState?: ApprovalState;
+  /** The raw stored value — null on tracked sessions and pre-approval rows. */
+  approvalStatus?: ApprovalState | null;
+  decidedAt?: string | null;
+  /** Denormalised so a decision stays readable after that admin is deleted. */
+  decidedByEmail?: string | null;
+  /** Required on a rejection: the member has to know what to fix. */
+  decisionNote?: string | null;
+  /** Set when an admin entered this on the member's behalf. */
+  addedByEmail?: string | null;
   tamperSuspected: boolean;
   project: { id: string; name: string; clientTag: string | null };
   task: { id: string; title: string } | null;

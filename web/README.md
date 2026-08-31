@@ -63,6 +63,10 @@
 
 **Screenshots, admin-gated at the API, not just the UI.** Staff never receive a viewable URL for a screenshot in the API response — the row is still visible to them (so capture is never covert), but the presigned image URL is only ever generated for a privileged caller.
 
+**Manual time is approved, not asserted.** Time the tracker never saw is a claim, so it enters as one: a member's manual entry lands `pending` and counts for nothing until an owner/admin decides. An admin is the approval authority, so anything they enter lands approved and signed with their name — for themselves or for a member, who is then told it was added for them. What keeps that accountable is the trail, not a gate: `manual_time.self_added`, `manual_time.added_for_member`, `manual_time.approved` and `manual_time.rejected` all go to the audit log with who did it. A rejection always carries a reason, and rejected time is never deleted — it stays on the timesheet, visibly rejected, and drops out of every total and report.
+
+**Two layers of email control.** The org's Emails settings decide what this workspace sends at all; each person's Notifications settings decide which of it reaches their own inbox (`User.emailPrefs`, defaults in `lib/email-prefs.ts`). Both must be on. That is what stops a shortfall digest or an approval queue mailing five admins who never asked for it, without an admin having to switch it off for everybody. In-app notifications are deliberately outside this: muting an email narrows one mailbox and never hides an event from the org's bell.
+
 **Members, projects, tasks, reporting.** Invite/remove members (a "removed" status distinct from "disabled" — no history-destroying delete, since sessions/screenshots/timesheets/assignments all reference the user), assign projects and tasks per member, per-project and per-day reporting with CSV export, an activity-percentage calculation weighted by credited seconds (not an unweighted mean of blocks).
 
 **A Settings page for every role.** Display name and password change are self-service for every member; screenshot policy, idle handling, work targets, and organisation details stay admin-only sections on the same page.
@@ -112,6 +116,9 @@ web/
     │   ├── env.ts                       # Zod-validated environment schema
     │   ├── plugins/auth.ts               # JWT auth decorator
     │   ├── lib/
+    │   │   ├── approval.ts                  # Manual-time approval rules + the "not rejected" query filter
+    │   │   ├── email-prefs.ts                # Which emails each person gets, and the defaults
+    │   │   ├── notify.ts                      # In-app notification + preference-aware email fan-out
     │   │   ├── hashchain.ts                # Canonical activity-block hash (mirrored in desktop's capture.rs)
     │   │   ├── anomaly.ts                   # Server-side tamper/anomaly flag logic
     │   │   ├── r2.ts                         # Presigned upload/download URLs
@@ -121,7 +128,7 @@ web/
     │       ├── auth.ts                    # login, register, invite accept, password reset/change, /me
     │       ├── members.ts                  # invite, status changes (active/disabled/removed), role
     │       ├── projects.ts, tasks.ts         # project + task CRUD, member assignment
-    │       ├── sessions.ts                   # start/stop/heartbeat, manual entries, listing
+    │       ├── sessions.ts                   # start/stop/heartbeat, manual entries, approve/reject, listing
     │       ├── reports.ts, insights.ts        # summary/timesheet/by-project/app/url reporting
     │       ├── screenshots.ts                 # presign/confirm/list/delete
     │       ├── sync.ts                        # activity-block ingestion + reconciliation flags
@@ -211,7 +218,9 @@ cd web/frontend && npm run dev     # http://localhost:3000
 | Reports: summary, timesheet, by-project, app usage, URL usage, CSV export | ✅ |
 | Screenshots: capture policy config, admin-only viewable URLs, soft delete | ✅ |
 | Insights: org-wide leaderboard/activity (admin-only) | ✅ |
-| Settings: account (every role) + screenshots/tracking/targets/organisation (admin) | ✅ |
+| Settings: account + email notification preferences (every role) + screenshots/tracking/targets/organisation (admin) | ✅ |
+| Manual time: members submit for approval, admins enter approved; approve/reject with a reason, all audited | ✅ |
+| Email control in two layers: org-wide switches + per-person opt-outs (in-app notifications stay org-wide) | ✅ |
 | Onboarding tour (resumable, every page) | 🔧 in progress |
 | Marketing landing page (traxstaff.com apex, honest content, platform-aware download CTA) | ✅ |
 | Download-app widget (GitHub Releases, OS-aware) | ✅ |

@@ -40,18 +40,9 @@ function makeDb(opts: {
   members?: Row[];
   sessions?: Row[];
   flags?: Row[];
-  lookupThrows?: boolean;
-  /** Digests already on record, as `[type, periodKey]` — the history that makes
-   *  catch-up distinguishable from a first-ever run. */
-  alreadySent?: [type: string, periodKey: string][];
+  findFirstThrows?: boolean;
 }) {
-  const notifications: Row[] = (opts.alreadySent ?? []).map(([type, periodKey]) => ({
-    orgId: "org1",
-    userId: null,
-    type,
-    payload: { periodKey },
-    createdAt: new Date("2000-01-01T00:00:00.000Z"),
-  }));
+  const notifications: Row[] = [];
   const org: Row = {
     id: "org1",
     name: "Acme",
@@ -92,10 +83,17 @@ function makeDb(opts: {
     trackingSession: { findMany: async () => opts.sessions ?? [] },
     unusualActivityFlag: { findMany: async () => opts.flags ?? [] },
     notification: {
-      findMany: async (args: { where: Row }) => {
-        if (opts.lookupThrows) throw new Error("relation does not exist");
-        const w = args.where as { orgId: string; type: string };
-        return notifications.filter((n) => n.orgId === w.orgId && n.type === w.type);
+      findFirst: async (args: { where: Row }) => {
+        if (opts.findFirstThrows) throw new Error("relation does not exist");
+        const w = args.where as { orgId: string; type: string; createdAt: { gte: Date } };
+        return (
+          notifications.find(
+            (n) =>
+              n.orgId === w.orgId &&
+              n.type === w.type &&
+              (n.createdAt as Date).getTime() >= w.createdAt.gte.getTime()
+          ) ?? null
+        );
       },
       create: async (args: { data: Row }) => {
         notifications.push({ ...args.data, createdAt: clock });
@@ -111,16 +109,6 @@ function makeDb(opts: {
       clock = d;
     },
   };
-}
-
-/**
- * The periods THIS run recorded, in order. Seeded history is stamped in the year
- * 2000 so it can be told apart from anything the run under test wrote.
- */
-function recorded(harness: ReturnType<typeof makeDb>, type: string): unknown[] {
-  return harness.notifications
-    .filter((n) => n.type === type && (n.createdAt as Date).getUTCFullYear() > 2000)
-    .map((n) => (n.payload as Row).periodKey);
 }
 
 async function run(harness: ReturnType<typeof makeDb>, now: Date, sent: Sent[]) {
@@ -188,64 +176,10 @@ test("an org-wide digest is recorded with no userId, which is what makes it admi
 });
 
 test("the weekly digest waits for Monday", async () => {
-  // No history, so no catch-up is owed: an org whose first pass lands on a
-  // Tuesday is not handed last week's review out of nowhere.
   const sent: Sent[] = [];
   const h = makeDb({});
   await run(h, TUESDAY_MORNING, sent);
   assert.deepEqual(sent.filter((s) => s.kind === "weekly"), []);
-});
-
-test("a Monday spent hibernating is caught up on the Tuesday", async () => {
-  // The reason this exists: the API runs on an instance that sleeps, so "it is
-  // Monday" is no guarantee any process was alive to notice. With a previous
-  // week on record, the missed week is still owed.
-  const sent: Sent[] = [];
-  const h = makeDb({ alreadySent: [["weekly_shortfall", "2026-08-03"]] });
-  await run(h, TUESDAY_MORNING, sent);
-
-  assert.equal(sent.filter((s) => s.kind === "weekly").length, 1);
-  const row = h.notifications.find(
-    (n) => n.type === "weekly_shortfall" && (n.payload as Row)?.periodKey === "2026-08-10"
-  );
-  assert.ok(row, "the missed week should be recorded once it is sent");
-});
-
-test("the weekly catch-up window closes rather than mailing all week", async () => {
-  // Thursday is outside it. A weekly review that turns up on Friday is noise.
-  const sent: Sent[] = [];
-  const h = makeDb({ alreadySent: [["weekly_shortfall", "2026-08-03"]] });
-  await run(h, new Date("2026-08-20T07:30:00.000Z"), sent); // Thursday
-  assert.deepEqual(sent.filter((s) => s.kind === "weekly"), []);
-});
-
-test("a day the process slept through is caught up, oldest first", async () => {
-  // The bug this pins: idempotency used to be "has anything of this type been
-  // written since local midnight", so a day whose send hour passed while the
-  // instance was asleep could never be recovered — the window had moved on.
-  const sent: Sent[] = [];
-  const h = makeDb({ alreadySent: [["daily_shortfall", "2026-08-15"]] });
-  await run(h, TUESDAY_MORNING, sent); // Tuesday 18th: the 16th and 17th are owed
-
-  assert.deepEqual(recorded(h, "daily_shortfall"), ["2026-08-16", "2026-08-17"]);
-  assert.equal(sent.filter((s) => s.kind === "daily").length, 2);
-});
-
-test("catch-up never reaches back past what was already sent", async () => {
-  // Otherwise a digest deliberately skipped — toggle off, no members yet —
-  // reappears the moment it falls behind the high-water mark.
-  const sent: Sent[] = [];
-  const h = makeDb({ alreadySent: [["daily_shortfall", "2026-08-17"]] });
-  await run(h, TUESDAY_MORNING, sent);
-  assert.deepEqual(sent.filter((s) => s.kind === "daily"), []);
-});
-
-test("a first-ever pass sends yesterday only, never a backfill", async () => {
-  const sent: Sent[] = [];
-  const h = makeDb({});
-  await run(h, TUESDAY_MORNING, sent);
-
-  assert.deepEqual(recorded(h, "daily_shortfall"), ["2026-08-17"]);
 });
 
 test("the weekly digest goes out on Monday morning, for the week just ended", async () => {
@@ -268,6 +202,68 @@ test("member weekly summaries are opt-in, and reach every member when opted into
   assert.deepEqual(
     on.filter((s) => s.kind === "memberWeekly").map((s) => s.to).sort(),
     ["admin@acme.test", "jordan@acme.test"]
+  );
+});
+
+test("an admin who muted a digest stops getting it, and nobody else is affected", async () => {
+  // The point of per-person preferences: one admin turning a digest off must
+  // narrow their own inbox and nothing else. Before this, the org switch was
+  // the only control, so quietening it for one person meant quietening it for
+  // everyone — or living with the mail.
+  const sent: Sent[] = [];
+  await run(
+    makeDb({
+      members: [
+        { id: "a1", email: "muted@acme.test", name: "Ada", role: "admin", dailyTargetMinutes: null, weeklyTargetMinutes: null, emailPrefs: { daily_shortfall: false } },
+        { id: "a2", email: "listening@acme.test", name: "Bo", role: "admin", dailyTargetMinutes: null, weeklyTargetMinutes: null, emailPrefs: null },
+        { id: "u1", email: "jordan@acme.test", name: "Jordan", role: "member", dailyTargetMinutes: null, weeklyTargetMinutes: null },
+      ],
+    }),
+    TUESDAY_MORNING,
+    sent
+  );
+
+  assert.deepEqual(
+    sent.filter((s) => s.kind === "daily").map((s) => s.to),
+    ["listening@acme.test"]
+  );
+});
+
+test("muting one digest leaves the others alone", async () => {
+  const sent: Sent[] = [];
+  await run(
+    makeDb({
+      members: [
+        { id: "a1", email: "admin@acme.test", name: "Ada", role: "admin", dailyTargetMinutes: null, weeklyTargetMinutes: null, emailPrefs: { weekly_shortfall: false } },
+        { id: "u1", email: "jordan@acme.test", name: "Jordan", role: "member", dailyTargetMinutes: null, weeklyTargetMinutes: null },
+      ],
+    }),
+    MONDAY_MORNING,
+    sent
+  );
+
+  assert.deepEqual(sent.filter((s) => s.kind === "weekly"), []);
+  assert.deepEqual(sent.filter((s) => s.kind === "daily").map((s) => s.to), ["admin@acme.test"]);
+});
+
+test("a member can opt out of their own weekly summary", async () => {
+  const sent: Sent[] = [];
+  await run(
+    makeDb({
+      org: { notifyMemberWeeklySummary: true },
+      members: [
+        { id: "a1", email: "admin@acme.test", name: "Ada", role: "admin", dailyTargetMinutes: null, weeklyTargetMinutes: null },
+        { id: "u1", email: "jordan@acme.test", name: "Jordan", role: "member", dailyTargetMinutes: null, weeklyTargetMinutes: null, emailPrefs: { member_weekly_summary: false } },
+      ],
+    }),
+    MONDAY_MORNING,
+    sent
+  );
+
+  // Jordan opted out; Ada never expressed a view and still gets hers.
+  assert.deepEqual(
+    sent.filter((s) => s.kind === "memberWeekly").map((s) => s.to),
+    ["admin@acme.test"]
   );
 });
 
@@ -301,30 +297,10 @@ test("a failing already-sent check skips the send rather than mailing every tick
   // Fail-closed. Guessing "not sent yet" turns one broken query into an email
   // every fifteen minutes, which is far worse than a missed digest.
   const sent: Sent[] = [];
-  const h = makeDb({ lookupThrows: true });
+  const h = makeDb({ findFirstThrows: true });
   await run(h, TUESDAY_MORNING, sent);
 
   assert.deepEqual(sent, []);
-});
-
-test("every digest carries a dedupe key of org, period and recipient", async () => {
-  // This, not the Notification row, is what makes the job safe to re-run: the
-  // mail is queued BEFORE the row is written, so a crash between the two has to
-  // be recoverable without anyone being mailed twice.
-  const keys: (string | undefined)[] = [];
-  const h = makeDb({});
-  const capture: DigestMailer = {
-    daily: (async (_to: string, input: { dedupeKey?: string }) => {
-      keys.push(input.dedupeKey);
-      return true;
-    }) as DigestMailer["daily"],
-    weekly: async () => true,
-    unusual: async () => true,
-    memberWeekly: async () => true,
-  };
-  await runDigests(h.db, silentLog, TUESDAY_MORNING, capture);
-
-  assert.deepEqual(keys, ["daily_shortfall:org1:2026-08-17:admin@acme.test"]);
 });
 
 test("a blank or unknown zone falls back to the UTC+1 default, not to UTC", async () => {

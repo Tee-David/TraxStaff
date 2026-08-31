@@ -70,6 +70,9 @@ export const IconChevron = (p: SVGProps<SVGSVGElement>) => (
 export const IconLogout = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" /><path d="M10 17l-5-5 5-5M5 12h12" /></svg>
 );
+export const IconPlus = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M12 5v14M5 12h14" /></svg>
+);
 export const IconCalendar = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
 );

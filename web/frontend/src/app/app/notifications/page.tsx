@@ -31,6 +31,12 @@ const SEVERE = new Set([
 ]);
 
 function toneFor(n: AppNotification): "red" | "accent" | "muted" {
+  // Anything waiting on a person reads amber — a pending approval is the one
+  // notification here that someone else is actually blocked on.
+  if (n.type === "manual_time_submitted") return "accent";
+  if (n.type === "manual_time_decided") {
+    return n.payload?.decision === "rejected" ? "red" : "muted";
+  }
   if (n.type !== "unusual_activity") return "muted";
   const kind = typeof n.payload?.type === "string" ? n.payload.type : "";
   return SEVERE.has(kind) ? "red" : "accent";

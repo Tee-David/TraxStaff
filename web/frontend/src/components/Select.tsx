@@ -23,6 +23,7 @@ export function Select({
   className = "",
   align = "left",
   minWidth = 200,
+  block = false,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -32,6 +33,10 @@ export function Select({
   className?: string;
   align?: "left" | "right";
   minWidth?: number;
+  /** Stretch the trigger to fill its container — for form fields, where a
+   *  control that shrinks to its current label reads as broken next to the
+   *  full-width `Input`s around it. */
+  block?: boolean;
 }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [q, setQ] = useState("");
@@ -158,14 +163,16 @@ export function Select({
     : null;
 
   return (
-    <div className={`inline-block ${className}`}>
+    <div className={`${block ? "block" : "inline-block"} ${className}`}>
       <button
         ref={btnRef}
         type="button"
         onClick={toggle}
-        className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-medium outline-none transition hover:border-border-strong focus:border-brand"
+        className={`inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-medium outline-none transition hover:border-border-strong focus:border-brand ${
+          block ? "w-full justify-between" : ""
+        }`}
       >
-        <span className={selected ? "" : "text-muted"}>{selected?.label ?? placeholder}</span>
+        <span className={`truncate ${selected ? "" : "text-muted"}`}>{selected?.label ?? placeholder}</span>
         <svg
           width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
@@ -190,6 +197,7 @@ export function Select({
                   had this problem. */}
               <div
                 ref={panelRef}
+                data-select-panel=""
                 style={{ position: "fixed", ...pos }}
                 className="z-50 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-lift"
               >

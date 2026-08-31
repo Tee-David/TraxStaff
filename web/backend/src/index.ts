@@ -17,6 +17,7 @@ import orgRoutes from "./routes/orgs";
 import superAdminRoutes from "./routes/superadmin";
 import superAdminOpsRoutes from "./routes/superadmin-ops";
 import {
+  ensureApprovalColumns,
   ensureAuditLogTable,
   ensureNullableUserFks,
   ensureOutboundEmailTable,
@@ -105,6 +106,7 @@ async function main() {
   await ensureNullableUserFks(fastify.log);
   await ensureShortfallNotifyColumns(fastify.log);
   await ensureOutboundEmailTable(fastify.log);
+  await ensureApprovalColumns(fastify.log);
   await ensurePlatformTables(fastify.log);
 
   // Grant platform access to whatever SUPERADMIN_EMAILS names. The bootstrap:

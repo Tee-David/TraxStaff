@@ -28,7 +28,17 @@ export type AuditAction =
   // than stopped, so the original value credited an outage as work. Written by the
   // stale-session backfill; the live sweeper closes rows that were never given a
   // wrong end in the first place and has nothing to log.
-  | "session.end_corrected";
+  | "session.end_corrected"
+  // Manual-time approvals. All three change what a member is credited for
+  // without the tracker having witnessed anything, so all three belong in the
+  // trail: who added hours nobody recorded, and who signed them off.
+  | "manual_time.added_for_member"
+  // An admin adding approved hours to their OWN timesheet. Its own action
+  // rather than a variant of the above: nobody reviews it, so the trail is the
+  // only place it can be questioned.
+  | "manual_time.self_added"
+  | "manual_time.approved"
+  | "manual_time.rejected";
 
 interface AuditEntry {
   /** Required, and passed in explicitly — see the note below. */

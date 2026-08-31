@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { orgScoped } from "../lib/org-scope";
+import { excludeRejected } from "../lib/approval";
 import {
   effectiveEnd,
   evidenceSelect,
@@ -153,7 +154,11 @@ export default async function reportRoutes(fastify: FastifyInstance) {
       q.from ? new Date(q.from) : undefined,
       q.to ? new Date(q.to) : undefined
     );
-    if (range.length) where.AND = range;
+    // Rejected manual entries are dropped here rather than at every call site:
+    // an admin turning an entry down is saying those hours don't count, and a
+    // report is the surface where "counts" has consequences. The row itself is
+    // untouched and still shows on the member's timesheet, marked rejected.
+    where.AND = [...range, ...excludeRejected()];
     return prisma.trackingSession.findMany({
       where,
       include: {

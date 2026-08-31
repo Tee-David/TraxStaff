@@ -1,5 +1,13 @@
 import nodemailer from "nodemailer";
 import { env, smtpConfigured } from "../env";
+import {
+  DEFAULT_TTL_MS,
+  enqueue,
+  isUndeliverable,
+  recordAttempt,
+  type DeliveryResult,
+  type OutboundMessage,
+} from "./email-queue";
 
 const relayConfigured = Boolean(env.MAIL_RELAY_URL && env.MAIL_RELAY_SECRET);
 
@@ -146,46 +154,117 @@ function emailLayout(bodyHtml: string, preheader: string): string {
 }
 
 /**
- * Returns whether the message actually went out. Sending never throws: callers
- * are HTTP handlers, and a dead SMTP host must not turn into a 500 — that would
- * both lose the work already committed and, on the reset route, reveal which
- * addresses have accounts. The link is logged on failure so it can be relayed
- * by hand.
+ * The transport itself: relay in production, direct SMTP as the dev-time path.
+ *
+ * Returns the reason for a failure rather than just `false`, because the outbox
+ * has to be able to record WHY a message did not go out — "relay responded 502"
+ * and "mail not configured" call for completely different responses, and the
+ * boolean this used to return could not tell them apart.
+ *
+ * Exported because lib/email-queue.ts takes the transport as a parameter: the
+ * mailer depends on the queue, so the queue must not depend on the mailer.
  */
-async function send(
-  to: string,
-  subject: string,
-  html: string,
-  text: string,
-  logLabel: string
-): Promise<boolean> {
+export async function deliverNow(msg: OutboundMessage): Promise<DeliveryResult> {
+  const { to, subject, html, text, kind } = msg;
+
   if (relayConfigured) {
     try {
       await sendViaRelay(to, subject, html, text);
-      return true;
+      return { ok: true };
     } catch (err) {
-      console.error(
-        `[mailer] ${logLabel} to ${to} FAILED via relay: ${err instanceof Error ? err.message : err}. ${text}`
-      );
-      return false;
+      return { ok: false, error: `relay: ${err instanceof Error ? err.message : String(err)}` };
     }
   }
 
   if (!transporter) {
     // Neither the relay nor direct SMTP is configured — log the link so
     // development/testing isn't blocked.
-    console.warn(`[mailer] mail not configured — ${logLabel} NOT sent to ${to}. ${text}`);
-    return false;
+    console.warn(`[mailer] mail not configured — ${kind} NOT sent to ${to}. ${text}`);
+    return { ok: false, error: "mail not configured" };
   }
+
   try {
-    await transporter.sendMail({ from: env.SMTP_FROM ?? env.SMTP_USER, to, subject, html, text });
-    return true;
+    // Display name defaulted in code, not left to SMTP_FROM alone: a bare
+    // address makes every client render the sender as its local part ("info"),
+    // and a missing env var should degrade to the right brand name.
+    const from = env.SMTP_FROM ?? (env.SMTP_USER ? `TraxStaff <${env.SMTP_USER}>` : undefined);
+    await transporter.sendMail({ from, to, subject, html, text });
+    return { ok: true };
   } catch (err) {
-    console.error(
-      `[mailer] ${logLabel} to ${to} FAILED: ${err instanceof Error ? err.message : err}. ${text}`
+    return { ok: false, error: `smtp: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * Queues the message, then tries to send it straight away.
+ *
+ * Returns whether it went out on THIS attempt. Sending never throws: callers are
+ * HTTP handlers, and a dead SMTP host must not turn into a 500 — that would both
+ * lose the work already committed and, on the reset route, reveal which
+ * addresses have accounts.
+ *
+ * The queue write comes first, and that ordering is the fix for the whole class
+ * of bug this replaces: a `false` return used to be the end of the story, so a
+ * relay blip or an instance that hibernated mid-send lost the mail with nothing
+ * but a log line to show for it. Now `false` means "not yet" — the row is
+ * durable, and lib/email-queue.ts retries it, including on the next boot.
+ */
+async function send(
+  to: string,
+  subject: string,
+  html: string,
+  text: string,
+  logLabel: string,
+  opts: { dedupeKey?: string; ttlMs?: number } = {}
+): Promise<boolean> {
+  // Checked before anything else. A reserved domain cannot receive mail, and the
+  // receiving side tends to accept it and then hard-bounce — and a stream of
+  // bounces is what drags a sending domain's real mail into spam folders. Seed
+  // and demo accounts are full of these.
+  if (isUndeliverable(to)) {
+    console.warn(
+      `[mailer] ${logLabel} NOT sent to ${to}: that domain is reserved and can only bounce. Fix or remove the account.`
     );
     return false;
   }
+
+  const msg: OutboundMessage = {
+    to,
+    subject,
+    html,
+    text,
+    kind: logLabel,
+    dedupeKey: opts.dedupeKey,
+    ttlMs: opts.ttlMs ?? DEFAULT_TTL_MS,
+  };
+
+  const queued = await enqueue(msg, console);
+
+  // Already queued or already sent — the dedupe key did its job. Reported as a
+  // success so a caller re-deriving a period does not read it as a failure.
+  if (queued.state === "duplicate") return true;
+
+  if (queued.state === "unavailable") {
+    // The outbox is created on boot against a database that has drifted from
+    // schema.prisma, so "no table yet" is a real state. It must never stop an
+    // invite or a reset: send directly, best-effort, exactly as before.
+    const res = await deliverNow(msg);
+    if (!res.ok) {
+      console.error(`[mailer] ${logLabel} to ${to} FAILED: ${res.error}. ${text}`);
+    }
+    return res.ok;
+  }
+
+  // Try immediately so the normal case stays instant rather than waiting up to a
+  // minute for the worker.
+  const res = await deliverNow(msg);
+  await recordAttempt({ id: queued.id, attempts: 0 }, res, console);
+  if (!res.ok) {
+    console.error(
+      `[mailer] ${logLabel} to ${to} FAILED: ${res.error} — queued for retry. ${text}`
+    );
+  }
+  return res.ok;
 }
 
 export async function sendInviteEmail(to: string, inviteUrl: string, orgName: string) {
@@ -206,7 +285,11 @@ export async function sendInviteEmail(to: string, inviteUrl: string, orgName: st
     `You've been invited to join ${orgName} on TraxStaff`,
     html,
     `You've been invited to join ${orgName} on TraxStaff.\n\nAccept your invite: ${inviteUrl}\n\nThis link expires in 24 hours.`,
-    "invite email"
+    "invite email",
+    // No dedupe key: re-sending an invite is a legitimate, deliberate act. The
+    // TTL matches the link's own life — retrying a dead invite would only
+    // deliver a dead end.
+    { ttlMs: 24 * 3_600_000 }
   );
 }
 
@@ -297,6 +380,12 @@ type DigestInput = {
   totalMembers: number;
   dashboardUrl: string;
   targetHours: number;
+  /**
+   * Idempotency key from the digest scheduler, keyed on org + period +
+   * recipient. This is what makes the scheduler safe to re-run: it can re-derive
+   * a period it is not sure it sent without anyone receiving it twice.
+   */
+  dedupeKey?: string;
 };
 
 export async function sendDailyShortfallEmail(
@@ -344,7 +433,9 @@ export async function sendDailyShortfallEmail(
           .join("\n") +
         `\n\nOpen dashboard: ${dashboardUrl}\n\nHours below target can mean leave or approved time off. Turn these off under Settings > Work targets.`;
 
-  return send(to, subject, html, text, "daily shortfall digest");
+  return send(to, subject, html, text, "daily shortfall digest", {
+    dedupeKey: input.dedupeKey,
+  });
 }
 
 export async function sendWeeklyShortfallEmail(
@@ -393,7 +484,9 @@ export async function sendWeeklyShortfallEmail(
           .join("\n") +
         `\n\nOpen reports: ${dashboardUrl}\n\nA short week can mean leave or approved time off. Turn these off under Settings > Work targets.`;
 
-  return send(to, subject, html, text, "weekly shortfall digest");
+  return send(to, subject, html, text, "weekly shortfall digest", {
+    dedupeKey: input.dedupeKey,
+  });
 }
 
 /* ────────────────────  Unusual-activity digest (admins)  ────────────────────
@@ -418,7 +511,14 @@ export type FlagRow = { member: string; type: string };
 
 export async function sendUnusualActivityEmail(
   to: string,
-  input: { orgName: string; rangeLabel: string; flags: FlagRow[]; dashboardUrl: string }
+  input: {
+    orgName: string;
+    rangeLabel: string;
+    flags: FlagRow[];
+    dashboardUrl: string;
+    /** See `DigestInput.dedupeKey`. */
+    dedupeKey?: string;
+  }
 ) {
   const { orgName, rangeLabel, flags, dashboardUrl } = input;
   const n = flags.length;
@@ -457,7 +557,8 @@ export async function sendUnusualActivityEmail(
     `${n} flagged ${n === 1 ? "session" : "sessions"} — ${rangeLabel}`,
     html,
     text,
-    "unusual activity digest"
+    "unusual activity digest",
+    { dedupeKey: input.dedupeKey }
   );
 }
 
@@ -477,6 +578,8 @@ export async function sendMemberWeeklySummaryEmail(
     trackedHours: number;
     targetHours: number;
     dashboardUrl: string;
+    /** See `DigestInput.dedupeKey`. */
+    dedupeKey?: string;
   }
 ) {
   const { orgName, rangeLabel, name, trackedHours, targetHours, dashboardUrl } = input;
@@ -518,7 +621,9 @@ export async function sendMemberWeeklySummaryEmail(
     (met ? " — target met.\n" : ` (${fmtHours(short)} short).\n`) +
     `\nView your timesheet: ${dashboardUrl}\n\nThis is the same figure your admins see for you.`;
 
-  return send(to, `Your week at ${orgName} — ${rangeLabel}`, html, text, "member weekly summary");
+  return send(to, `Your week at ${orgName} — ${rangeLabel}`, html, text, "member weekly summary", {
+    dedupeKey: input.dedupeKey,
+  });
 }
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string) {
@@ -539,6 +644,9 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
     "Reset your TraxStaff password",
     html,
     `Someone asked to reset the password for your TraxStaff account.\n\nReset it here: ${resetUrl}\n\nThis link expires in 1 hour. If this wasn't you, ignore this email — your password stays unchanged.`,
-    "reset email"
+    "reset email",
+    // The token itself dies in an hour, so retrying past that only delivers a
+    // link that fails — more confusing than no mail at all. The user re-requests.
+    { ttlMs: 3_600_000 }
   );
 }

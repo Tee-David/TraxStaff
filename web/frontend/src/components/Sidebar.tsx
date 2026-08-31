@@ -13,8 +13,35 @@ import {
   IconKanban, IconLogout, IconMoon, IconSearch, IconSettings, IconSidebar, IconSun, IconTrend, IconUsers,
 } from "@/components/icons";
 
+/** A globe, for the cross-org console. Local because icons.tsx has no such glyph. */
+function IconGlobe({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`h-[18px] w-[18px] ${className}`}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 type Role = "owner" | "admin" | "member";
 type Item = { href: string; label: string; icon: (p: { className?: string }) => React.ReactNode; roles: Role[]; tourId: string };
+
+/**
+ * Platform staff navigation.
+ *
+ * A separate list rather than a `superAdminOnly` flag on `Item`, because these
+ * are not gated by org role at all — `roles` is meaningless for them, and giving
+ * every entry a role array it does not use would invite someone to filter on it
+ * later and quietly hide the console from the only people who can see it.
+ */
+type PlatformItem = { href: string; label: string; icon: (p: { className?: string }) => React.ReactNode };
+
+const PLATFORM: PlatformItem[] = [
+  { href: "/app/platform", label: "Organizations", icon: IconGlobe },
+  { href: "/app/platform/users", label: "All users", icon: IconUsers },
+  { href: "/app/platform/time", label: "Time & activity", icon: IconClock },
+  { href: "/app/platform/log", label: "Platform log", icon: IconAudit },
+];
 
 const MENU: Item[] = [
   { href: "/app", label: "Dashboard", icon: IconDashboard, roles: ["owner", "admin", "member"], tourId: "dashboard" },
@@ -66,6 +93,9 @@ export function Sidebar({
   }, [pathname]);
 
   const menu = MENU.filter((i) => i.roles.includes(user.role) && i.label.toLowerCase().includes(q.toLowerCase()));
+  const platform = user.isSuperAdmin
+    ? PLATFORM.filter((i) => i.label.toLowerCase().includes(q.toLowerCase()))
+    : [];
   const secondary = SECONDARY.filter((i) => i.roles.includes(user.role) && i.label.toLowerCase().includes(q.toLowerCase()));
 
   const active = (href: string) => (href === "/app" ? pathname === "/app" : pathname.startsWith(href));
@@ -163,6 +193,41 @@ export function Sidebar({
       <div className={`flex-1 overflow-y-auto ${collapsed ? "px-2" : "px-3"}`}>
         {!collapsed && <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-faint">Menu</div>}
         <div className="space-y-0.5">{menu.map((i) => <NavRow key={i.href} item={i} />)}</div>
+
+        {platform.length > 0 && (
+          <>
+            <div className="my-3 border-t border-border" />
+            {!collapsed && (
+              <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-accent">
+                Platform
+              </div>
+            )}
+            <div className="space-y-0.5">
+              {platform.map((i) => {
+                const Icon = i.icon;
+                // `/app/platform` is the index, so it must match exactly —
+                // otherwise it stays highlighted on every child page, the same
+                // trap `active()` already handles for `/app`.
+                const on =
+                  i.href === "/app/platform" ? pathname === i.href : pathname.startsWith(i.href);
+                return (
+                  <Link
+                    key={i.href}
+                    href={i.href}
+                    onClick={onNavigate}
+                    title={collapsed ? i.label : undefined}
+                    className={`relative flex items-center rounded-xl text-sm font-medium transition ${
+                      collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5"
+                    } ${on ? "bg-accent/10 text-accent" : "text-muted hover:bg-canvas hover:text-ink"}`}
+                  >
+                    <Icon className={on ? "text-accent" : "text-faint"} />
+                    {!collapsed && <span className="flex-1">{i.label}</span>}
+                  </Link>
+                );
+              })}
+            </div>
+          </>
+        )}
 
         {secondary.length > 0 && (
           <>

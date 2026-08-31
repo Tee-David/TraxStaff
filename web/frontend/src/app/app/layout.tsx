@@ -10,6 +10,9 @@ import { NotificationsBell } from "@/components/NotificationsBell";
 import { DownloadApp } from "@/components/DownloadApp";
 import { TourProvider } from "@/components/tour/tour-provider";
 import { TourLauncher } from "@/components/tour/tour-launcher";
+import { ActingOrgProvider } from "@/lib/acting-org";
+import { ActingOrgBanner, OrgSwitcher } from "@/components/OrgSwitcher";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 
 // Top-bar profile: avatar (uploaded picture if present, else initials) with a
 // menu to jump to Settings or sign out.
@@ -150,12 +153,23 @@ function Shell({ children }: { children: React.ReactNode }) {
             <img src="/brand/icon-badge.svg" alt="" className="h-7 w-7 lg:hidden" />
           </div>
           <div className="flex items-center gap-1.5">
+            {/* Renders nothing at all unless the signed-in account is a super
+                admin, so ordinary users never see that this exists. */}
+            <OrgSwitcher />
             <TourLauncher />
             <DownloadApp />
             <NotificationsBell />
             <ProfileMenu user={user} onLogout={logout} />
           </div>
         </header>
+
+        {/* Directly under the header and above every page: while a super admin
+            is acting on another organization, nothing else on screen says so.
+            The impersonation banner sits above it and is the louder of the two —
+            being someone else is a bigger deal than being somewhere else, and
+            the two are mutually exclusive in practice. */}
+        <ImpersonationBanner />
+        <ActingOrgBanner />
 
         {/* The page entrance animation lives in template.tsx — wrapping children
             in AnimatePresence here left pages blank until a reload. */}
@@ -171,7 +185,11 @@ function Shell({ children }: { children: React.ReactNode }) {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
-      <Shell>{children}</Shell>
+      {/* Inside AuthProvider: the acting org is only meaningful once we know
+          whether the signed-in account is a super admin. */}
+      <ActingOrgProvider>
+        <Shell>{children}</Shell>
+      </ActingOrgProvider>
     </AuthProvider>
   );
 }

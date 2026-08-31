@@ -23,6 +23,8 @@ export interface Member {
   id: string;
   email: string;
   role: "owner" | "admin" | "member";
+  /** Platform staff — see the note on AuthUser in lib/api.ts. */
+  isSuperAdmin?: boolean;
   status: "invited" | "active" | "disabled" | "removed";
   createdAt: string;
   /** null = inherits the org default. 0 is a real target of no hours. */

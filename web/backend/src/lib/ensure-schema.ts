@@ -293,3 +293,288 @@ export async function ensureWebsiteUsageColumn(log: Logger): Promise<void> {
     );
   }
 }
+
+/**
+ * Creates the `OutboundEmail` outbox table if it is missing.
+ *
+ * Same reasoning and same shape as `ensureAuditLogTable` above — `prisma migrate
+ * deploy` is not safe against this database, so the targeted DDL runs over the
+ * connection the API already holds. No `schema_locked` dance is needed: that
+ * parameter guards ALTERs on existing tables, and this only ever CREATEs a new
+ * one, with no foreign keys to reference.
+ *
+ * Failure is logged and swallowed, and that degradation is deliberate: lib/
+ * email-queue.ts reports an unreachable outbox as `unavailable`, and lib/
+ * mailer.ts then falls back to sending directly, exactly as it did before the
+ * queue existed. A database that refuses this change costs retries, never mail.
+ */
+export async function ensureOutboundEmailTable(log: Logger): Promise<void> {
+  try {
+    await prisma.$queryRaw`SELECT "id" FROM "OutboundEmail" LIMIT 1`;
+    return; // already there — nothing to do
+  } catch {
+    // fall through and create it
+  }
+
+  log.info("[schema] OutboundEmail table is missing — creating it");
+
+  // Separate statements on purpose: CockroachDB will not take the table and its
+  // indexes in one implicit transaction, and $executeRawUnsafe is one-per-call.
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS "OutboundEmail" (
+       "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+       "recipient" STRING NOT NULL,
+       "subject" STRING NOT NULL,
+       "html" STRING NOT NULL,
+       "text" STRING NOT NULL,
+       "kind" STRING NOT NULL,
+       "dedupeKey" STRING,
+       "status" STRING NOT NULL DEFAULT 'pending',
+       "attempts" INT8 NOT NULL DEFAULT 0,
+       "lastError" STRING,
+       "nextAttemptAt" TIMESTAMP(3) NOT NULL DEFAULT current_timestamp(),
+       "expiresAt" TIMESTAMP(3),
+       "sentAt" TIMESTAMP(3),
+       "createdAt" TIMESTAMP(3) NOT NULL DEFAULT current_timestamp(),
+       "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT current_timestamp(),
+       CONSTRAINT "OutboundEmail_pkey" PRIMARY KEY ("id")
+     )`,
+    // The unique index is the whole idempotency guarantee — without it a retry
+    // could mail the same digest twice. NULLs are allowed to repeat, which is
+    // what lets mail that legitimately re-sends (invites, resets) skip the key.
+    `CREATE UNIQUE INDEX IF NOT EXISTS "OutboundEmail_dedupeKey_key" ON "OutboundEmail" ("dedupeKey")`,
+    `CREATE INDEX IF NOT EXISTS "OutboundEmail_status_nextAttemptAt_idx" ON "OutboundEmail" ("status", "nextAttemptAt")`,
+  ];
+
+  try {
+    for (const sql of statements) await prisma.$executeRawUnsafe(sql);
+    log.info("[schema] OutboundEmail table created");
+  } catch (err) {
+    log.warn(
+      `[schema] could not create OutboundEmail (${
+        err instanceof Error ? err.message : err
+      }). Mail will still send, but a failed send cannot be retried until this table exists.`
+    );
+  }
+}
+
+/**
+ * Adds `User.isSuperAdmin` if it is missing.
+ *
+ * Same reasoning and same shape as `ensureWebsiteUsageColumn` above — see its
+ * docblock for why this runs from the app rather than as a migration, and for
+ * the `schema_locked` unlock/re-lock escalation. The column is additive,
+ * defaulted `false` and `IF NOT EXISTS`, so it neither rewrites nor drops
+ * anything.
+ *
+ * The degradation on failure is the important part here, and it is chosen to
+ * fail CLOSED: `superAdminColumnExists()` in lib/superadmin.ts probes for this
+ * column and treats its absence as "nobody is a super admin", so a database that
+ * refuses the change ends up with the `/admin/*` routes returning 403 to
+ * everyone — never with them open to anyone who asks.
+ */
+export async function ensureSuperAdminColumn(log: Logger): Promise<void> {
+  try {
+    await prisma.$queryRaw`SELECT "isSuperAdmin" FROM "User" LIMIT 1`;
+    return; // already there — nothing to do
+  } catch {
+    // fall through and add it
+  }
+
+  log.info("[schema] User.isSuperAdmin is missing — adding it");
+
+  const addColumn = () =>
+    prisma.$executeRawUnsafe(
+      `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "isSuperAdmin" BOOL NOT NULL DEFAULT false`
+    );
+
+  try {
+    // Plain path first — `schema_locked` is CockroachDB-only and is not set on
+    // every table even there, so unlocking unconditionally would fail on any
+    // database that has never heard of the parameter.
+    await addColumn();
+    log.info("[schema] User.isSuperAdmin added");
+    return;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/schema_locked|is locked/i.test(msg)) {
+      log.warn(`[schema] could not add User.isSuperAdmin: ${msg}`);
+      return;
+    }
+    log.info("[schema] User is schema_locked — unlocking to add the column");
+  }
+
+  try {
+    // Separate statements: CockroachDB will not accept the unlock and the DDL
+    // that depends on it inside one implicit transaction.
+    await prisma.$executeRawUnsafe(`ALTER TABLE "User" SET (schema_locked = false)`);
+    try {
+      await addColumn();
+      log.info("[schema] User.isSuperAdmin added");
+    } finally {
+      // Restore the lock even if the ADD failed.
+      await prisma
+        .$executeRawUnsafe(`ALTER TABLE "User" SET (schema_locked = true)`)
+        .catch(() => {});
+    }
+  } catch (err) {
+    log.warn(
+      `[schema] could not add User.isSuperAdmin (${
+        err instanceof Error ? err.message : err
+      }). The /admin routes will refuse everyone until this column exists.`
+    );
+  }
+}
+
+/**
+ * Adds `Organization.status` if it is missing.
+ *
+ * Same shape and same reasoning as `ensureSuperAdminColumn` — and the same
+ * blast radius, which is why it runs alongside it at the very front of the boot
+ * sequence rather than with the tolerant columns. `status` is in schema.prisma,
+ * so the generated client selects it on every unqualified `prisma.organization`
+ * read, and there are several (`findUniqueOrThrow` in routes/auth.ts, the
+ * org-delete path in routes/superadmin.ts). A database without this column does
+ * not degrade to "suspension does not work" — it 500s the register and invite
+ * paths. There is no serving a default around that, so the DDL has to land.
+ */
+export async function ensureOrgStatusColumn(log: Logger): Promise<void> {
+  try {
+    await prisma.$queryRaw`SELECT "status" FROM "Organization" LIMIT 1`;
+    return; // already there — nothing to do
+  } catch {
+    // fall through and add it
+  }
+
+  log.info("[schema] Organization.status is missing — adding it");
+
+  const addColumn = () =>
+    prisma.$executeRawUnsafe(
+      `ALTER TABLE "Organization" ADD COLUMN IF NOT EXISTS "status" STRING NOT NULL DEFAULT 'active'`
+    );
+
+  try {
+    await addColumn();
+    log.info("[schema] Organization.status added");
+    return;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/schema_locked|is locked/i.test(msg)) {
+      log.warn(`[schema] could not add Organization.status: ${msg}`);
+      return;
+    }
+    log.info("[schema] Organization is schema_locked — unlocking to add the column");
+  }
+
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "Organization" SET (schema_locked = false)`);
+    try {
+      await addColumn();
+      log.info("[schema] Organization.status added");
+    } finally {
+      await prisma
+        .$executeRawUnsafe(`ALTER TABLE "Organization" SET (schema_locked = true)`)
+        .catch(() => {});
+    }
+  } catch (err) {
+    log.warn(
+      `[schema] could not add Organization.status (${
+        err instanceof Error ? err.message : err
+      }). Registration and invites will fail until this column exists.`
+    );
+  }
+}
+
+/**
+ * Creates `PlatformLog` and `PlatformSnapshot` if they are missing.
+ *
+ * Same reasoning as `ensureAuditLogTable` — no `schema_locked` dance is needed
+ * because that parameter guards ALTERs on existing tables and these only CREATE
+ * new ones. Failure is logged and swallowed, and the degradation is mild in one
+ * case and worth stating in the other:
+ *
+ *   - no `PlatformLog` → platform actions go unrecorded, exactly as they did
+ *     before this table existed;
+ *   - no `PlatformSnapshot` → `/admin/time` refuses `replace` outright rather
+ *     than destroying rows it cannot offer to put back. That refusal is
+ *     deliberate: an undo buffer that silently is not there is worse than none,
+ *     because the operator has been told they can undo.
+ */
+export async function ensurePlatformTables(log: Logger): Promise<void> {
+  const statements: [label: string, sql: string][] = [];
+
+  try {
+    await prisma.$queryRaw`SELECT "id" FROM "PlatformLog" LIMIT 1`;
+  } catch {
+    statements.push([
+      "PlatformLog",
+      `CREATE TABLE IF NOT EXISTS "PlatformLog" (
+         "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+         "actorId" UUID,
+         "action" STRING NOT NULL,
+         "orgId" UUID,
+         "payload" JSONB,
+         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT current_timestamp(),
+         CONSTRAINT "PlatformLog_pkey" PRIMARY KEY ("id"),
+         CONSTRAINT "PlatformLog_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE SET NULL
+       )`,
+    ]);
+    statements.push([
+      "PlatformLog indexes",
+      `CREATE INDEX IF NOT EXISTS "PlatformLog_createdAt_idx" ON "PlatformLog" ("createdAt")`,
+    ]);
+    statements.push([
+      "PlatformLog actor index",
+      `CREATE INDEX IF NOT EXISTS "PlatformLog_actorId_idx" ON "PlatformLog" ("actorId")`,
+    ]);
+    statements.push([
+      "PlatformLog org index",
+      `CREATE INDEX IF NOT EXISTS "PlatformLog_orgId_idx" ON "PlatformLog" ("orgId")`,
+    ]);
+  }
+
+  try {
+    await prisma.$queryRaw`SELECT "id" FROM "PlatformSnapshot" LIMIT 1`;
+  } catch {
+    // No foreign keys at all, deliberately: a snapshot has to outlive the org
+    // and the user it describes, and deleting an org is one of the actions most
+    // worth being able to reverse.
+    statements.push([
+      "PlatformSnapshot",
+      `CREATE TABLE IF NOT EXISTS "PlatformSnapshot" (
+         "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+         "actorId" UUID,
+         "kind" STRING NOT NULL,
+         "userId" UUID,
+         "orgId" UUID,
+         "payload" JSONB NOT NULL,
+         "restoredAt" TIMESTAMP(3),
+         "expiresAt" TIMESTAMP(3) NOT NULL,
+         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT current_timestamp(),
+         CONSTRAINT "PlatformSnapshot_pkey" PRIMARY KEY ("id")
+       )`,
+    ]);
+    statements.push([
+      "PlatformSnapshot user index",
+      `CREATE INDEX IF NOT EXISTS "PlatformSnapshot_userId_createdAt_idx" ON "PlatformSnapshot" ("userId", "createdAt")`,
+    ]);
+    statements.push([
+      "PlatformSnapshot expiry index",
+      `CREATE INDEX IF NOT EXISTS "PlatformSnapshot_expiresAt_idx" ON "PlatformSnapshot" ("expiresAt")`,
+    ]);
+  }
+
+  if (statements.length === 0) return; // both already there
+
+  log.info("[schema] creating platform tables");
+  for (const [label, sql] of statements) {
+    try {
+      await prisma.$executeRawUnsafe(sql);
+    } catch (err) {
+      log.warn(
+        `[schema] could not create ${label} (${err instanceof Error ? err.message : err})`
+      );
+    }
+  }
+  log.info("[schema] platform tables ready");
+}

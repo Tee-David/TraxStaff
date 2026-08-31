@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 
-const settingsSchema = z.object({
+export const settingsSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   screenshotsPerBlock: z.number().int().min(0).max(3).optional(),
   blurScreenshots: z.boolean().optional(),
@@ -74,9 +74,9 @@ const OPTIONAL_COLUMN_DEFAULTS = {
   notifyMemberWeeklySummary: false,
 } as const;
 
-type OptionalColumn = keyof typeof OPTIONAL_COLUMN_DEFAULTS;
+export type OptionalColumn = keyof typeof OPTIONAL_COLUMN_DEFAULTS;
 
-const ALL_OPTIONAL = Object.keys(OPTIONAL_COLUMN_DEFAULTS) as OptionalColumn[];
+export const ALL_OPTIONAL = Object.keys(OPTIONAL_COLUMN_DEFAULTS) as OptionalColumn[];
 
 /**
  * Confirmed-present columns. A present column is cached permanently (a column
@@ -86,7 +86,7 @@ const ALL_OPTIONAL = Object.keys(OPTIONAL_COLUMN_DEFAULTS) as OptionalColumn[];
  */
 const present = new Set<OptionalColumn>();
 
-async function presentColumns(): Promise<Set<OptionalColumn>> {
+export async function presentColumns(): Promise<Set<OptionalColumn>> {
   for (const column of ALL_OPTIONAL) {
     if (present.has(column)) continue;
     try {
@@ -101,14 +101,14 @@ async function presentColumns(): Promise<Set<OptionalColumn>> {
   return present;
 }
 
-function selectFor(have: Set<OptionalColumn>): Prisma.OrganizationSelect {
+export function selectFor(have: Set<OptionalColumn>): Prisma.OrganizationSelect {
   const select: Prisma.OrganizationSelect = { ...baseSelect };
   for (const column of have) select[column] = true;
   return select;
 }
 
 /** Fills in a served default for every column the database is missing. */
-function withDefaults(org: object, have: Set<OptionalColumn>): object {
+export function withDefaults(org: object, have: Set<OptionalColumn>): object {
   const filled: Record<string, unknown> = { ...org };
   for (const column of ALL_OPTIONAL) {
     if (!have.has(column)) filled[column] = OPTIONAL_COLUMN_DEFAULTS[column];

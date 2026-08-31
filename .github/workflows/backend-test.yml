@@ -58,4 +58,11 @@ jobs:
 
       - name: Run tests
         working-directory: web/backend
+        # Dummy values, never connected to. src/env.ts validates the whole
+        # environment at import, and the digest tests import the scheduler, which
+        # reaches env for NEXT_PUBLIC_APP_URL — so without these the suite failed
+        # to LOAD here, and every digest test was silently never run.
+        env:
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:26257/ci?sslmode=disable
+          JWT_SECRET: ci-secret-not-used-for-anything
         run: npm test

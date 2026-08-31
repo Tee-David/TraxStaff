@@ -100,6 +100,15 @@ model Organization {
   // Off by default: the only one of these that mails every member rather than
   // the admins, so it is opted into rather than sprung on a workspace.
   notifyMemberWeeklySummary Boolean @default(false)
+  // `active` | `suspended`. A String rather than a new enum: adding an enum
+  // VALUE is an ALTER TYPE and adding an enum TYPE is a CREATE TYPE, and on a
+  // database this project documents as drifted (see lib/ensure-schema.ts) the
+  // additive defaulted column is the shape that has repeatedly landed safely.
+  //
+  // Suspension freezes an org — logins refused, tracking refused — without
+  // destroying anything, which is the reversible instrument that
+  // DELETE /admin/orgs/:orgId is not.
+  status        String   @default("active")
   users         User[]
   projects      Project[]
   invites       InviteToken[]
@@ -115,6 +124,11 @@ model User {
   passwordHash       String?
   name               String?
   role               Role              @default(member)
+  // Platform-level, and deliberately NOT a fourth value in `Role`: that enum
+  // describes standing INSIDE one org, while this is Trax staff standing above
+  // all of them. See the docblock in lib/superadmin.ts for the full reasoning.
+  // Orthogonal to `role` — a super admin still has an ordinary org role too.
+  isSuperAdmin       Boolean           @default(false)
   status             UserStatus        @default(invited)
   consentAcceptedAt  DateTime?
   consentVersion     Int?
@@ -131,6 +145,7 @@ model User {
   passwordResets     PasswordResetToken[]
   projectMemberships ProjectMember[]
   auditLogs          AuditLog[]        @relation("AuditLogActor")
+  platformLogs       PlatformLog[]     @relation("PlatformLogActor")
 
   @@index([orgId])
 }
@@ -410,6 +425,49 @@ model Notification {
   @@index([userId])
 }
 
+/// Durable outbox for every email this backend sends.
+///
+/// Exists because the API runs on an instance that hibernates. Mail used to be
+/// a fire-and-forget call inside the request or the digest tick: if the relay
+/// was unreachable, or the process went to sleep between building the message
+/// and the relay answering, the mail was gone and the only trace was a log
+/// line. A row here outlives the process, so the queue worker picks it up on
+/// the next boot — which on a hibernating instance is exactly when it can
+/// actually send.
+model OutboundEmail {
+  id            String    @id @default(uuid()) @db.Uuid
+  /// Deliberately not a User FK: invites go to people who have no row yet, and
+  /// the delivery record has to outlive a deleted member. `recipient` rather
+  /// than `to` because `to` is a reserved word in the raw DDL that creates this
+  /// table on boot.
+  recipient     String
+  subject       String
+  html          String
+  text          String
+  /// The mailer's own label — "daily shortfall digest", "invite email". What
+  /// the log lines and any admin-facing failure report say.
+  kind          String
+  /// Idempotency key, e.g. `daily_shortfall:<orgId>:2026-08-19:ada@acme.com`.
+  /// This, not the Notification row, is what guarantees nobody is mailed the
+  /// same period twice — so the digest job is free to re-derive and re-enqueue
+  /// after a crash without risking a duplicate.
+  dedupeKey     String?   @unique
+  /// pending | sent | failed | expired
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  lastError     String?
+  nextAttemptAt DateTime  @default(now())
+  /// After this instant the message is stale and is abandoned rather than sent.
+  /// A three-day-late "yesterday's hours" digest is noise, and a password-reset
+  /// link that arrives after the token died is worse than no mail at all.
+  expiresAt     DateTime?
+  sentAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, nextAttemptAt])
+}
+
 // Org-wide trail of destructive and membership actions: who did what, to whom,
 // when. Deliberately shaped like Notification — a required `orgId` as the
 // durable anchor and an optional actor — because the whole point of this table
@@ -436,4 +494,67 @@ model AuditLog {
   // the second index serves the action filter.
   @@index([orgId, createdAt])
   @@index([orgId, action])
+}
+
+/// Platform-level trail: what super admins did, across every tenant.
+///
+/// Deliberately NOT `AuditLog`. That table is org-facing — an org admin reads
+/// their own org's rows — and platform staff are invisible there by design (see
+/// `auditActorVisibility` in lib/superadmin.ts). Writing super admin actions
+/// into it would either leak the role's existence or need a second filter on
+/// every read. A separate table keeps the two audiences separate by
+/// construction: only a super admin can read this one, and orgs cannot see it
+/// at all.
+///
+/// Like AuditLog, identity is denormalised into `payload` rather than read back
+/// through a relation, so a row stays meaningful after the account it names has
+/// been deleted.
+model PlatformLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  /// Null for system-originated entries; SetNull so a deleted super admin never
+  /// takes their trail with them.
+  actorId   String?  @db.Uuid
+  actor     User?    @relation("PlatformLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  /// Which org the action touched, when it touched one. Not a foreign key: the
+  /// row has to survive the org being deleted, and deleting an org is one of
+  /// the actions most worth having a record of.
+  orgId     String?  @db.Uuid
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([orgId])
+}
+
+/// What a destructive platform action destroyed, so it can be put back.
+///
+/// The undo buffer behind `POST /admin/undo/:id`. Restoring is genuinely
+/// possible because deleting a screenshot ROW does not delete the image: only
+/// `DELETE /screenshots/:id` calls `deleteObject` (lib/r2.ts), while the bulk
+/// paths in routes/superadmin.ts use `prisma.screenshot.deleteMany`, which
+/// leaves every object in the bucket untouched.
+///
+/// `payload` holds fully-serialised rows — sessions, activity blocks and
+/// screenshots — not ids, because ids of deleted rows point at nothing.
+model PlatformSnapshot {
+  id        String   @id @default(uuid()) @db.Uuid
+  actorId   String?  @db.Uuid
+  /// What produced it, e.g. `time.replace` — so a restore can refuse a snapshot
+  /// it does not know how to reverse.
+  kind      String
+  /// Who the affected rows belonged to, for finding a snapshot after the fact.
+  userId    String?  @db.Uuid
+  orgId     String?  @db.Uuid
+  payload   Json
+  /// Set once restored, so the same snapshot cannot be applied twice.
+  restoredAt DateTime?
+  /// Swept after this instant — an undo buffer that grows forever is a copy of
+  /// the database.
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }

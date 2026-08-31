@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { auditActorVisibility } from "../lib/superadmin";
 import { blocksInRange, weightedActivity, type WeightedBlock } from "../lib/activity";
 import {
   DELETED_USER_KEY,
@@ -220,6 +221,9 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
       const rows = await prisma.auditLog.findMany({
         where: {
           orgId: req.user.orgId,
+          // Nothing platform staff did is visible to an org — see
+          // auditActorVisibility(). A no-op when the reader is one of them.
+          ...(await auditActorVisibility(req.user.userId)),
           ...(q.action ? { action: q.action } : {}),
           ...(q.actorId ? { actorId: q.actorId } : {}),
           ...(Object.keys(createdAt).length ? { createdAt } : {}),
@@ -246,7 +250,10 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
   fastify.get("/audit-log/actions", async (req, reply) => {
     if (!requireAdmin(req, reply)) return;
     const rows = await prisma.auditLog.findMany({
-      where: { orgId: req.user.orgId },
+      // Same filter as /audit-log above: an action only a super admin has ever
+      // performed must not appear in the dropdown either, or the filter list
+      // leaks the existence of the rows it cannot show.
+      where: { orgId: req.user.orgId, ...(await auditActorVisibility(req.user.userId)) },
       distinct: ["action"],
       select: { action: true },
       orderBy: { action: "asc" },

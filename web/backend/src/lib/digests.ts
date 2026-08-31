@@ -99,8 +99,24 @@ export function localDayKey(d: Date, tz: string): string {
  * what makes the two DST changeover days land on the right instant.
  */
 export function localDayStartMs(dayKey: string, tz: string): number {
+  return localInstantMs(dayKey, 0, tz);
+}
+
+/**
+ * The UTC instant of a local wall-clock time on `dayKey` in `tz`, given as
+ * minutes past local midnight.
+ *
+ * The generalisation of `localDayStartMs`, which is now this with `0`. Adding
+ * the minutes to the day-start instant instead would be wrong on the two
+ * changeover days: the offset in force at local midnight is not necessarily the
+ * one in force at 09:00, so a fixed addition lands an hour out — 09:00 becomes
+ * 08:00 on the day the clocks go back. The minutes therefore go into the naive
+ * wall-clock value BEFORE the two-pass offset correction, which is the only
+ * placement that resolves the wall clock the way a person reading it would.
+ */
+export function localInstantMs(dayKey: string, minutesOfDay: number, tz: string): number {
   const [y, m, d] = dayKey.split("-").map(Number);
-  const naive = Date.UTC(y, m - 1, d, 0, 0, 0);
+  const naive = Date.UTC(y, m - 1, d, 0, 0, 0) + minutesOfDay * 60_000;
   const firstPass = naive - offsetMsAt(naive, tz);
   return naive - offsetMsAt(firstPass, tz);
 }

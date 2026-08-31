@@ -1,4 +1,5 @@
 ﻿import type { FastifyInstance } from "fastify";
+import type { Role } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
@@ -39,6 +40,27 @@ const TOKEN_RENEW_AFTER_MS = TOKEN_TTL_MS / 2;
 export function shouldRenewToken(exp: number | undefined, now: number = Date.now()): boolean {
   if (exp == null || !Number.isFinite(exp)) return false;
   return exp * 1000 - now < TOKEN_RENEW_AFTER_MS;
+}
+
+/**
+ * The one place a token's claims are assembled.
+ *
+ * There are five sign sites (register, login, accept-invite, reset-password and
+ * the sliding renewal in /auth/me), and `superAdmin` had to reach all of them —
+ * a claim that four out of five tokens carry is worse than one no token carries,
+ * because the staff console would then work or not depending on how the person
+ * last signed in.
+ *
+ * `superAdmin` is a convenience for clients only. Nothing is authorised by it:
+ * `requireSuperAdmin` re-reads the flag from the database on every /admin call.
+ */
+function claimsFor(user: { id: string; orgId: string; role: Role; isSuperAdmin?: boolean }) {
+  return {
+    userId: user.id,
+    orgId: user.orgId,
+    role: user.role,
+    ...(user.isSuperAdmin ? { superAdmin: true } : {}),
+  };
 }
 
 const registerSchema = z.object({
@@ -120,25 +142,51 @@ export default async function authRoutes(fastify: FastifyInstance) {
       },
     });
 
-    const token = fastify.jwt.sign({ userId: user.id, orgId: org.id, role: user.role }, { expiresIn: TOKEN_TTL });
+    const token = fastify.jwt.sign(claimsFor(user), { expiresIn: TOKEN_TTL });
     return reply.code(201).send({ token, user: { id: user.id, email: user.email, role: user.role } });
   });
 
   fastify.post("/auth/login", async (req, reply) => {
     const body = loginSchema.parse(req.body);
 
-    const user = await prisma.user.findUnique({ where: { email: body.email } });
+    const user = await prisma.user.findUnique({
+      where: { email: body.email },
+      include: { org: { select: { status: true } } },
+    });
     if (!user || !user.passwordHash || user.status !== "active") {
       return reply.code(401).send({ error: "Invalid credentials" });
     }
-
     const valid = await verifyPassword(body.password, user.passwordHash);
     if (!valid) {
       return reply.code(401).send({ error: "Invalid credentials" });
     }
 
-    const token = fastify.jwt.sign({ userId: user.id, orgId: user.orgId, role: user.role }, { expiresIn: TOKEN_TTL });
-    return reply.send({ token, user: { id: user.id, email: user.email, role: user.role } });
+    // Suspension is checked only AFTER the password has been proved correct.
+    //
+    // The first version of this sat above `verifyPassword`, which turned the
+    // login route into an oracle: anyone could type any address with any junk
+    // password and learn from the 403 that the workspace existed and was
+    // frozen. Distinguishing "suspended" from "wrong credentials" is only safe
+    // once we know we are talking to the account holder — and it is worth doing
+    // then, because "invalid credentials" would send them round a password
+    // reset that cannot possibly help.
+    if (user.org.status === "suspended" && !user.isSuperAdmin) {
+      return reply.code(403).send({
+        error: "This workspace is suspended. Contact your administrator.",
+        code: "org_suspended",
+      });
+    }
+
+    const token = fastify.jwt.sign(claimsFor(user), { expiresIn: TOKEN_TTL });
+    return reply.send({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        isSuperAdmin: user.isSuperAdmin ?? false,
+      },
+    });
   });
 
   // Admin/owner invites a new member by email.
@@ -236,7 +284,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return created;
     });
 
-    const token = fastify.jwt.sign({ userId: user.id, orgId: user.orgId, role: user.role }, { expiresIn: TOKEN_TTL });
+    const token = fastify.jwt.sign(claimsFor(user), { expiresIn: TOKEN_TTL });
     return reply.send({ token, user: { id: user.id, email: user.email, role: user.role } });
   });
 
@@ -285,10 +333,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       }),
     ]);
 
-    const token = fastify.jwt.sign(
-      { userId: reset.user.id, orgId: reset.user.orgId, role: reset.user.role },
-      { expiresIn: TOKEN_TTL }
-    );
+    const token = fastify.jwt.sign(claimsFor(reset.user), { expiresIn: TOKEN_TTL });
     return reply.send({
       token,
       user: { id: reset.user.id, email: reset.user.email, role: reset.user.role },
@@ -298,13 +343,25 @@ export default async function authRoutes(fastify: FastifyInstance) {
   fastify.get("/auth/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: req.user.userId },
-      include: { org: { select: { dailyTargetMinutes: true, weeklyTargetMinutes: true } } },
+      include: {
+        org: { select: { dailyTargetMinutes: true, weeklyTargetMinutes: true, status: true } },
+      },
     });
     // A disabled or removed member must lose access immediately, not when
     // their token eventually expires. Checked here because every client calls
     // /auth/me to establish a session.
     if (user.status !== "active") {
       return reply.code(401).send({ error: "Account disabled" });
+    }
+    // Suspension has to bite here too, not only at login: every client calls
+    // /auth/me to establish a session, and a token minted before the suspension
+    // is otherwise good for the rest of its seven days. Super admins are exempt
+    // — someone has to be able to un-suspend it.
+    if (user.org.status === "suspended" && !user.isSuperAdmin) {
+      return reply.code(403).send({
+        error: "This workspace is suspended. Contact your administrator.",
+        code: "org_suspended",
+      });
     }
 
     // Sliding renewal — see TOKEN_RENEW_AFTER_MS. Signed from the database row
@@ -314,10 +371,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
     // their stored credential on every poll; clients that don't know the field
     // ignore it and keep working.
     const renewedToken = shouldRenewToken(req.user.exp)
-      ? fastify.jwt.sign(
-          { userId: user.id, orgId: user.orgId, role: user.role },
-          { expiresIn: TOKEN_TTL }
-        )
+      ? fastify.jwt.sign(claimsFor(user), { expiresIn: TOKEN_TTL })
       : null;
 
     return reply.send({
@@ -326,6 +380,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
       email: user.email,
       name: user.name,
       role: user.role,
+      // Read from the row, not the presented token — the same reason the
+      // renewal above signs from the database. A flag revoked an hour ago must
+      // not keep rendering the staff console for the rest of the token's life.
+      isSuperAdmin: user.isSuperAdmin ?? false,
       orgId: user.orgId,
       consentAcceptedAt: user.consentAcceptedAt,
       consentVersion: user.consentVersion,

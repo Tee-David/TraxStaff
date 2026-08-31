@@ -19,6 +19,10 @@ const envSchema = z.object({
   // physically sent from the Vercel deployment instead (see lib/mailer.ts).
   MAIL_RELAY_URL: z.string().url().optional(),
   MAIL_RELAY_SECRET: z.string().optional(),
+  // Comma-separated addresses that are platform super admins. Only the
+  // bootstrap: the first super admin cannot be granted through an API that
+  // requires one. See lib/superadmin.ts.
+  SUPERADMIN_EMAILS: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

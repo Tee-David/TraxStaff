@@ -58,10 +58,22 @@ const TARGET_WAIT_MS = 5000;
 
 export function TourProvider({
   role,
+  autoStart = true,
   children,
 }: {
   /** The signed-in user's role — gates `adminOnly` steps (Insights/Projects/Members). */
   role: TourRole;
+  /**
+   * Whether the welcome tour may start by itself.
+   *
+   * Off for platform staff. The tour introduces the customer product — "your
+   * home base for time tracking, dashboard, timesheets, reports and
+   * screenshots" — which is not what a super admin signed in to do, and it
+   * opens dimming the whole platform console on first load. Replaying it by
+   * hand from the help menu still works; only the automatic start is
+   * suppressed.
+   */
+  autoStart?: boolean;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -288,6 +300,8 @@ export function TourProvider({
 
   // Auto-run the welcome tour once, ever, per browser.
   useEffect(() => {
+    if (!autoStart) return;
+
     let seen = false;
     try {
       if (localStorage.getItem(WELCOME_KEY)) seen = true;
@@ -302,7 +316,7 @@ export function TourProvider({
     return () => clearTimeout(timer);
     // Run once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [autoStart]);
 
   const value = useMemo<TourContextValue>(
     () => ({

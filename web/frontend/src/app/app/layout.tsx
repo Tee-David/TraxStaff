@@ -98,7 +98,9 @@ function Shell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <TourProvider role={user.role}>
+    // Platform staff do not get the customer onboarding tour started for them —
+    // see the note on `autoStart`. Replaying it from the help menu still works.
+    <TourProvider role={user.role} autoStart={!user.isSuperAdmin}>
     <div className="flex min-h-screen">
       {/* Desktop sidebar: spacer reserves width so content reflows; the panel
           is fixed so a collapsed rail can expand over the content on hover. */}

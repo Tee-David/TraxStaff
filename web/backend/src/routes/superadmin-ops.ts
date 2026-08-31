@@ -687,16 +687,39 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
           where: {
             userId: member.id,
             ...(body.includeCaptured ? {} : { isManual: true }),
-            endedAt: { not: null },
-            startedAt: { lt: rangeTo, gte: rangeFrom },
+            // OVERLAP, not "started inside the window".
+            //
+            // This is the same trap lib/duration.ts documents at length, and it
+            // had exactly the effect that file warns about: a shift beginning at
+            // 18:00 the previous evening is counted in today's report but was
+            // never rewritten, so setting a day to 45% left its largest session
+            // untouched and the reported average barely moved.
+            //
+            // A still-open session is included too. It has blocks, so it can be
+            // re-chained in place; only the generate path needs an `endedAt`,
+            // and that path checks for one itself.
+            startedAt: { lt: rangeTo },
+            OR: [{ endedAt: null }, { endedAt: { gt: rangeFrom } }],
           },
           select: {
             id: true,
             startedAt: true,
             endedAt: true,
+            lastSyncAt: true,
             _count: { select: { screenshots: true } },
             activityBlocks: {
-              select: { id: true, sequenceNo: true, blockStart: true, blockEnd: true },
+              // The current percentages are needed so a block OUTSIDE the window
+              // can be re-hashed without its figures being invented.
+              select: {
+                id: true,
+                sequenceNo: true,
+                blockStart: true,
+                blockEnd: true,
+                keyboardPct: true,
+                mousePct: true,
+                activityPct: true,
+                idleSeconds: true,
+              },
               orderBy: { sequenceNo: "asc" },
             },
           },
@@ -705,9 +728,18 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
 
         // `days` mode names specific days inside a wider span, so the set has to
         // be re-applied after the query rather than trusted from the range.
-        const targets = sessions.filter(
-          (sn) => !only || only.has(localDayKey(sn.startedAt, timezone))
-        );
+        const targets = sessions.filter((sn) => {
+          if (!only) return true;
+          // By OVERLAP, not by the day the session starts in — same reason as
+          // the query above: an overnight shift belongs to both days it touches.
+          const end = effectiveEnd(sn);
+          for (const day of only) {
+            const dayFrom = localDayStartMs(day, timezone);
+            const dayTo = localDayStartMs(addDays(day, 1), timezone);
+            if (sn.startedAt.getTime() < dayTo && end.getTime() > dayFrom) return true;
+          }
+          return false;
+        });
 
         let rechained = 0;
         let generated = 0;
@@ -725,8 +757,11 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
               sn.id,
               sn.activityBlocks,
               body.activityPct,
-              body.activityJitter
+              body.activityJitter,
+              { fromMs: rangeFrom.getTime(), toMs: rangeTo.getTime() }
             );
+            // Every block is written, not just the changed ones: an unchanged
+            // block's HASH still moves when an earlier block in the chain does.
             await prisma.$transaction(
               blocks.map((b) =>
                 prisma.activityBlock.update({
@@ -742,7 +777,7 @@ export default async function superAdminOpsRoutes(fastify: FastifyInstance) {
                 })
               )
             );
-          } else {
+          } else if (sn.endedAt) {
             const blocks = replanActivity(
               sn.id,
               sn.startedAt,

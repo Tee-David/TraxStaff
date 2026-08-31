@@ -155,6 +155,14 @@ export function PlanPreview({ plan }: { plan: TimePlanResponse }) {
           </div>
         )}
 
+        {plan.straddling !== undefined && plan.straddling > 0 && (
+          <p className="mt-3 rounded-lg border border-border bg-canvas p-3 text-xs text-muted">
+            {plan.straddling} block{plan.straddling === 1 ? "" : "s"} lie partly outside this period.
+            A block records one percentage for its whole span, so each follows whichever day holds
+            most of it — which can move an adjacent day&rsquo;s average by a fraction.
+          </p>
+        )}
+
         {plan.skippedDays && plan.skippedDays.length > 0 && (
           <p className="mt-3 text-xs text-muted">
             Already had time, so skipped: {plan.skippedDays.join(", ")}

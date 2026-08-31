@@ -1308,17 +1308,40 @@ export default async function superAdminRoutes(fastify: FastifyInstance) {
       where: {
         userId: id,
         ...(body.includeCaptured ? {} : { isManual: true }),
-        endedAt: { not: null },
-        startedAt: { lt: rangeTo, gte: rangeFrom },
+        // OVERLAP, not "started inside the window".
+        //
+        // The same trap lib/duration.ts documents at length, with exactly the
+        // effect that file warns about: a shift beginning at 18:00 the previous
+        // evening is counted in today's report but was never rewritten, so
+        // setting a day to 45% left its largest session untouched and the
+        // reported average barely moved.
+        //
+        // A still-open session is included too. It has blocks, so it can be
+        // re-chained in place; only the generate path needs an `endedAt`, and
+        // that path checks for one itself.
+        startedAt: { lt: rangeTo },
+        OR: [{ endedAt: null }, { endedAt: { gt: rangeFrom } }],
       },
       select: {
         id: true,
         startedAt: true,
         endedAt: true,
+        lastSyncAt: true,
         isManual: true,
         _count: { select: { screenshots: true } },
         activityBlocks: {
-          select: { id: true, sequenceNo: true, blockStart: true, blockEnd: true },
+          // The current percentages are needed so a block OUTSIDE the window can
+          // be re-hashed without its figures being invented.
+          select: {
+            id: true,
+            sequenceNo: true,
+            blockStart: true,
+            blockEnd: true,
+            keyboardPct: true,
+            mousePct: true,
+            activityPct: true,
+            idleSeconds: true,
+          },
           orderBy: { sequenceNo: "asc" },
         },
       },
@@ -1328,9 +1351,19 @@ export default async function superAdminRoutes(fastify: FastifyInstance) {
     // With `mode: "days"` the span between the first and last named day also
     // contains the days that were NOT named, so the set has to be re-applied
     // after the query rather than trusted from the range alone.
-    const targets = sessions.filter(
-      (sn) => !only || only.has(localDayKey(sn.startedAt, timezone))
-    );
+    const targets = sessions.filter((sn) => {
+      if (!only) return true;
+      // By OVERLAP again, not by the day the session happens to start in — an
+      // overnight shift belongs to both days it touches, and naming the second
+      // of them must still reach it.
+      const end = effectiveEnd(sn);
+      for (const day of only) {
+        const dayFrom = localDayStartMs(day, timezone);
+        const dayTo = localDayStartMs(addDays(day, 1), timezone);
+        if (sn.startedAt.getTime() < dayTo && end.getTime() > dayFrom) return true;
+      }
+      return false;
+    });
 
     if (targets.length === 0) {
       return reply.send({
@@ -1338,7 +1371,7 @@ export default async function superAdminRoutes(fastify: FastifyInstance) {
         range,
         timezone,
         updated: 0,
-        reason: "no manually-entered sessions in that period",
+        reason: "no sessions in that period",
       });
     }
 
@@ -1363,6 +1396,7 @@ export default async function superAdminRoutes(fastify: FastifyInstance) {
 
     if (body.dryRun) return reply.send({ ...summary, updated: 0, dryRun: true });
 
+    let straddling = 0;
     let updated = 0;
     let rechained = 0;
     let generated = 0;
@@ -1379,8 +1413,18 @@ export default async function superAdminRoutes(fastify: FastifyInstance) {
           sn.id,
           sn.activityBlocks,
           body.activityPct,
-          body.activityJitter
+          body.activityJitter,
+          { fromMs: rangeFrom.getTime(), toMs: rangeTo.getTime() }
         );
+        // A block lying partly outside the period still carries ONE percentage,
+        // so following it into the period nudges the neighbouring day a little.
+        // Counted and reported rather than hidden — an operator who sees
+        // yesterday move by a point should be able to find out why.
+        straddling += sn.activityBlocks.filter(
+          (b) =>
+            b.blockStart.getTime() < rangeFrom.getTime() ||
+            b.blockEnd.getTime() > rangeTo.getTime()
+        ).length;
         await prisma.$transaction(
           blocks.map((b) =>
             prisma.activityBlock.update({
@@ -1397,10 +1441,14 @@ export default async function superAdminRoutes(fastify: FastifyInstance) {
           )
         );
         rechained += 1;
-      } else {
+      } else if (sn.endedAt) {
         // No blocks at all — a manual entry written before activity was
         // generated for them. There is nothing to preserve and nothing to
         // destroy, so the session gets a fresh chain covering its span.
+        //
+        // Guarded on `endedAt`: a still-open session with no blocks has no span
+        // to cover yet. It is admitted by the query above (an open session WITH
+        // blocks can be re-chained), so this branch has to turn it away itself.
         const blocks = replanActivity(
           sn.id,
           sn.startedAt,
@@ -1440,10 +1488,11 @@ export default async function superAdminRoutes(fastify: FastifyInstance) {
         updated,
         rechained,
         generated,
+        straddling,
       },
     });
 
-    return reply.send({ ...summary, updated, rechained, generated });
+    return reply.send({ ...summary, updated, rechained, generated, straddling });
   });
 
   /**

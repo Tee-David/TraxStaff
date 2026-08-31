@@ -101,6 +101,15 @@ export interface TimePlanResponse {
   rechained?: number;
   /** Sessions that had no blocks at all and were given a fresh chain. */
   generated?: number;
+  /**
+   * Blocks lying partly outside the chosen period.
+   *
+   * A block stores one percentage for its whole span, so one that straddles the
+   * edge cannot be half-rewritten — it follows whichever side holds most of it,
+   * which nudges the neighbouring day slightly. Surfaced so that movement is
+   * explained rather than discovered.
+   */
+  straddling?: number;
   sessions?: {
     id: string;
     dayKey: string;

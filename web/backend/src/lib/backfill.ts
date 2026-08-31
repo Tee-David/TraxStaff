@@ -604,31 +604,88 @@ export interface ExistingBlock {
   sequenceNo: number;
   blockStart: Date;
   blockEnd: Date;
-}
-
-export interface RechainedBlock extends ExistingBlock {
+  /**
+   * What the block currently records. Required because a block outside the
+   * rewrite window keeps its own figures and is only re-hashed — without these
+   * the chain could not be recomputed without inventing values for it.
+   */
   keyboardPct: number;
   mousePct: number;
   activityPct: number;
   idleSeconds: number;
+}
+
+export interface RechainedBlock extends ExistingBlock {
   prevHash: string;
   hash: string;
+  /** False when the block sat outside the window and only its hash moved. */
+  changed: boolean;
+}
+
+/**
+ * Does more than half of this block lie inside the window?
+ *
+ * A zero-length block has no majority to speak of, so it falls back to whether
+ * its instant is inside — the same treatment `blocksInRange` gives one.
+ */
+function majorityInside(
+  block: { blockStart: Date; blockEnd: Date },
+  window: { fromMs: number; toMs: number }
+): boolean {
+  const start = block.blockStart.getTime();
+  const end = block.blockEnd.getTime();
+  const span = end - start;
+  if (span <= 0) return start >= window.fromMs && start < window.toMs;
+  const inside = Math.min(end, window.toMs) - Math.max(start, window.fromMs);
+  return inside > span / 2;
 }
 
 export function rechainActivity(
   sessionId: string,
   blocks: ExistingBlock[],
   targetPct: number,
-  jitter: number
+  jitter: number,
+  /**
+   * Only blocks overlapping this window have their percentages rewritten.
+   *
+   * A session can straddle the period being edited — a shift beginning at 18:00
+   * runs into the next day — and rewriting all of it would silently change a day
+   * the operator did not ask about. Blocks outside the window keep their own
+   * figures.
+   *
+   * Their hashes still move, and must: `prevHash` chains forward from the first
+   * altered block, so every block after it has to be recomputed or the chain
+   * stops verifying at that point. Omit the window to rewrite the whole session.
+   *
+   * A block STRADDLING the edge goes to whichever side holds most of it. This is
+   * a real limitation of the data model, not a preference: a block stores one
+   * scalar percentage for its whole span (lib/activity.ts explains why the
+   * per-second detail never leaves the client), so a block lying half in and
+   * half out cannot be half-rewritten. Something has to give, and majority
+   * assignment is what bounds the damage — the alternative rules either leak
+   * a whole block into the neighbouring day or leave a hole in the target one.
+   *
+   * Straddling blocks are rare but not negligible: the tracker seals a block
+   * when activity resumes, so an idle machine can produce one spanning thirteen
+   * hours and two calendar days.
+   */
+  window?: { fromMs: number; toMs: number }
 ): RechainedBlock[] {
   const rand = seededRandom(`${sessionId}:rechain`);
   const out: RechainedBlock[] = [];
   let prevHash = GENESIS;
 
   for (const block of blocks) {
-    const activityPct = clampPct(targetPct + (rand() * 2 - 1) * jitter);
-    const keyboardPct = clampPct(activityPct * (0.5 + rand() * 0.25));
-    const mousePct = clampPct(activityPct - keyboardPct);
+    // Majority overlap — see the note on `window` above.
+    const inWindow = !window || majorityInside(block, window);
+
+    let { keyboardPct, mousePct, activityPct, idleSeconds } = block;
+    if (inWindow) {
+      activityPct = clampPct(targetPct + (rand() * 2 - 1) * jitter);
+      keyboardPct = clampPct(activityPct * (0.5 + rand() * 0.25));
+      mousePct = clampPct(activityPct - keyboardPct);
+      idleSeconds = 0;
+    }
 
     const hash = computeHash(prevHash, {
       sessionId,
@@ -638,10 +695,19 @@ export function rechainActivity(
       keyboardPct,
       mousePct,
       activityPct,
-      idleSeconds: 0,
+      idleSeconds,
     });
 
-    out.push({ ...block, keyboardPct, mousePct, activityPct, idleSeconds: 0, prevHash, hash });
+    out.push({
+      ...block,
+      keyboardPct,
+      mousePct,
+      activityPct,
+      idleSeconds,
+      prevHash,
+      hash,
+      changed: inWindow,
+    });
     prevHash = hash;
   }
 

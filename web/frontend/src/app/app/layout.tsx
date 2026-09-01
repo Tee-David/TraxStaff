@@ -11,7 +11,7 @@ import { DownloadApp } from "@/components/DownloadApp";
 import { TourProvider } from "@/components/tour/tour-provider";
 import { TourLauncher } from "@/components/tour/tour-launcher";
 import { ActingOrgProvider } from "@/lib/acting-org";
-import { ActingOrgBanner, OrgSwitcher } from "@/components/OrgSwitcher";
+import { ActingOrgBanner } from "@/components/OrgSwitcher";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 
 // Top-bar profile: avatar (uploaded picture if present, else initials) with a
@@ -155,9 +155,10 @@ function Shell({ children }: { children: React.ReactNode }) {
             <img src="/brand/icon-badge.svg" alt="" className="h-7 w-7 lg:hidden" />
           </div>
           <div className="flex items-center gap-1.5">
-            {/* Renders nothing at all unless the signed-in account is a super
-                admin, so ordinary users never see that this exists. */}
-            <OrgSwitcher />
+            {/* The organization switcher used to live here. It sits in the
+                sidebar now, above the signed-in user, where "which org am I in"
+                reads as part of the session rather than as another header icon
+                among the bell and the download button. */}
             <TourLauncher />
             <DownloadApp />
             <NotificationsBell />

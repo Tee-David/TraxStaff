@@ -23,11 +23,33 @@ function IconBuilding({ className = "" }: { className?: string }) {
   );
 }
 
-export function OrgSwitcher() {
+export function OrgSwitcher({
+  variant = "topbar",
+  collapsed = false,
+}: {
+  /**
+   * `sidebar` sits in the left rail above the signed-in user, which is where
+   * "which organization am I looking at" belongs — next to "who am I", not
+   * among the bell and the download button. Its menu opens UPWARD, because at
+   * the bottom of the rail there is nothing below it to open into.
+   */
+  variant?: "topbar" | "sidebar";
+  /** Collapsed rail: icon only. The rail expands on hover, so the menu still fits. */
+  collapsed?: boolean;
+} = {}) {
   const { user } = useAuth();
   const { orgId, org, orgs, switchTo } = useActingOrg();
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Focus the box on open and clear it on close, so the switcher is usable from
+  // the keyboard alone and never reopens showing a filter from last time.
+  useEffect(() => {
+    if (open) searchRef.current?.focus();
+    else setQ("");
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -49,12 +71,23 @@ export function OrgSwitcher() {
 
   const label = org?.name ?? "Your organization";
   const elsewhere = Boolean(orgId);
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? orgs.filter((o) => o.name.toLowerCase().includes(needle)) : orgs;
+
+  const sidebar = variant === "sidebar";
 
   return (
-    <div className="relative" ref={ref}>
+    <div className={sidebar ? "relative" : "relative"} ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+        title={sidebar && collapsed ? label : undefined}
+        className={`flex items-center gap-2 rounded-lg border text-sm font-medium transition ${
+          sidebar
+            ? collapsed
+              ? "w-full justify-center px-2 py-2"
+              : "w-full px-3 py-2"
+            : "px-3 py-1.5"
+        } ${
           elsewhere
             ? "border-accent/40 bg-accent/10 text-accent"
             : "border-border bg-surface text-muted hover:bg-canvas"
@@ -62,16 +95,35 @@ export function OrgSwitcher() {
         aria-label="Switch organization"
       >
         <IconBuilding className="h-4 w-4 shrink-0" />
-        <span className="max-w-[10rem] truncate">{label}</span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5 shrink-0">
-          <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        {!(sidebar && collapsed) && (
+          <>
+            <span className={`truncate ${sidebar ? "flex-1 text-left" : "max-w-[10rem]"}`}>{label}</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5 shrink-0">
+              <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </>
+        )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-72 overflow-hidden rounded-xl border border-border bg-surface shadow-lift">
+        <div
+          className={`absolute z-50 overflow-hidden rounded-xl border border-border bg-surface shadow-lift ${
+            sidebar ? "bottom-full left-0 mb-2 w-[17rem]" : "right-0 top-11 w-72"
+          }`}
+        >
           <div className="border-b border-border px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-faint">
             Operate as
+          </div>
+
+          {/* A deployment with fifty customers is a scroll, not a list. */}
+          <div className="border-b border-border p-2">
+            <input
+              ref={searchRef}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search organizations…"
+              className="w-full rounded-lg border border-border bg-canvas px-3 py-1.5 text-sm outline-none placeholder:text-faint focus:border-brand"
+            />
           </div>
 
           <button
@@ -88,10 +140,12 @@ export function OrgSwitcher() {
           </button>
 
           <div className="max-h-72 overflow-y-auto border-t border-border">
-            {orgs.length === 0 && (
-              <div className="px-4 py-3 text-sm text-muted">No organizations found.</div>
+            {shown.length === 0 && (
+              <div className="px-4 py-3 text-sm text-muted">
+                {orgs.length === 0 ? "No organizations found." : `Nothing matches “${q.trim()}”.`}
+              </div>
             )}
-            {orgs.map((o) => (
+            {shown.map((o) => (
               <button
                 key={o.id}
                 onClick={() => {

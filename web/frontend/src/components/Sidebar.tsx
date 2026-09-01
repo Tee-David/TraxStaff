@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import type { AuthUser } from "@/lib/api";
 import { SUPPORT_EMAIL } from "@/lib/site";
 import { useTheme } from "@/lib/theme";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { toggleThemeWithTransition } from "@/lib/theme-transition";
 import {
   IconAudit, IconBell, IconChart, IconChevron, IconClock, IconDashboard, IconHelp, IconImage,
@@ -271,6 +272,14 @@ export function Sidebar({
           </div>
         </div>
       )}
+
+      {/* Which organization am I looking at — directly above who am I, because
+          the two answer the same question about the current session. Renders
+          nothing at all unless the account is a super admin, so an ordinary
+          user never sees that this exists. */}
+      <div className={`border-t border-border ${collapsed ? "px-2 py-2" : "px-4 py-2.5"}`}>
+        <OrgSwitcher variant="sidebar" collapsed={collapsed} />
+      </div>
 
       {/* User */}
       <div className={`flex items-center border-t border-border ${collapsed ? "justify-center px-2 py-3.5" : "gap-3 px-4 py-3.5"}`}>

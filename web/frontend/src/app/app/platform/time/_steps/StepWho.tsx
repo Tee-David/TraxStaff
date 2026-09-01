@@ -1,6 +1,7 @@
 "use client";
 
-import { Badge, Card, Label } from "@/components/ui";
+import { useState } from "react";
+import { Badge, Card, Input, Label } from "@/components/ui";
 import { Select } from "@/components/Select";
 import { derive, type WizardState } from "./types";
 
@@ -47,11 +48,16 @@ export function StepWho({
   loading: boolean;
 }) {
   const { needsProject } = derive(state.intent);
+  const [memberQuery, setMemberQuery] = useState("");
 
   // Platform staff are never a target, and only an active account has time worth
   // writing against — the API refuses the rest, so they are not offered.
   const selectable = members.filter((m) => !m.isSuperAdmin && m.status === "active");
   const live = projects.filter((p) => !p.archivedAt);
+  const memberNeedle = memberQuery.trim().toLowerCase();
+  const shownMembers = memberNeedle
+    ? selectable.filter((m) => m.email.toLowerCase().includes(memberNeedle))
+    : selectable;
 
   function toggleMember(id: string) {
     const next = state.userIds.includes(id)
@@ -71,6 +77,7 @@ export function StepWho({
         <div className="max-w-sm">
           <Label>Organization</Label>
           <Select
+            searchable
             value={state.orgId}
             onChange={(v) => update({ orgId: v, userId: "", userIds: [], projectId: "" })}
             options={[
@@ -113,13 +120,24 @@ export function StepWho({
             {state.many ? (
               <div>
                 <Label>Pick the people</Label>
+                <Input
+                  value={memberQuery}
+                  onChange={(e) => setMemberQuery(e.target.value)}
+                  placeholder="Search people…"
+                  className="mb-2"
+                />
                 <Card className="max-h-72 overflow-y-auto p-1">
                   {selectable.length === 0 && (
                     <div className="px-3 py-4 text-sm text-muted">
                       No active members in this organization.
                     </div>
                   )}
-                  {selectable.map((m) => {
+                  {shownMembers.length === 0 && selectable.length > 0 && (
+                    <div className="px-3 py-4 text-sm text-muted">
+                      Nothing matches &ldquo;{memberQuery.trim()}&rdquo;.
+                    </div>
+                  )}
+                  {shownMembers.map((m) => {
                     const on = state.userIds.includes(m.id);
                     return (
                       <label
@@ -137,10 +155,17 @@ export function StepWho({
                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
                   <button
                     type="button"
-                    onClick={() => update({ userIds: selectable.map((m) => m.id) })}
+                    onClick={() =>
+                      update({
+                        // What is on screen, not the whole org — "select all"
+                        // under an active filter meaning "all 200 of them" is
+                        // how a bulk write goes to the wrong people.
+                        userIds: [...new Set([...state.userIds, ...shownMembers.map((m) => m.id)])],
+                      })
+                    }
                     className="text-brand underline"
                   >
-                    Select all
+                    {memberNeedle ? "Select these" : "Select all"}
                   </button>
                   <button
                     type="button"
@@ -158,6 +183,7 @@ export function StepWho({
               <div className="max-w-sm">
                 <Label>Member</Label>
                 <Select
+                  searchable
                   value={state.userId}
                   onChange={(v) => update({ userId: v })}
                   options={[
@@ -172,6 +198,7 @@ export function StepWho({
               <div className="max-w-sm">
                 <Label>Project</Label>
                 <Select
+                  searchable
                   value={state.projectId}
                   onChange={(v) => update({ projectId: v })}
                   options={[

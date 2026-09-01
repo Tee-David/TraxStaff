@@ -94,6 +94,7 @@ export default function PlatformUsersPage() {
           <div className="min-w-[14rem]">
             <Label>Organization</Label>
             <Select
+              searchable
               value={orgFilter}
               onChange={setOrgFilter}
               options={[{ value: "", label: "All organizations" }, ...orgs.map((o) => ({ value: o.id, label: o.name }))]}

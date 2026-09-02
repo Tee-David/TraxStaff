@@ -145,6 +145,17 @@ export interface Session {
   idleSpans?: { from: string; to: string; seconds: number }[];
   deviceId?: string;
   isManual?: boolean;
+  /**
+   * Where a manual entry stands with the org's admins, with the server's
+   * null-means-approved rule already applied.
+   *
+   * Optional for the two cases that have no server opinion: a locally-created
+   * session that hasn't registered yet, and an older backend that predates
+   * approvals. Both fall back to the previous behaviour below — treat every
+   * manual entry as awaiting review — rather than claiming a state nobody set.
+   */
+  approvalState?: "pending" | "approved" | "rejected";
+  decisionNote?: string | null;
   tamperSuspected?: boolean;
   discardedSeconds?: number;
   project: { id: string; name: string; clientTag: string | null };

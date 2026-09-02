@@ -63,6 +63,10 @@
 
 **Screenshots, admin-gated at the API, not just the UI.** Staff never receive a viewable URL for a screenshot in the API response — the row is still visible to them (so capture is never covert), but the presigned image URL is only ever generated for a privileged caller.
 
+**Manual time is approved, not asserted.** Time the tracker never saw is a claim, so it enters as one: a member's manual entry lands `pending` and counts for nothing until an owner/admin decides. An admin is the approval authority, so anything they enter lands approved and signed with their name — for themselves or for a member, who is then told it was added for them. What keeps that accountable is the trail, not a gate: `manual_time.self_added`, `manual_time.added_for_member`, `manual_time.approved` and `manual_time.rejected` all go to the audit log with who did it. A rejection always carries a reason, and rejected time is never deleted — it stays on the timesheet, visibly rejected, and drops out of every total and report.
+
+**Two layers of email control.** The org's Emails settings decide what this workspace sends at all; each person's Notifications settings decide which of it reaches their own inbox (`User.emailPrefs`, defaults in `lib/email-prefs.ts`). Both must be on. That is what stops a shortfall digest or an approval queue mailing five admins who never asked for it, without an admin having to switch it off for everybody. In-app notifications are deliberately outside this: muting an email narrows one mailbox and never hides an event from the org's bell.
+
 **Members, projects, tasks, reporting.** Invite/remove members (a "removed" status distinct from "disabled" — no history-destroying delete, since sessions/screenshots/timesheets/assignments all reference the user), assign projects and tasks per member, per-project and per-day reporting with CSV export, an activity-percentage calculation weighted by credited seconds (not an unweighted mean of blocks).
 
 **A Settings page for every role.** Display name and password change are self-service for every member; screenshot policy, idle handling, work targets, and organisation details stay admin-only sections on the same page.
@@ -112,6 +116,9 @@ web/
     │   ├── env.ts                       # Zod-validated environment schema
     │   ├── plugins/auth.ts               # JWT auth decorator
     │   ├── lib/
+    │   │   ├── approval.ts                  # Manual-time approval rules + the "not rejected" query filter
+    │   │   ├── email-prefs.ts                # Which emails each person gets, and the defaults
+    │   │   ├── notify.ts                      # In-app notification + preference-aware email fan-out
     │   │   ├── hashchain.ts                # Canonical activity-block hash (mirrored in desktop's capture.rs)
     │   │   ├── anomaly.ts                   # Server-side tamper/anomaly flag logic
     │   │   ├── r2.ts                         # Presigned upload/download URLs
@@ -121,7 +128,7 @@ web/
     │       ├── auth.ts                    # login, register, invite accept, password reset/change, /me
     │       ├── members.ts                  # invite, status changes (active/disabled/removed), role
     │       ├── projects.ts, tasks.ts         # project + task CRUD, member assignment
-    │       ├── sessions.ts                   # start/stop/heartbeat, manual entries, listing
+    │       ├── sessions.ts                   # start/stop/heartbeat, manual entries, approve/reject, listing
     │       ├── reports.ts, insights.ts        # summary/timesheet/by-project/app/url reporting
     │       ├── screenshots.ts                 # presign/confirm/list/delete
     │       ├── sync.ts                        # activity-block ingestion + reconciliation flags
@@ -164,6 +171,11 @@ R2_ACCESS_KEY_ID=...
 R2_SECRET_ACCESS_KEY=...
 R2_BUCKET_NAME=trax
 
+# Sign in with Google (optional — unset simply disables the button)
+# The OAuth *client id* only; the ID-token flow uses no client secret.
+# Comma-separated if more than one client (web / desktop / mobile) signs in.
+GOOGLE_CLIENT_ID=<id>.apps.googleusercontent.com
+
 # Mail (optional locally — falls back gracefully if unset)
 SMTP_HOST=... SMTP_PORT=... SMTP_USER=... SMTP_PASSWORD=... SMTP_FROM=...
 # Production only — Render can't send SMTP directly:
@@ -176,7 +188,26 @@ Frontend (`web/frontend/.env.local`):
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:3099
 MAIL_RELAY_SECRET=<same shared secret as the backend>
+# Same OAuth client id as the backend's GOOGLE_CLIENT_ID (a single one, not the
+# comma-separated list). Public by design — an id is not a secret; the backend
+# checks that every ID token was minted for it. Omit to hide the button.
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=<id>.apps.googleusercontent.com
 ```
+
+#### Setting up Google sign-in
+
+In the [Google Cloud console](https://console.cloud.google.com/apis/credentials), under
+**APIs & Services → Credentials → Create credentials → OAuth client ID → Web application**:
+
+- **Authorised JavaScript origins** — every origin that renders the login page:
+  `https://app.traxstaff.com`, `https://traxstaff.com`, and `http://localhost:3000` for dev.
+  Vercel preview deployments each have their own origin and would need adding individually.
+- **Authorised redirect URIs** — none. Google Identity Services returns the ID token to the
+  page that asked for it; there is no callback route to register.
+
+Then put the generated client id in both variables above. Google sign-in does **not** create
+accounts: `POST /auth/google` matches the verified address against an existing user, and an
+address nobody has invited is refused (see `resolveGoogleSignIn` in `src/lib/google.ts`).
 
 ### CockroachDB migrations — read this before running any
 
@@ -211,7 +242,9 @@ cd web/frontend && npm run dev     # http://localhost:3000
 | Reports: summary, timesheet, by-project, app usage, URL usage, CSV export | ✅ |
 | Screenshots: capture policy config, admin-only viewable URLs, soft delete | ✅ |
 | Insights: org-wide leaderboard/activity (admin-only) | ✅ |
-| Settings: account (every role) + screenshots/tracking/targets/organisation (admin) | ✅ |
+| Settings: account + email notification preferences (every role) + screenshots/tracking/targets/organisation (admin) | ✅ |
+| Manual time: members submit for approval, admins enter approved; approve/reject with a reason, all audited | ✅ |
+| Email control in two layers: org-wide switches + per-person opt-outs (in-app notifications stay org-wide) | ✅ |
 | Onboarding tour (resumable, every page) | 🔧 in progress |
 | Marketing landing page (traxstaff.com apex, honest content, platform-aware download CTA) | ✅ |
 | Download-app widget (GitHub Releases, OS-aware) | ✅ |

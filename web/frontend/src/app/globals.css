@@ -33,6 +33,27 @@
   --color-positive: #1f9d63;
   --color-negative: #dc2626;
 
+  /* Soft surfaces.
+     These are the SOLID equivalents of what used to be written `bg-brand/10`,
+     `bg-accent/15`, `bg-[var(--color-negative)]/10` and so on. A fill at 10%
+     opacity is not a colour, it is whatever happens to be behind it — so the
+     same chip rendered one shade on the canvas, another inside a card, and
+     something washed out and muddy in dark mode. Each of these is that tint
+     pre-composited against the light canvas, and hand-picked against the dark
+     one below, so the fill is identical wherever it lands. */
+  /* Tooltips invert against the page. Solid, and dark enough that white text on
+     them clears AA comfortably. */
+  --color-tooltip: #33323d;
+  --color-tooltip-fg: #ffffff;
+  /* The body text under a tooltip's heading. A real colour rather than the
+     heading at reduced opacity, for the same reason the tinted fills went. */
+  --color-tooltip-fg-muted: #cfcdd8;
+
+  --color-brand-soft: #e4e5f1;
+  --color-accent-soft: #ffe9d9;
+  --color-positive-soft: #e2f3ea;
+  --color-negative-soft: #fbe4e4;
+
   --font-heading: var(--font-space-grotesk), system-ui, sans-serif;
   --font-body: var(--font-outfit), system-ui, sans-serif;
 
@@ -85,6 +106,19 @@
      is why white stays legible on it. */
   --color-field: #0e132c;
   --color-field-deep: #090d1e;
+  /* Not the light values dimmed: each is picked against this canvas so a soft
+     chip stays clearly a tint of its own colour rather than going grey. */
+  /* Lighter than the dark canvas (#0a0a45) and surface (#15155a) so the tooltip
+     lifts off the page instead of sinking into it — inverting downward is not
+     available when the page is already dark. */
+  --color-tooltip: #2b2b7d;
+  --color-tooltip-fg: #f3f5fc;
+  --color-tooltip-fg-muted: #c2c6e8;
+
+  --color-brand-soft: #23246d;
+  --color-accent-soft: #4a2a14;
+  --color-positive-soft: #14402c;
+  --color-negative-soft: #4a1d1d;
 }
 
 * {
@@ -130,6 +164,14 @@ h1, h2, h3, h4, h5, h6 {
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
   * { scroll-behavior: auto; }
+}
+
+/* Native date/time pickers draw their own calendar icon, spinners and popover
+   from the UA colour scheme, not from our tokens — left at the default they
+   render a light widget on the dark canvas. */
+:root[data-theme="dark"] input[type="date"],
+:root[data-theme="dark"] input[type="time"] {
+  color-scheme: dark;
 }
 
 /* Thin, quiet scrollbars */

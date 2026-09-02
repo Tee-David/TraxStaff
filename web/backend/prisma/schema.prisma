@@ -80,6 +80,35 @@ model Organization {
   // Org-wide work targets. Members inherit these unless given their own.
   dailyTargetMinutes  Int      @default(480)
   weeklyTargetMinutes Int      @default(2400)
+  // IANA zone the org's working days are measured in. Day and week boundaries
+  // are wall-clock local, so on the UTC default a UTC+1 org credited an hour of
+  // Monday morning to Sunday and the Monday digest under-reported it.
+  //
+  // Africa/Lagos rather than a bare "+01:00": it is permanent UTC+1 with no DST,
+  // and an IANA name is what Intl needs to resolve a wall clock at all.
+  timezone            String   @default("Africa/Lagos")
+  // Master switch for all non-essential email. Invites and password resets are
+  // deliberately NOT covered — turning those off locks people out of the
+  // account with no way back in.
+  emailsEnabled             Boolean @default(true)
+  // Whether admins get the shortfall digests (one per period, not per member).
+  // Independent switches: a daily digest is a nudge, a weekly one is a review,
+  // and orgs reasonably want the second without the first.
+  notifyDailyShortfall      Boolean @default(true)
+  notifyWeeklyShortfall     Boolean @default(true)
+  notifyUnusualActivity     Boolean @default(true)
+  // Off by default: the only one of these that mails every member rather than
+  // the admins, so it is opted into rather than sprung on a workspace.
+  notifyMemberWeeklySummary Boolean @default(false)
+  // `active` | `suspended`. A String rather than a new enum: adding an enum
+  // VALUE is an ALTER TYPE and adding an enum TYPE is a CREATE TYPE, and on a
+  // database this project documents as drifted (see lib/ensure-schema.ts) the
+  // additive defaulted column is the shape that has repeatedly landed safely.
+  //
+  // Suspension freezes an org — logins refused, tracking refused — without
+  // destroying anything, which is the reversible instrument that
+  // DELETE /admin/orgs/:orgId is not.
+  status        String   @default("active")
   users         User[]
   projects      Project[]
   invites       InviteToken[]
@@ -95,6 +124,11 @@ model User {
   passwordHash       String?
   name               String?
   role               Role              @default(member)
+  // Platform-level, and deliberately NOT a fourth value in `Role`: that enum
+  // describes standing INSIDE one org, while this is Trax staff standing above
+  // all of them. See the docblock in lib/superadmin.ts for the full reasoning.
+  // Orthogonal to `role` — a super admin still has an ordinary org role too.
+  isSuperAdmin       Boolean           @default(false)
   status             UserStatus        @default(invited)
   consentAcceptedAt  DateTime?
   consentVersion     Int?
@@ -102,6 +136,13 @@ model User {
   // which is a real target of no hours (someone on leave).
   dailyTargetMinutes  Int?
   weeklyTargetMinutes Int?
+  // Per-user EMAIL notification overrides: { [type]: boolean }. Null, and any
+  // absent key, means "use the default for that type" (lib/email-prefs.ts), so
+  // the defaults live in one place in code and a user only ever stores what
+  // they changed. In-app notifications are unaffected — an admin still sees
+  // every org notification in the bell; this only governs what lands in a
+  // mailbox, so one admin muting themselves cannot hide an event from another.
+  emailPrefs         Json?
   createdAt          DateTime          @default(now())
   devices            Device[]
   sessions           TrackingSession[]
@@ -111,6 +152,7 @@ model User {
   passwordResets     PasswordResetToken[]
   projectMemberships ProjectMember[]
   auditLogs          AuditLog[]        @relation("AuditLogActor")
+  platformLogs       PlatformLog[]     @relation("PlatformLogActor")
 
   @@index([orgId])
 }
@@ -224,6 +266,30 @@ model TrackingSession {
   endReason       SessionEndReason?
   isManual        Boolean           @default(false)
   manualReason    String?
+  // Approval state for a MANUAL entry: "pending" | "approved" | "rejected".
+  // Null on tracked sessions — the tracker witnessed those, so there is nothing
+  // to approve — and on manual rows written before approvals existed, which are
+  // treated as approved (see lib/approval.ts). Every read that means "time that
+  // counts" must go through excludeRejected() there, never a bare `not`.
+  //
+  // A plain String rather than an enum, matching Notification.type and
+  // AuditLog.action: a Postgres/CockroachDB enum needs CREATE TYPE, which the
+  // boot-time schema path (lib/ensure-schema.ts) cannot apply as safely as a
+  // plain additive ADD COLUMN. The allowed set is enforced by zod at the edge.
+  approvalStatus  String?
+  decidedAt       DateTime?
+  // Deliberately scalar columns, NOT relations. Adding a foreign key to
+  // TrackingSession means unlocking a schema_locked table (see
+  // ensureNullableUserFks), and none of this needs a join: the email is
+  // denormalised for display — the same trick AuditLog.payload uses — so a
+  // decision stays readable after the admin who made it has been deleted.
+  decidedById     String?           @db.Uuid
+  decidedByEmail  String?
+  decisionNote    String?
+  // Set when an admin enters time on a member's behalf, so the timesheet can
+  // say who put the entry there rather than implying the member did.
+  addedById       String?           @db.Uuid
+  addedByEmail    String?
   tamperSuspected Boolean           @default(false)
   // Last time this session's device successfully synced. The server-witnessed
   // elapsed cap is measured from here, so it must be set from the server clock
@@ -316,6 +382,14 @@ model ActivityBlock {
   creditedSeconds  Int?
   suspendedSeconds Int?
   clockSkewSeconds Int?
+  // The pause definition (in seconds) this block's activityPct was measured
+  // with — how long one input event keeps counting as work. NULL means the
+  // original per-second sampling, where only a second containing an actual
+  // event counted. Stored so every figure says how it was produced, and so a
+  // report spanning the change can say the two halves are not comparable
+  // instead of silently averaging them. Never used to recompute a stored
+  // percentage: activityPct is inside the hash chain and is not ours to edit.
+  pauseDefinitionSecs Int?
   createdAt   DateTime        @default(now())
   screenshots Screenshot[]
 
@@ -346,6 +420,11 @@ model Screenshot {
   // Gallery paging is a keyset scan on (takenAt desc, id desc) — without this
   // every page is a full sort of the org's screenshot history.
   @@index([takenAt, id])
+  // The R2 key is deterministic (org/session/takenAtMs-mN.webp), so it names one
+  // image exactly once. Unique because a confirm whose response was lost is
+  // retried by the client, and without this the retry created a second row for
+  // an object already stored — the same screenshot twice in the gallery.
+  @@unique([r2Key])
 }
 
 model UnusualActivityFlag {
@@ -377,6 +456,49 @@ model Notification {
   @@index([userId])
 }
 
+/// Durable outbox for every email this backend sends.
+///
+/// Exists because the API runs on an instance that hibernates. Mail used to be
+/// a fire-and-forget call inside the request or the digest tick: if the relay
+/// was unreachable, or the process went to sleep between building the message
+/// and the relay answering, the mail was gone and the only trace was a log
+/// line. A row here outlives the process, so the queue worker picks it up on
+/// the next boot — which on a hibernating instance is exactly when it can
+/// actually send.
+model OutboundEmail {
+  id            String    @id @default(uuid()) @db.Uuid
+  /// Deliberately not a User FK: invites go to people who have no row yet, and
+  /// the delivery record has to outlive a deleted member. `recipient` rather
+  /// than `to` because `to` is a reserved word in the raw DDL that creates this
+  /// table on boot.
+  recipient     String
+  subject       String
+  html          String
+  text          String
+  /// The mailer's own label — "daily shortfall digest", "invite email". What
+  /// the log lines and any admin-facing failure report say.
+  kind          String
+  /// Idempotency key, e.g. `daily_shortfall:<orgId>:2026-08-19:ada@acme.com`.
+  /// This, not the Notification row, is what guarantees nobody is mailed the
+  /// same period twice — so the digest job is free to re-derive and re-enqueue
+  /// after a crash without risking a duplicate.
+  dedupeKey     String?   @unique
+  /// pending | sent | failed | expired
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  lastError     String?
+  nextAttemptAt DateTime  @default(now())
+  /// After this instant the message is stale and is abandoned rather than sent.
+  /// A three-day-late "yesterday's hours" digest is noise, and a password-reset
+  /// link that arrives after the token died is worse than no mail at all.
+  expiresAt     DateTime?
+  sentAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, nextAttemptAt])
+}
+
 // Org-wide trail of destructive and membership actions: who did what, to whom,
 // when. Deliberately shaped like Notification — a required `orgId` as the
 // durable anchor and an optional actor — because the whole point of this table
@@ -403,4 +525,67 @@ model AuditLog {
   // the second index serves the action filter.
   @@index([orgId, createdAt])
   @@index([orgId, action])
+}
+
+/// Platform-level trail: what super admins did, across every tenant.
+///
+/// Deliberately NOT `AuditLog`. That table is org-facing — an org admin reads
+/// their own org's rows — and platform staff are invisible there by design (see
+/// `auditActorVisibility` in lib/superadmin.ts). Writing super admin actions
+/// into it would either leak the role's existence or need a second filter on
+/// every read. A separate table keeps the two audiences separate by
+/// construction: only a super admin can read this one, and orgs cannot see it
+/// at all.
+///
+/// Like AuditLog, identity is denormalised into `payload` rather than read back
+/// through a relation, so a row stays meaningful after the account it names has
+/// been deleted.
+model PlatformLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  /// Null for system-originated entries; SetNull so a deleted super admin never
+  /// takes their trail with them.
+  actorId   String?  @db.Uuid
+  actor     User?    @relation("PlatformLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  /// Which org the action touched, when it touched one. Not a foreign key: the
+  /// row has to survive the org being deleted, and deleting an org is one of
+  /// the actions most worth having a record of.
+  orgId     String?  @db.Uuid
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([orgId])
+}
+
+/// What a destructive platform action destroyed, so it can be put back.
+///
+/// The undo buffer behind `POST /admin/undo/:id`. Restoring is genuinely
+/// possible because deleting a screenshot ROW does not delete the image: only
+/// `DELETE /screenshots/:id` calls `deleteObject` (lib/r2.ts), while the bulk
+/// paths in routes/superadmin.ts use `prisma.screenshot.deleteMany`, which
+/// leaves every object in the bucket untouched.
+///
+/// `payload` holds fully-serialised rows — sessions, activity blocks and
+/// screenshots — not ids, because ids of deleted rows point at nothing.
+model PlatformSnapshot {
+  id        String   @id @default(uuid()) @db.Uuid
+  actorId   String?  @db.Uuid
+  /// What produced it, e.g. `time.replace` — so a restore can refuse a snapshot
+  /// it does not know how to reverse.
+  kind      String
+  /// Who the affected rows belonged to, for finding a snapshot after the fact.
+  userId    String?  @db.Uuid
+  orgId     String?  @db.Uuid
+  payload   Json
+  /// Set once restored, so the same snapshot cannot be applied twice.
+  restoredAt DateTime?
+  /// Swept after this instant — an undo buffer that grows forever is a copy of
+  /// the database.
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }

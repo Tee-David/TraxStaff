@@ -18,7 +18,7 @@ export function SettingsPanel({
   className?: string;
 }) {
   return (
-    <section className={`rounded-[var(--radius-lg)] border border-border bg-canvas/60 ${className}`}>
+    <section className={`rounded-[var(--radius-lg)] border border-border bg-canvas ${className}`}>
       {title && (
         <header className="border-b border-border px-4 py-3">
           <h3 className="font-heading text-[11px] font-semibold uppercase tracking-wider text-faint">{title}</h3>

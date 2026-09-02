@@ -1,5 +1,13 @@
 import nodemailer from "nodemailer";
 import { env, smtpConfigured } from "../env";
+import {
+  DEFAULT_TTL_MS,
+  enqueue,
+  isUndeliverable,
+  recordAttempt,
+  type DeliveryResult,
+  type OutboundMessage,
+} from "./email-queue";
 
 const relayConfigured = Boolean(env.MAIL_RELAY_URL && env.MAIL_RELAY_SECRET);
 
@@ -96,6 +104,9 @@ function emailLayout(bodyHtml: string, preheader: string): string {
     .body { color:#b8bad0 !important; }
     .muted { color:#8d90ab !important; }
     .hair { border-color:#282844 !important; }
+    /* The unfilled half of a progress bar is a light hairline — on a dark card
+       it reads as the *filled* portion unless it's darkened too. */
+    .bar-track { background:#282844 !important; }
     /* Navy-on-navy is invisible: lift the detail card off the surface. */
     .tint { background:#1d1d3c !important; }
     /* The navy pill all but disappears on a dark card (and clients then
@@ -143,46 +154,117 @@ function emailLayout(bodyHtml: string, preheader: string): string {
 }
 
 /**
- * Returns whether the message actually went out. Sending never throws: callers
- * are HTTP handlers, and a dead SMTP host must not turn into a 500 — that would
- * both lose the work already committed and, on the reset route, reveal which
- * addresses have accounts. The link is logged on failure so it can be relayed
- * by hand.
+ * The transport itself: relay in production, direct SMTP as the dev-time path.
+ *
+ * Returns the reason for a failure rather than just `false`, because the outbox
+ * has to be able to record WHY a message did not go out — "relay responded 502"
+ * and "mail not configured" call for completely different responses, and the
+ * boolean this used to return could not tell them apart.
+ *
+ * Exported because lib/email-queue.ts takes the transport as a parameter: the
+ * mailer depends on the queue, so the queue must not depend on the mailer.
  */
-async function send(
-  to: string,
-  subject: string,
-  html: string,
-  text: string,
-  logLabel: string
-): Promise<boolean> {
+export async function deliverNow(msg: OutboundMessage): Promise<DeliveryResult> {
+  const { to, subject, html, text, kind } = msg;
+
   if (relayConfigured) {
     try {
       await sendViaRelay(to, subject, html, text);
-      return true;
+      return { ok: true };
     } catch (err) {
-      console.error(
-        `[mailer] ${logLabel} to ${to} FAILED via relay: ${err instanceof Error ? err.message : err}. ${text}`
-      );
-      return false;
+      return { ok: false, error: `relay: ${err instanceof Error ? err.message : String(err)}` };
     }
   }
 
   if (!transporter) {
     // Neither the relay nor direct SMTP is configured — log the link so
     // development/testing isn't blocked.
-    console.warn(`[mailer] mail not configured — ${logLabel} NOT sent to ${to}. ${text}`);
-    return false;
+    console.warn(`[mailer] mail not configured — ${kind} NOT sent to ${to}. ${text}`);
+    return { ok: false, error: "mail not configured" };
   }
+
   try {
-    await transporter.sendMail({ from: env.SMTP_FROM ?? env.SMTP_USER, to, subject, html, text });
-    return true;
+    // Display name defaulted in code, not left to SMTP_FROM alone: a bare
+    // address makes every client render the sender as its local part ("info"),
+    // and a missing env var should degrade to the right brand name.
+    const from = env.SMTP_FROM ?? (env.SMTP_USER ? `TraxStaff <${env.SMTP_USER}>` : undefined);
+    await transporter.sendMail({ from, to, subject, html, text });
+    return { ok: true };
   } catch (err) {
-    console.error(
-      `[mailer] ${logLabel} to ${to} FAILED: ${err instanceof Error ? err.message : err}. ${text}`
+    return { ok: false, error: `smtp: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * Queues the message, then tries to send it straight away.
+ *
+ * Returns whether it went out on THIS attempt. Sending never throws: callers are
+ * HTTP handlers, and a dead SMTP host must not turn into a 500 — that would both
+ * lose the work already committed and, on the reset route, reveal which
+ * addresses have accounts.
+ *
+ * The queue write comes first, and that ordering is the fix for the whole class
+ * of bug this replaces: a `false` return used to be the end of the story, so a
+ * relay blip or an instance that hibernated mid-send lost the mail with nothing
+ * but a log line to show for it. Now `false` means "not yet" — the row is
+ * durable, and lib/email-queue.ts retries it, including on the next boot.
+ */
+async function send(
+  to: string,
+  subject: string,
+  html: string,
+  text: string,
+  logLabel: string,
+  opts: { dedupeKey?: string; ttlMs?: number } = {}
+): Promise<boolean> {
+  // Checked before anything else. A reserved domain cannot receive mail, and the
+  // receiving side tends to accept it and then hard-bounce — and a stream of
+  // bounces is what drags a sending domain's real mail into spam folders. Seed
+  // and demo accounts are full of these.
+  if (isUndeliverable(to)) {
+    console.warn(
+      `[mailer] ${logLabel} NOT sent to ${to}: that domain is reserved and can only bounce. Fix or remove the account.`
     );
     return false;
   }
+
+  const msg: OutboundMessage = {
+    to,
+    subject,
+    html,
+    text,
+    kind: logLabel,
+    dedupeKey: opts.dedupeKey,
+    ttlMs: opts.ttlMs ?? DEFAULT_TTL_MS,
+  };
+
+  const queued = await enqueue(msg, console);
+
+  // Already queued or already sent — the dedupe key did its job. Reported as a
+  // success so a caller re-deriving a period does not read it as a failure.
+  if (queued.state === "duplicate") return true;
+
+  if (queued.state === "unavailable") {
+    // The outbox is created on boot against a database that has drifted from
+    // schema.prisma, so "no table yet" is a real state. It must never stop an
+    // invite or a reset: send directly, best-effort, exactly as before.
+    const res = await deliverNow(msg);
+    if (!res.ok) {
+      console.error(`[mailer] ${logLabel} to ${to} FAILED: ${res.error}. ${text}`);
+    }
+    return res.ok;
+  }
+
+  // Try immediately so the normal case stays instant rather than waiting up to a
+  // minute for the worker.
+  const res = await deliverNow(msg);
+  await recordAttempt({ id: queued.id, attempts: 0 }, res, console);
+  if (!res.ok) {
+    console.error(
+      `[mailer] ${logLabel} to ${to} FAILED: ${res.error} — queued for retry. ${text}`
+    );
+  }
+  return res.ok;
 }
 
 export async function sendInviteEmail(to: string, inviteUrl: string, orgName: string) {
@@ -203,8 +285,345 @@ export async function sendInviteEmail(to: string, inviteUrl: string, orgName: st
     `You've been invited to join ${orgName} on TraxStaff`,
     html,
     `You've been invited to join ${orgName} on TraxStaff.\n\nAccept your invite: ${inviteUrl}\n\nThis link expires in 24 hours.`,
-    "invite email"
+    "invite email",
+    // No dedupe key: re-sending an invite is a legitimate, deliberate act. The
+    // TTL matches the link's own life — retrying a dead invite would only
+    // deliver a dead end.
+    { ttlMs: 24 * 3_600_000 }
   );
+}
+
+/* ──────────────────────  Work-target shortfall digests  ──────────────────────
+
+   One digest per period, not one mail per person: at ten-ish staff a per-user
+   mail turns a quiet week into twenty notifications and admins filter the lot.
+   Tone is deliberately neutral — "below target", never "failed" — because the
+   same number can mean annual leave, and an admin reading a shaming email about
+   someone on holiday stops trusting the whole feature.                          */
+
+export type ShortfallRow = {
+  /** Display name if the member has set one, otherwise their email. */
+  name: string;
+  trackedHours: number;
+  targetHours: number;
+  /** Weekly digest only: how many working days they met the daily target on. */
+  daysMet?: number;
+  daysExpected?: number;
+};
+
+/** `6.4` → `"6h 24m"`. Whole hours drop the minutes: `8` → `"8h"`. */
+function fmtHours(hours: number): string {
+  const total = Math.max(0, Math.round(hours * 60));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/**
+ * Per-member rows. A table, not divs: flex/grid don't exist in Outlook, and the
+ * `width="N%"` *attribute* (not the CSS property) is the only bar-chart trick
+ * that survives Word's rendering engine.
+ */
+function shortfallRows(rows: ShortfallRow[]): string {
+  return rows
+    .map((r) => {
+      const short = Math.max(0, r.targetHours - r.trackedHours);
+      const pct = r.targetHours > 0
+        ? Math.min(100, Math.round((r.trackedHours / r.targetHours) * 100))
+        : 0;
+      const days =
+        r.daysMet !== undefined && r.daysExpected !== undefined
+          ? `<div class="muted" style="font-size:12px;line-height:1.5;color:${C.muted};padding-top:2px;">Met the daily target on ${r.daysMet} of ${r.daysExpected} days</div>`
+          : "";
+      // Zero-width bars collapse and the border-radius renders as a dot, so the
+      // filled cell is omitted entirely at 0%.
+      const bar = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;"><tr>
+        ${pct > 0 ? `<td width="${pct}%" class="bar-fill" style="background:${C.accent};height:4px;line-height:4px;font-size:0;border-radius:2px;">&nbsp;</td>` : ""}
+        ${pct < 100 ? `<td width="${100 - pct}%" class="bar-track" style="background:${C.hair};height:4px;line-height:4px;font-size:0;border-radius:2px;">&nbsp;</td>` : ""}
+      </tr></table>`;
+
+      return `<tr>
+        <td class="hair" style="padding:14px 0 12px;border-bottom:1px solid ${C.hair};">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td style="font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:15px;line-height:1.4;">
+              <span class="ink" style="font-weight:600;color:${C.ink};">${r.name}</span>
+              ${days}
+            </td>
+            <td align="right" style="font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:15px;line-height:1.4;white-space:nowrap;padding-left:16px;">
+              <span class="ink" style="font-weight:600;color:${C.ink};">${fmtHours(r.trackedHours)}</span><span class="muted" style="color:${C.muted};"> / ${fmtHours(r.targetHours)}</span>
+              <div class="muted" style="font-size:12px;line-height:1.5;color:${C.muted};padding-top:2px;">${fmtHours(short)} short</div>
+            </td>
+          </tr></table>
+          ${bar}
+        </td>
+      </tr>`;
+    })
+    .join("");
+}
+
+/** The "everyone hit target" case. Worth sending: silence is indistinguishable
+ *  from a broken cron job, and admins asked to be told either way. */
+function allClearBlock(scopeLabel: string, totalMembers: number): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="tint" style="background:${C.tint};border-radius:12px;margin:0 0 26px;">
+    <tr><td class="pad-tint" style="padding:20px 24px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
+      <p class="ink" style="margin:0;font-size:15px;font-weight:600;color:${C.ink};">Everyone met their target ${scopeLabel}.</p>
+      <p class="body" style="margin:6px 0 0;font-size:14px;color:${C.body};">All ${totalMembers} tracked members reached the work target. Nothing needs your attention.</p>
+    </td></tr>
+  </table>`;
+}
+
+type DigestInput = {
+  orgName: string;
+  rows: ShortfallRow[];
+  /** Members counted, i.e. the denominator — excludes disabled/removed users. */
+  totalMembers: number;
+  dashboardUrl: string;
+  targetHours: number;
+  /**
+   * Idempotency key from the digest scheduler, keyed on org + period +
+   * recipient. This is what makes the scheduler safe to re-run: it can re-derive
+   * a period it is not sure it sent without anyone receiving it twice.
+   */
+  dedupeKey?: string;
+};
+
+export async function sendDailyShortfallEmail(
+  to: string,
+  input: DigestInput & { /** e.g. "Monday, 17 August" */ dateLabel: string }
+) {
+  const { orgName, rows, totalMembers, dashboardUrl, dateLabel, targetHours } = input;
+  const n = rows.length;
+  const subject =
+    n === 0
+      ? `All targets met — ${dateLabel}`
+      : `${n} of ${totalMembers} below target — ${dateLabel}`;
+
+  const html = emailLayout(
+    `
+    <p class="muted" style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:${C.muted};">Daily summary · ${orgName}</p>
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">${dateLabel}</p>
+    <p class="body" style="margin:0 0 24px;color:${C.body};">${
+      n === 0
+        ? `Daily target is ${fmtHours(targetHours)}.`
+        : `${n} of ${totalMembers} tracked members finished below the ${fmtHours(targetHours)} daily target.`
+    }</p>
+    ${
+      n === 0
+        ? allClearBlock("yesterday", totalMembers)
+        : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 26px;border-collapse:collapse;">${shortfallRows(rows)}</table>`
+    }
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Open dashboard", "→")}</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">Hours below target can mean leave, a public holiday, or approved time off — this is a prompt to look, not a verdict. Turn these off under Settings → Work targets.</p>
+  `,
+    n === 0
+      ? `Everyone met the ${fmtHours(targetHours)} daily target on ${dateLabel}.`
+      : `${rows.map((r) => r.name).join(", ")} finished below target on ${dateLabel}.`
+  );
+
+  const text =
+    n === 0
+      ? `${orgName} — ${dateLabel}\n\nAll ${totalMembers} tracked members met the ${fmtHours(targetHours)} daily target.\n\n${dashboardUrl}`
+      : `${orgName} — ${dateLabel}\n\n${n} of ${totalMembers} tracked members were below the ${fmtHours(targetHours)} daily target:\n\n` +
+        rows
+          .map(
+            (r) =>
+              `  ${r.name}: ${fmtHours(r.trackedHours)} of ${fmtHours(r.targetHours)} (${fmtHours(Math.max(0, r.targetHours - r.trackedHours))} short)`
+          )
+          .join("\n") +
+        `\n\nOpen dashboard: ${dashboardUrl}\n\nHours below target can mean leave or approved time off. Turn these off under Settings > Work targets.`;
+
+  return send(to, subject, html, text, "daily shortfall digest", {
+    dedupeKey: input.dedupeKey,
+  });
+}
+
+export async function sendWeeklyShortfallEmail(
+  to: string,
+  input: DigestInput & { /** e.g. "11–17 August 2026" */ rangeLabel: string }
+) {
+  const { orgName, rows, totalMembers, dashboardUrl, rangeLabel, targetHours } = input;
+  const n = rows.length;
+  const subject =
+    n === 0
+      ? `All weekly targets met — week of ${rangeLabel}`
+      : `${n} of ${totalMembers} below the weekly target — ${rangeLabel}`;
+
+  const html = emailLayout(
+    `
+    <p class="muted" style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:${C.muted};">Weekly summary · ${orgName}</p>
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">${rangeLabel}</p>
+    <p class="body" style="margin:0 0 24px;color:${C.body};">${
+      n === 0
+        ? `Weekly target is ${fmtHours(targetHours)}.`
+        : `${n} of ${totalMembers} tracked members finished the week below the ${fmtHours(targetHours)} target.`
+    }</p>
+    ${
+      n === 0
+        ? allClearBlock("last week", totalMembers)
+        : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 26px;border-collapse:collapse;">${shortfallRows(rows)}</table>`
+    }
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Open reports", "→")}</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">A short week can mean leave, a public holiday, or approved time off. Turn these off under Settings → Work targets.</p>
+  `,
+    n === 0
+      ? `Everyone met the ${fmtHours(targetHours)} weekly target for ${rangeLabel}.`
+      : `${rows.map((r) => r.name).join(", ")} finished the week below target.`
+  );
+
+  const text =
+    n === 0
+      ? `${orgName} — week of ${rangeLabel}\n\nAll ${totalMembers} tracked members met the ${fmtHours(targetHours)} weekly target.\n\n${dashboardUrl}`
+      : `${orgName} — week of ${rangeLabel}\n\n${n} of ${totalMembers} tracked members were below the ${fmtHours(targetHours)} weekly target:\n\n` +
+        rows
+          .map(
+            (r) =>
+              `  ${r.name}: ${fmtHours(r.trackedHours)} of ${fmtHours(r.targetHours)} (${fmtHours(Math.max(0, r.targetHours - r.trackedHours))} short)` +
+              (r.daysMet !== undefined ? `, daily target met ${r.daysMet}/${r.daysExpected} days` : "")
+          )
+          .join("\n") +
+        `\n\nOpen reports: ${dashboardUrl}\n\nA short week can mean leave or approved time off. Turn these off under Settings > Work targets.`;
+
+  return send(to, subject, html, text, "weekly shortfall digest", {
+    dedupeKey: input.dedupeKey,
+  });
+}
+
+/* ────────────────────  Unusual-activity digest (admins)  ────────────────────
+
+   These flags already existed as in-app notification rows, written by sync.ts
+   behind `upsertFlag()`'s dedupe. Email is a second delivery of the same rows,
+   batched over a period — never one mail per flag, which an offline backlog
+   would turn into dozens at once.                                             */
+
+/** Mirrors the frontend's FLAG_LABELS so both surfaces name a flag identically. */
+const FLAG_LABELS: Record<string, string> = {
+  sustained_high_activity: "Sustained high activity",
+  low_variance_robotic: "Robotic / low-variance input",
+  input_channel_imbalance: "Input channel imbalance",
+  jiggler_process_detected: "Mouse-jiggler detected",
+  clock_skew_detected: "System clock changed",
+  exceeds_elapsed_cap: "Claimed more time than elapsed",
+  block_outside_session_window: "Time recorded outside the session",
+};
+
+export type FlagRow = { member: string; type: string };
+
+export async function sendUnusualActivityEmail(
+  to: string,
+  input: {
+    orgName: string;
+    rangeLabel: string;
+    flags: FlagRow[];
+    dashboardUrl: string;
+    /** See `DigestInput.dedupeKey`. */
+    dedupeKey?: string;
+  }
+) {
+  const { orgName, rangeLabel, flags, dashboardUrl } = input;
+  const n = flags.length;
+  const label = (type: string) => FLAG_LABELS[type] ?? type.replace(/_/g, " ");
+
+  const rows = flags
+    .map(
+      (f) => `<tr>
+        <td class="hair" style="padding:13px 0;border-bottom:1px solid ${C.hair};font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:15px;line-height:1.45;">
+          <span class="ink" style="font-weight:600;color:${C.ink};">${f.member}</span>
+          <div class="muted" style="font-size:13px;line-height:1.5;color:${C.muted};padding-top:2px;">${label(f.type)}</div>
+        </td>
+      </tr>`
+    )
+    .join("");
+
+  const html = emailLayout(
+    `
+    <p class="muted" style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:${C.muted};">Unusual activity · ${orgName}</p>
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">${rangeLabel}</p>
+    <p class="body" style="margin:0 0 24px;color:${C.body};">${n} ${n === 1 ? "session was" : "sessions were"} flagged for review.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 26px;border-collapse:collapse;">${rows}</table>
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Review flags", "→")}</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">A flag is a signal to look, not proof of anything — several have innocent causes, such as a laptop resuming from sleep. Turn these off under Settings → Emails.</p>
+  `,
+    `${n} flagged ${n === 1 ? "session" : "sessions"} for ${rangeLabel}.`
+  );
+
+  const text =
+    `${orgName} — ${rangeLabel}\n\n${n} flagged ${n === 1 ? "session" : "sessions"}:\n\n` +
+    flags.map((f) => `  ${f.member}: ${label(f.type)}`).join("\n") +
+    `\n\nReview: ${dashboardUrl}\n\nA flag is a signal to look, not proof. Turn these off under Settings > Emails.`;
+
+  return send(
+    to,
+    `${n} flagged ${n === 1 ? "session" : "sessions"} — ${rangeLabel}`,
+    html,
+    text,
+    "unusual activity digest",
+    { dedupeKey: input.dedupeKey }
+  );
+}
+
+/* ──────────────────  Member's own weekly summary (staff)  ──────────────────
+
+   The reciprocal of the admin digest: the same numbers, sent to the person they
+   are about. Nobody in this category ships it, and it is what turns the
+   shortfall digest from surveillance into something the member can act on
+   before an admin ever raises it.                                             */
+
+export async function sendMemberWeeklySummaryEmail(
+  to: string,
+  input: {
+    orgName: string;
+    rangeLabel: string;
+    name: string;
+    trackedHours: number;
+    targetHours: number;
+    dashboardUrl: string;
+    /** See `DigestInput.dedupeKey`. */
+    dedupeKey?: string;
+  }
+) {
+  const { orgName, rangeLabel, name, trackedHours, targetHours, dashboardUrl } = input;
+  const met = targetHours <= 0 || trackedHours >= targetHours;
+  const short = Math.max(0, targetHours - trackedHours);
+  const pct = targetHours > 0 ? Math.min(100, Math.round((trackedHours / targetHours) * 100)) : 100;
+
+  const html = emailLayout(
+    `
+    <p class="muted" style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:${C.muted};">Your week · ${orgName}</p>
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">${rangeLabel}</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">Hi ${name} — here is what TraxStaff recorded for you last week.</p>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="tint" style="background:${C.tint};border-radius:12px;margin:0 0 26px;">
+      <tr><td style="padding:22px 24px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
+        <p class="ink" style="margin:0;font-size:28px;font-weight:700;line-height:1.2;color:${C.ink};">${fmtHours(trackedHours)}</p>
+        <p class="muted" style="margin:4px 0 0;font-size:14px;color:${C.muted};">tracked of a ${fmtHours(targetHours)} target${met ? "" : ` · ${fmtHours(short)} short`}</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;"><tr>
+          ${pct > 0 ? `<td width="${pct}%" class="bar-fill" style="background:${C.accent};height:6px;line-height:6px;font-size:0;border-radius:3px;">&nbsp;</td>` : ""}
+          ${pct < 100 ? `<td width="${100 - pct}%" class="bar-track" style="background:${C.hair};height:6px;line-height:6px;font-size:0;border-radius:3px;">&nbsp;</td>` : ""}
+        </tr></table>
+      </td></tr>
+    </table>
+
+    <p class="body" style="margin:0 0 24px;color:${C.body};">${
+      met
+        ? "You met your target — nothing to do."
+        : "If that looks wrong, check for time that never synced, or add any missing entries from your timesheet."
+    }</p>
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "View your timesheet", "→")}</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">This is the same figure your admins see for you — no more, no less.</p>
+  `,
+    `${fmtHours(trackedHours)} tracked of a ${fmtHours(targetHours)} target for ${rangeLabel}.`
+  );
+
+  const text =
+    `${orgName} — your week, ${rangeLabel}\n\n` +
+    `Tracked: ${fmtHours(trackedHours)} of a ${fmtHours(targetHours)} target` +
+    (met ? " — target met.\n" : ` (${fmtHours(short)} short).\n`) +
+    `\nView your timesheet: ${dashboardUrl}\n\nThis is the same figure your admins see for you.`;
+
+  return send(to, `Your week at ${orgName} — ${rangeLabel}`, html, text, "member weekly summary", {
+    dedupeKey: input.dedupeKey,
+  });
 }
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string) {
@@ -225,6 +644,158 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
     "Reset your TraxStaff password",
     html,
     `Someone asked to reset the password for your TraxStaff account.\n\nReset it here: ${resetUrl}\n\nThis link expires in 1 hour. If this wasn't you, ignore this email — your password stays unchanged.`,
-    "reset email"
+    "reset email",
+    // The token itself dies in an hour, so retrying past that only delivers a
+    // link that fails — more confusing than no mail at all. The user re-requests.
+    { ttlMs: 3_600_000 }
   );
 }
+
+/* ───────────────────────  Manual-time approval mail  ───────────────────────
+
+   Three templates, all reusing `emailLayout` so they inherit the dark-mode and
+   client-compatibility work above. Each one leads with the fact and the
+   numbers, because the decision they support is "does this look right?" and the
+   answer is in the who/when/how-long — not in the prose.
+
+   Every one of these is opt-out per recipient (lib/email-prefs.ts), so the
+   footer says which setting produced it and where to change it.                */
+
+const TIMESHEETS_URL = `${ASSETS}/app/timesheets`;
+const SETTINGS_URL = `${ASSETS}/app/settings`;
+
+/** Shared "why am I getting this" line — every preference-governed email ends with it. */
+function prefsFooter(what: string): string {
+  return `<p class="muted" style="margin:22px 0 0;font-size:12px;color:${C.muted};">You're getting this because ${what} is on for your account. <a href="${SETTINGS_URL}" style="color:${C.brand};">Change your email preferences</a>.</p>`;
+}
+
+/** Detail card — the facts of the entry, laid out as rows an eye can scan. */
+function detailRows(rows: [string, string][]): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="tint" style="background:${C.tint};border-radius:12px;padding:4px 0;margin:0 0 24px;">
+    ${rows
+      .map(
+        ([label, value]) =>
+          `<tr><td class="muted" style="padding:8px 18px;font-size:13px;color:${C.muted};width:38%;">${label}</td><td class="ink" style="padding:8px 18px;font-size:14px;font-weight:600;color:${C.ink};">${value}</td></tr>`
+      )
+      .join("")}
+  </table>`;
+}
+
+export interface ManualEntryFacts {
+  memberLabel: string;
+  projectName: string;
+  taskTitle?: string | null;
+  when: string;
+  duration: string;
+  reason: string;
+}
+
+/** To the admins who review time: someone added an entry the tracker didn't see. */
+export async function sendManualTimeSubmittedEmail(to: string, facts: ManualEntryFacts) {
+  const rows: [string, string][] = [
+    ["Member", facts.memberLabel],
+    ["Project", facts.taskTitle ? `${facts.projectName} — ${facts.taskTitle}` : facts.projectName],
+    ["When", facts.when],
+    ["Duration", facts.duration],
+    ["Reason", facts.reason],
+  ];
+  const html = emailLayout(
+    `
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">Manual time needs your approval</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">${facts.memberLabel} added ${facts.duration} the tracker didn't record. It won't count as approved time until an admin reviews it.</p>
+    ${detailRows(rows)}
+    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Review this entry", "→")}</p>
+    ${prefsFooter("&ldquo;Manual time awaiting approval&rdquo;")}
+  `,
+    `${facts.memberLabel} added ${facts.duration} of manual time — awaiting approval.`
+  );
+
+  return send(
+    to,
+    `${facts.memberLabel} added ${facts.duration} of manual time`,
+    html,
+    `${facts.memberLabel} added manual time awaiting approval.\n\nProject: ${facts.projectName}\nWhen: ${facts.when}\nDuration: ${facts.duration}\nReason: ${facts.reason}\n\nReview it: ${TIMESHEETS_URL}`,
+    "manual time submitted email"
+  );
+}
+
+/** To the member: an admin has decided. A rejection always carries its reason. */
+export async function sendManualTimeDecisionEmail(
+  to: string,
+  decision: "approved" | "rejected",
+  facts: ManualEntryFacts & { decidedBy: string; note?: string | null }
+) {
+  const approved = decision === "approved";
+  const rows: [string, string][] = [
+    ["Project", facts.taskTitle ? `${facts.projectName} — ${facts.taskTitle}` : facts.projectName],
+    ["When", facts.when],
+    ["Duration", facts.duration],
+    ["Reviewed by", facts.decidedBy],
+  ];
+  if (facts.note) rows.push([approved ? "Note" : "Reason", facts.note]);
+
+  const lead = approved
+    ? `Your ${facts.duration} entry has been approved and counts toward your timesheet.`
+    : `Your ${facts.duration} entry was rejected, so it won't count toward your timesheet. The entry stays on your timesheet marked as rejected — nothing was deleted.`;
+
+  const html = emailLayout(
+    `
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">Manual time ${approved ? "approved" : "rejected"}</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">${lead}</p>
+    ${detailRows(rows)}
+    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Open your timesheet", "→")}</p>
+    ${prefsFooter("&ldquo;Your manual time was reviewed&rdquo;")}
+  `,
+    lead
+  );
+
+  return send(
+    to,
+    `Your manual time was ${approved ? "approved" : "rejected"}`,
+    html,
+    `${lead}\n\nProject: ${facts.projectName}\nWhen: ${facts.when}\nDuration: ${facts.duration}\nReviewed by: ${facts.decidedBy}${facts.note ? `\nNote: ${facts.note}` : ""}\n\n${TIMESHEETS_URL}`,
+    "manual time decision email"
+  );
+}
+
+/**
+ * To the member: an admin put time on their timesheet for them.
+ *
+ * A separate template from the decision one on purpose. "Your entry has been
+ * approved" is the wrong sentence for time the member never submitted, and
+ * getting that wrong in an email about someone's paid hours is not a small
+ * thing — the point of telling them at all is that they can dispute it.
+ */
+export async function sendManualTimeAddedEmail(
+  to: string,
+  facts: ManualEntryFacts & { addedBy: string }
+) {
+  const rows: [string, string][] = [
+    ["Project", facts.taskTitle ? `${facts.projectName} — ${facts.taskTitle}` : facts.projectName],
+    ["When", facts.when],
+    ["Duration", facts.duration],
+    ["Added by", facts.addedBy],
+    ["Reason", facts.reason],
+  ];
+  const lead = `${facts.addedBy} added ${facts.duration} to your timesheet. It counts as approved time. If that doesn't look right, take it up with them — nothing here is hidden from you.`;
+
+  const html = emailLayout(
+    `
+    <p style="margin:0 0 6px;font-size:20px;font-weight:700;">Time was added to your timesheet</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">${lead}</p>
+    ${detailRows(rows)}
+    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Open your timesheet", "→")}</p>
+    ${prefsFooter("&ldquo;Your manual time was reviewed&rdquo;")}
+  `,
+    lead
+  );
+
+  return send(
+    to,
+    `${facts.addedBy} added ${facts.duration} to your timesheet`,
+    html,
+    `${lead}\n\nProject: ${facts.projectName}\nWhen: ${facts.when}\nDuration: ${facts.duration}\nReason: ${facts.reason}\n\n${TIMESHEETS_URL}`,
+    "manual time added email"
+  );
+}
+

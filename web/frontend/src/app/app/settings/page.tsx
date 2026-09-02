@@ -13,7 +13,7 @@ import { Toggle } from "@/components/Toggle";
 import { useTheme } from "@/lib/theme";
 import { useMotionPresets } from "@/lib/motion";
 import { toggleThemeWithTransition } from "@/lib/theme-transition";
-import { IconChart, IconClock, IconFlag, IconImage, IconMoon, IconSun, IconUser, IconUsers } from "@/components/icons";
+import { IconBell, IconChart, IconClock, IconFlag, IconImage, IconMail, IconMoon, IconSun, IconUser, IconUsers } from "@/components/icons";
 
 interface OrgSettings {
   id: string;
@@ -25,9 +25,92 @@ interface OrgSettings {
   showWebsiteUsage: boolean;
   dailyTargetMinutes: number;
   weeklyTargetMinutes: number;
+  timezone: string;
+  emailsEnabled: boolean;
+  notifyDailyShortfall: boolean;
+  notifyWeeklyShortfall: boolean;
+  notifyUnusualActivity: boolean;
+  notifyMemberWeeklySummary: boolean;
 }
 
-type SectionId = "account" | "appearance" | "screenshots" | "tracking" | "reports" | "targets" | "organisation";
+/**
+ * Two layers, deliberately.
+ *
+ * `EMAIL_KINDS` below is the ORG's switchboard: whether this workspace sends a
+ * given email at all. The per-person toggles in the Notifications section are
+ * the second layer — of the emails the org does send, which ones reach *your*
+ * inbox. An email needs both to be on, so an admin can silence a digest for
+ * everyone, and each person can still opt themselves out of one that stays on.
+ */
+type SectionId =
+  | "account"
+  | "notifications"
+  | "appearance"
+  | "screenshots"
+  | "tracking"
+  | "reports"
+  | "targets"
+  | "emails"
+  | "organisation";
+
+/** One email a person can opt out of for themselves, as described by the server. */
+interface EmailType {
+  type: string;
+  label: string;
+  description: string;
+  adminOnly: boolean;
+  default: boolean;
+  /** False when the org has switched this email off for everyone. */
+  orgEnabled: boolean;
+}
+
+interface EmailPrefsResponse {
+  preferences: Record<string, boolean>;
+  types: EmailType[];
+}
+
+/**
+ * Every email the org can switch off, in the order they appear. Kept as data so
+ * the panel and the master switch stay in step — adding a kind here is the only
+ * change a new digest needs on this page.
+ */
+const EMAIL_KINDS: {
+  key: "notifyDailyShortfall" | "notifyWeeklyShortfall" | "notifyUnusualActivity" | "notifyMemberWeeklySummary";
+  label: string;
+  hint: string;
+}[] = [
+  {
+    key: "notifyDailyShortfall",
+    label: "Daily shortfall digest",
+    hint: "To admins each morning, listing anyone who finished the previous day below the daily target. One digest per day, never one per member.",
+  },
+  {
+    key: "notifyWeeklyShortfall",
+    label: "Weekly shortfall digest",
+    hint: "To admins on Monday morning, covering the week just ended. Independent of the daily digest.",
+  },
+  {
+    key: "notifyUnusualActivity",
+    label: "Unusual activity digest",
+    hint: "To admins the morning after a session is flagged — jiggler detection, clock changes, and the rest. Sent only on days something was actually flagged.",
+  },
+  {
+    key: "notifyMemberWeeklySummary",
+    label: "Member weekly summary",
+    hint: "The only email here that goes to every member rather than to admins: their own hours against their own target, the same figure you see for them.",
+  },
+];
+
+/** IANA zones for the org picker. Falls back to a short list on older browsers. */
+function timezoneOptions(): { value: string; label: string }[] {
+  const supported = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] })
+    .supportedValuesOf;
+  const zones = supported
+    ? supported("timeZone")
+    : ["UTC", "Africa/Lagos", "Europe/London", "America/New_York", "America/Los_Angeles", "Asia/Dubai"];
+  return zones.map((z) => ({ value: z, label: z.replace(/_/g, " ") }));
+}
+
 
 type Section = SettingsNavItem & {
   id: SectionId;
@@ -43,6 +126,15 @@ const SECTIONS: Section[] = [
     icon: IconUser,
     title: "Account",
     subtitle: "Your name and password. Visible only to you.",
+    adminOnly: false,
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    icon: IconBell,
+    title: "Email notifications",
+    subtitle:
+      "Which emails land in your inbox. Yours alone — muting one here never hides it from anyone else, and every event still shows in your notifications.",
     adminOnly: false,
   },
   {
@@ -83,6 +175,15 @@ const SECTIONS: Section[] = [
     icon: IconFlag,
     title: "Work targets",
     subtitle: "Organisation-wide defaults. Members inherit these unless given their own target.",
+    adminOnly: true,
+  },
+  {
+    id: "emails",
+    label: "Emails",
+    icon: IconMail,
+    title: "Emails",
+    subtitle:
+      "Which emails TraxStaff sends on your organisation's behalf. Switching one off here stops it for everyone; each person can also opt themselves out under Notifications.",
     adminOnly: true,
   },
   {
@@ -147,6 +248,11 @@ export default function SettingsPage() {
   const [savedName, setSavedName] = useState(false);
 
   // Account section: change password.
+  // Notifications section: per-user email opt-outs.
+  const [emailPrefs, setEmailPrefs] = useState<EmailPrefsResponse | null>(null);
+  const [savingPref, setSavingPref] = useState<string | null>(null);
+  const [prefError, setPrefError] = useState<string | null>(null);
+
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -160,6 +266,41 @@ export default function SettingsPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  // Loaded from the server rather than hard-coded here: the labels, the copy and
+  // which types a role can even receive all live beside the code that sends the
+  // mail, so a new email can't ship without a way to turn it off.
+  useEffect(() => {
+    api<EmailPrefsResponse>("/auth/me/email-preferences")
+      .then(setEmailPrefs)
+      .catch(() => setPrefError("Couldn't load your email preferences."));
+  }, []);
+
+  /**
+   * Saved per toggle, optimistically. A preference is a small, independent fact
+   * and a Save button for a screen of switches invites walking away without
+   * pressing it. On failure the switch goes back and says so, rather than
+   * showing a state the server never accepted.
+   */
+  async function setEmailPref(type: string, value: boolean) {
+    if (!emailPrefs) return;
+    const previous = emailPrefs.preferences;
+    setEmailPrefs({ ...emailPrefs, preferences: { ...previous, [type]: value } });
+    setSavingPref(type);
+    setPrefError(null);
+    try {
+      const res = await api<{ preferences: Record<string, boolean> }>(
+        "/auth/me/email-preferences",
+        { method: "PATCH", body: JSON.stringify({ [type]: value }) }
+      );
+      setEmailPrefs((s) => (s ? { ...s, preferences: res.preferences } : s));
+    } catch {
+      setEmailPrefs((s) => (s ? { ...s, preferences: previous } : s));
+      setPrefError("Couldn't save that preference. Check your connection and try again.");
+    } finally {
+      setSavingPref(null);
+    }
+  }
 
   // Keep the name field in sync once the user finishes loading (it starts
   // out null while /auth/me is still in flight).
@@ -227,6 +368,12 @@ export default function SettingsPage() {
           showWebsiteUsage: settings.showWebsiteUsage,
           dailyTargetMinutes: settings.dailyTargetMinutes,
           weeklyTargetMinutes: settings.weeklyTargetMinutes,
+          timezone: settings.timezone,
+          emailsEnabled: settings.emailsEnabled,
+          notifyDailyShortfall: settings.notifyDailyShortfall,
+          notifyWeeklyShortfall: settings.notifyWeeklyShortfall,
+          notifyUnusualActivity: settings.notifyUnusualActivity,
+          notifyMemberWeeklySummary: settings.notifyMemberWeeklySummary,
         }),
       });
       setSettings(updated);
@@ -329,6 +476,56 @@ export default function SettingsPage() {
       </>
     ),
 
+    notifications: (
+      <>
+        <SettingsPanel
+          title="Email"
+          description={
+            isAdmin
+              ? "Yours alone. The Emails section sets what this organisation sends at all; these switches decide which of it reaches your inbox. Everything still appears in your in-app notifications either way."
+              : "Yours alone. Everything still appears in your in-app notifications, whether or not it's emailed."
+          }
+        >
+          {!emailPrefs ? (
+            <div className="space-y-3 p-4">
+              {[0, 1].map((i) => <Skeleton key={i} className="h-12" />)}
+            </div>
+          ) : emailPrefs.types.length === 0 ? (
+            <p className="px-4 py-6 text-center text-[13px] text-muted">
+              There are no email notifications for your account yet.
+            </p>
+          ) : (
+            emailPrefs.types.map((t) => (
+              <SettingsRow
+                key={t.type}
+                label={t.label}
+                // A type the org has switched off is shown, disabled, saying so
+                // — rather than hidden, which would read as "this email doesn't
+                // exist", or left toggleable, which would promise something the
+                // org switch is going to override anyway.
+                hint={
+                  t.orgEnabled
+                    ? t.description
+                    : `${t.description} Currently switched off for the whole organisation.`
+                }
+              >
+                <Toggle
+                  checked={t.orgEnabled && (emailPrefs.preferences[t.type] ?? t.default)}
+                  onChange={(v) => setEmailPref(t.type, v)}
+                  disabled={savingPref === t.type || !t.orgEnabled}
+                  label={t.label}
+                />
+              </SettingsRow>
+            ))
+          )}
+        </SettingsPanel>
+        {prefError && (
+          <p className="mt-3 rounded-lg bg-[var(--color-negative-soft)] px-3 py-2.5 text-[13px] text-[var(--color-negative)]">
+            {prefError}
+          </p>
+        )}
+      </>
+    ),
     appearance: (
       <SettingsPanel title="Theme">
         <SettingsRow label="Colour mode" hint="Switch between light and dark. Applies to this browser only.">
@@ -469,6 +666,45 @@ export default function SettingsPage() {
       </SettingsPanel>
     ),
 
+    emails: (
+      <>
+        <SettingsPanel title="Sending">
+          <SettingsRow
+            label="Send emails"
+            hint="Master switch. Turning this off stops every notification email below without losing the individual settings — the dashboard notification bell keeps working either way."
+          >
+            <Toggle
+              label="Send notification emails"
+              checked={settings.emailsEnabled}
+              onChange={(v) => setSettings({ ...settings, emailsEnabled: v })}
+            />
+          </SettingsRow>
+        </SettingsPanel>
+
+        <SettingsPanel title="What gets sent">
+          {EMAIL_KINDS.map((kind) => (
+            <SettingsRow key={kind.key} label={kind.label} hint={kind.hint}>
+              <Toggle
+                label={kind.label}
+                checked={settings[kind.key]}
+                disabled={!settings.emailsEnabled}
+                onChange={(v) => setSettings({ ...settings, [kind.key]: v })}
+              />
+            </SettingsRow>
+          ))}
+        </SettingsPanel>
+
+        <SettingsPanel title="Always sent">
+          <SettingsRow
+            label="Invites and password resets"
+            hint="These are how people get into the account and back into it, so they cannot be switched off — disabling them would lock a member out with no way back in."
+          >
+            <span className="text-[13px] text-muted">Always on</span>
+          </SettingsRow>
+        </SettingsPanel>
+      </>
+    ),
+
     organisation: (
       <SettingsPanel title="Details">
         <SettingsRow label="Organisation name" hint="The display name used across the dashboard.">
@@ -480,6 +716,20 @@ export default function SettingsPage() {
             className="sm:min-w-[220px] disabled:cursor-default disabled:opacity-70"
           />
         </SettingsRow>
+        {isAdmin && (
+          <SettingsRow
+            label="Timezone"
+            hint="The working day is measured in this zone. Digests are sent, and days and weeks are bucketed, against your organisation's local clock rather than the server's."
+          >
+            <Select
+              value={settings.timezone}
+              onChange={(v) => setSettings({ ...settings, timezone: v })}
+              options={timezoneOptions()}
+              searchable
+              minWidth={260}
+            />
+          </SettingsRow>
+        )}
       </SettingsPanel>
     ),
   };
@@ -502,7 +752,11 @@ export default function SettingsPage() {
             </Card>
           </motion.div>
 
-          {isAdmin && current.id !== "account" && (
+          {/* The org-settings Save button belongs to the admin-owned sections
+              only. Account and Notifications are per-user and save as you go —
+              a Save button under them would claim to be storing preferences
+              that are already stored, and do something else entirely. */}
+          {isAdmin && current.id !== "account" && current.id !== "notifications" && (
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <Button onClick={save} disabled={saving} className="min-w-[120px]">
                 {saving ? "Saving…" : "Save changes"}

@@ -1,13 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { weightedActivity, type WeightedBlock } from "./reports";
+import { auditActorVisibility } from "../lib/superadmin";
+import { blocksInRange, weightedActivity, type WeightedBlock } from "../lib/activity";
 import {
   DELETED_USER_KEY,
   DELETED_USER_LABEL,
   orgScoped,
   orgScopedViaSession,
 } from "../lib/org-scope";
+import { excludeRejected } from "../lib/approval";
 import { evidenceSelect, isAbandoned, overlapsRange, workedSecondsInRange } from "../lib/duration";
 
 const PRESENCE_WINDOW_MS = 3 * 60 * 1000; // "online" if a device beat within 3 min
@@ -109,7 +111,10 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
       q.from ? new Date(q.from) : undefined,
       q.to ? new Date(q.to) : undefined
     );
-    if (range.length) where.AND = range;
+    // Same rule as reports.ts: rejected manual time does not count, and the
+    // leaderboard ranks people against each other — leaving it in would rank
+    // someone on hours an admin has explicitly refused.
+    where.AND = [...range, ...excludeRejected()];
     const sessions = await prisma.trackingSession.findMany({
       where,
       include: {
@@ -143,7 +148,10 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
       // figure is clipped to the requested window since `overlapsRange` admits
       // sessions that started before it.
       u.totalSeconds += workedSecondsInRange(s, fromMs, toMs, now);
-      u.blocks.push(...s.activityBlocks);
+      // Clipped to the same window as totalSeconds. Unclipped, a session that
+      // began before the window contributed all of its activity against only the
+      // hours inside it, which is what reordered the leaderboard.
+      u.blocks.push(...blocksInRange(s.activityBlocks, fromMs, toMs));
       byUser.set(key, u);
     }
     const board = [...byUser.values()]
@@ -217,6 +225,9 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
       const rows = await prisma.auditLog.findMany({
         where: {
           orgId: req.user.orgId,
+          // Nothing platform staff did is visible to an org — see
+          // auditActorVisibility(). A no-op when the reader is one of them.
+          ...(await auditActorVisibility(req.user.userId)),
           ...(q.action ? { action: q.action } : {}),
           ...(q.actorId ? { actorId: q.actorId } : {}),
           ...(Object.keys(createdAt).length ? { createdAt } : {}),
@@ -243,7 +254,10 @@ export default async function insightsRoutes(fastify: FastifyInstance) {
   fastify.get("/audit-log/actions", async (req, reply) => {
     if (!requireAdmin(req, reply)) return;
     const rows = await prisma.auditLog.findMany({
-      where: { orgId: req.user.orgId },
+      // Same filter as /audit-log above: an action only a super admin has ever
+      // performed must not appear in the dropdown either, or the filter list
+      // leaks the existence of the rows it cannot show.
+      where: { orgId: req.user.orgId, ...(await auditActorVisibility(req.user.userId)) },
       distinct: ["action"],
       select: { action: true },
       orderBy: { action: "asc" },

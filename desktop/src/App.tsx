@@ -2424,10 +2424,20 @@ function TimesheetsPage({ week }: { week: Session[] }) {
   // above them. The range-scoped view of the same data is the Reports page.
   const inRange = (s: Session) =>
     overlapSecs(s, range.from.getTime(), range.to.getTime()) > 0;
-  const rows = (sub === "approvals" ? fetched.filter((s) => s.isManual || s.tamperSuspected) : fetched).filter(inRange);
-  const total = rows.reduce((a, s) => a + secs(s), 0);
-  const trackedTotal = rows.filter((s) => !s.isManual).reduce((a, s) => a + secs(s), 0);
-  const manualTotal = rows.filter((s) => s.isManual).reduce((a, s) => a + secs(s), 0);
+  // What "awaiting review" means, now that the server actually tracks it: an
+  // entry still pending, or one the tracker flagged. `approvalState` is absent
+  // on a locally-created row and on an older backend, so those fall back to the
+  // old rule — every manual entry counts as unreviewed — rather than silently
+  // emptying this tab.
+  const needsReview = (s: Session) =>
+    s.tamperSuspected || (s.approvalState ? s.approvalState === "pending" : Boolean(s.isManual));
+  const rows = (sub === "approvals" ? fetched.filter(needsReview) : fetched).filter(inRange);
+  // Rejected time is excluded from every total, matching the server (which keeps
+  // it out of reports) and the dashboard. The row stays visible and marked.
+  const counted = rows.filter((s) => s.approvalState !== "rejected");
+  const total = counted.reduce((a, s) => a + secs(s), 0);
+  const trackedTotal = counted.filter((s) => !s.isManual).reduce((a, s) => a + secs(s), 0);
+  const manualTotal = counted.filter((s) => s.isManual).reduce((a, s) => a + secs(s), 0);
 
   const byDay = useMemo(() => {
     const g = new Map<string, Session[]>();
@@ -2445,7 +2455,20 @@ function TimesheetsPage({ week }: { week: Session[] }) {
       {list.map((s) => (
         <div className="ts-row" key={s.id}>
           <span className="ts-proj">{s.project.name}{s.project.clientTag ? <em className="ts-client"> · {s.project.clientTag}</em> : ""}{s.task ? ` — ${s.task.title}` : ""}</span>
-          <span className={`chip-prio ${s.tamperSuspected ? "urgent" : s.isManual ? "" : "lowest"}`}>{s.tamperSuspected ? "Review" : s.isManual ? "Manual" : "Tracked"}</span>
+          {/* A manual entry now says where it stands, not just that it is
+              manual — "Manual" on a row an admin rejected reads as time that
+              counts, and the totals above say otherwise. */}
+          <span className={`chip-prio ${s.tamperSuspected || s.approvalState === "rejected" ? "urgent" : s.isManual ? "" : "lowest"}`}>
+            {s.tamperSuspected
+              ? "Review"
+              : !s.isManual
+                ? "Tracked"
+                : s.approvalState === "pending"
+                  ? "Pending"
+                  : s.approvalState === "rejected"
+                    ? "Rejected"
+                    : "Manual"}
+          </span>
           {/* An open row is only "running" if it is still proving it — otherwise it
               was left behind, and the server tells us where it really ended. */}
           <span className="ts-time">

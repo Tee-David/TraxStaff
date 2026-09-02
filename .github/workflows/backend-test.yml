@@ -1,0 +1,68 @@
+name: Backend Tests
+
+# The backend owns the other half of the arithmetic that decides what a person
+# is paid for: session durations (lib/duration.ts) and activity figures
+# (lib/activity.ts). Both are pure functions with no database dependency
+# precisely so they can be checked here on every push.
+#
+# Runs on pull requests as well as branch pushes — a regression in this maths is
+# invisible in review, because a wrong total looks exactly like a right one.
+on:
+  push:
+    branches: [main, dev, staging]
+    paths:
+      - "web/backend/**"
+      - ".github/workflows/backend-test.yml"
+  pull_request:
+    paths:
+      - "web/backend/**"
+      - ".github/workflows/backend-test.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 22, not the 20 the build workflows use. `npm test` is
+      # `tsx --test "src/**/*.test.ts"`, and Node's test runner only learned to
+      # expand glob patterns in v21 — on 20 the pattern is taken as a literal
+      # path, matches nothing, and the step fails with every test unrun.
+      #
+      # The alternative, pointing `--test` at the `src` directory, is worse: it
+      # walks into non-test files, and `index.ts` boots the API against whatever
+      # DATABASE_URL resolves to.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web/backend
+        run: npm ci
+
+      # The generated client is a compile-time dependency of the route modules,
+      # so typecheck needs it. No database is touched: generate reads
+      # schema.prisma only.
+      - name: Generate Prisma client
+        working-directory: web/backend
+        run: npx prisma generate
+
+      - name: Typecheck
+        working-directory: web/backend
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        working-directory: web/backend
+        # Dummy values, never connected to. src/env.ts validates the whole
+        # environment at import, and the digest tests import the scheduler, which
+        # reaches env for NEXT_PUBLIC_APP_URL — so without these the suite failed
+        # to LOAD here, and every digest test was silently never run.
+        env:
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:26257/ci?sslmode=disable
+          JWT_SECRET: ci-secret-not-used-for-anything
+        run: npm test

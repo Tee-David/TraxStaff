@@ -116,7 +116,12 @@ export function MemberFilter({
   // not something to offer, and pending invitees have no tracked time at all —
   // listing them just padded the picker with names that report nothing.
   // Org-wide totals ("All members") still include everyone's history.
-  const selectable = members.filter((m) => m.status === "active");
+  // Guard every member before touching `.email`/`.status`: a malformed row
+  // from the API (null, a shape change) must not throw inside the `.map`
+  // below — the dashboard tree has no error boundary above these pages.
+  const selectable = members.filter(
+    (m): m is Member => m != null && typeof m === "object" && typeof m.email === "string" && typeof m.id === "string" && m.status === "active"
+  );
   return (
     <Select
       value={value}

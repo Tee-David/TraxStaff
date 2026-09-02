@@ -10,6 +10,9 @@ import { NotificationsBell } from "@/components/NotificationsBell";
 import { DownloadApp } from "@/components/DownloadApp";
 import { TourProvider } from "@/components/tour/tour-provider";
 import { TourLauncher } from "@/components/tour/tour-launcher";
+import { ActingOrgProvider } from "@/lib/acting-org";
+import { ActingOrgBanner } from "@/components/OrgSwitcher";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 
 // Top-bar profile: avatar (uploaded picture if present, else initials) with a
 // menu to jump to Settings or sign out.
@@ -23,7 +26,7 @@ function ProfileMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void 
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Account"
-        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-brand/10 text-sm font-semibold text-brand ring-offset-2 ring-offset-surface transition hover:ring-2 hover:ring-brand/30"
+        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-brand-soft text-sm font-semibold text-brand ring-offset-2 ring-offset-surface transition hover:ring-2 hover:ring-brand/30"
       >
         {avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -37,7 +40,7 @@ function ProfileMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void 
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-lift">
             <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 text-sm font-semibold uppercase text-brand">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-soft text-sm font-semibold uppercase text-brand">
                 {avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
@@ -95,7 +98,9 @@ function Shell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <TourProvider role={user.role}>
+    // Platform staff do not get the customer onboarding tour started for them —
+    // see the note on `autoStart`. Replaying it from the help menu still works.
+    <TourProvider role={user.role} autoStart={!user.isSuperAdmin}>
     <div className="flex min-h-screen">
       {/* Desktop sidebar: spacer reserves width so content reflows; the panel
           is fixed so a collapsed rail can expand over the content on hover. */}
@@ -136,7 +141,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar */}
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-surface/80 px-4 py-3 backdrop-blur lg:px-8">
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-surface px-4 py-3 backdrop-blur lg:px-8">
           <div className="flex items-center gap-3">
             <button
               className="rounded-lg p-1.5 text-xl hover:bg-canvas lg:hidden"
@@ -150,12 +155,24 @@ function Shell({ children }: { children: React.ReactNode }) {
             <img src="/brand/icon-badge.svg" alt="" className="h-7 w-7 lg:hidden" />
           </div>
           <div className="flex items-center gap-1.5">
+            {/* The organization switcher used to live here. It sits in the
+                sidebar now, above the signed-in user, where "which org am I in"
+                reads as part of the session rather than as another header icon
+                among the bell and the download button. */}
             <TourLauncher />
             <DownloadApp />
             <NotificationsBell />
             <ProfileMenu user={user} onLogout={logout} />
           </div>
         </header>
+
+        {/* Directly under the header and above every page: while a super admin
+            is acting on another organization, nothing else on screen says so.
+            The impersonation banner sits above it and is the louder of the two —
+            being someone else is a bigger deal than being somewhere else, and
+            the two are mutually exclusive in practice. */}
+        <ImpersonationBanner />
+        <ActingOrgBanner />
 
         {/* The page entrance animation lives in template.tsx — wrapping children
             in AnimatePresence here left pages blank until a reload. */}
@@ -171,7 +188,11 @@ function Shell({ children }: { children: React.ReactNode }) {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
-      <Shell>{children}</Shell>
+      {/* Inside AuthProvider: the acting org is only meaningful once we know
+          whether the signed-in account is a super admin. */}
+      <ActingOrgProvider>
+        <Shell>{children}</Shell>
+      </ActingOrgProvider>
     </AuthProvider>
   );
 }

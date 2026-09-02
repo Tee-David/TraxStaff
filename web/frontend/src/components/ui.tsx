@@ -96,11 +96,14 @@ export function StatTile({
   delta?: { value: string; positive: boolean };
   tone?: "brand" | "accent" | "teal" | "muted";
 }) {
+  // Solid fills, not tinted ones. A colour at 10% opacity sits on whatever is
+  // behind it, which is why these chips looked washed out on the canvas and
+  // different again inside a card.
   const tones: Record<string, string> = {
-    brand: "bg-brand/10 text-brand",
-    accent: "bg-accent/10 text-accent",
-    teal: "bg-[var(--color-cat-other)]/12 text-[var(--color-cat-other)]",
-    muted: "bg-canvas text-muted",
+    brand: "bg-brand text-brand-fg",
+    accent: "bg-accent text-accent-fg",
+    teal: "bg-[var(--color-cat-other)] text-white",
+    muted: "bg-border-strong text-ink",
   };
   return (
     <Card className="p-4" hover>
@@ -163,7 +166,7 @@ export function Button({
     accent: "bg-accent text-accent-fg hover:opacity-90",
     ghost: "border border-border bg-transparent text-ink hover:bg-canvas",
     danger: "bg-[var(--color-negative)] text-white hover:opacity-90",
-    subtle: "bg-canvas text-ink hover:bg-border/60",
+    subtle: "bg-canvas text-ink hover:bg-border",
   };
   return (
     <button
@@ -197,21 +200,25 @@ export function Badge({
   tone?: "muted" | "brand" | "accent" | "green" | "red" | "teal";
   dot?: boolean;
 }) {
+  // Solid fills with a contrasting foreground. These were tinted (`/10`, `/12`)
+  // which made every badge a slightly different colour depending on the surface
+  // underneath it, and washed out badly in dark mode.
   const tones: Record<string, string> = {
-    muted: "bg-canvas text-muted",
-    brand: "bg-brand/10 text-brand",
-    accent: "bg-accent/10 text-accent",
-    green: "bg-[var(--color-positive)]/12 text-[var(--color-positive)]",
-    red: "bg-[var(--color-negative)]/10 text-[var(--color-negative)]",
-    teal: "bg-[var(--color-cat-other)]/12 text-[var(--color-cat-other)]",
+    muted: "bg-border-strong text-ink",
+    brand: "bg-brand text-brand-fg",
+    accent: "bg-accent text-accent-fg",
+    green: "bg-[var(--color-positive)] text-white",
+    red: "bg-[var(--color-negative)] text-white",
+    teal: "bg-[var(--color-cat-other)] text-white",
   };
+  // On a solid fill the dot has to read against the badge, not against the page.
   const dotColors: Record<string, string> = {
     muted: "bg-faint",
-    brand: "bg-brand",
-    accent: "bg-accent",
-    green: "bg-[var(--color-positive)]",
-    red: "bg-[var(--color-negative)]",
-    teal: "bg-[var(--color-cat-other)]",
+    brand: "bg-white",
+    accent: "bg-white",
+    green: "bg-white",
+    red: "bg-white",
+    teal: "bg-white",
   };
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${tones[tone]}`}>

@@ -1,10 +1,12 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Reorder } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, asArray } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useActingOrg } from "@/lib/acting-org";
 import type { Project, Session } from "@/lib/types";
 import { DELETED_USER_LABEL, type ReportSummary } from "@/lib/reports";
 import { Badge, EmptyState, PageHeader, Section, Skeleton, StatTile } from "@/components/ui";
@@ -48,6 +50,22 @@ function chipTone(email: string) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const router = useRouter();
+  const { orgId: actingOrgId } = useActingOrg();
+
+  /**
+   * A super admin in their own org has nothing to see here.
+   *
+   * The platform organization exists only to hold the staff account — no
+   * projects, no tracked time — so the dashboard renders a page of zeroes and
+   * empty widgets, which reads as "the app is broken" rather than "you are in
+   * the wrong org". Sent to the console instead, but only while they are NOT
+   * operating on a customer org: once they have switched, this page is showing
+   * that org and is exactly where they should be able to stay.
+   */
+  useEffect(() => {
+    if (user?.isSuperAdmin && !actingOrgId) router.replace("/app/platform");
+  }, [user?.isSuperAdmin, actingOrgId, router]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [week, setWeek] = useState<Session[]>([]);
   const [summary, setSummary] = useState<ReportSummary | null>(null);
@@ -409,7 +427,7 @@ export default function DashboardPage() {
                 </thead>
                 <tbody>
                   {week.slice(0, 8).map((s) => (
-                    <tr key={s.id} className="border-b border-border/60 transition last:border-0 hover:bg-canvas/60">
+                    <tr key={s.id} className="border-b border-border/60 transition last:border-0 hover:bg-canvas">
                       <td className="px-5 py-3 font-medium">
                         {s.project.name}
                         {s.task && <span className="ml-2 text-xs text-muted">{s.task.title}</span>}

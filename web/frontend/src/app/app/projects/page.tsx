@@ -508,7 +508,7 @@ export default function ProjectsPage() {
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name" required className="w-40" />
               <Input value={clientTag} onChange={(e) => setClientTag(e.target.value)} placeholder="Client (opt)" className="w-32" />
             </div>
-            <Button type="submit" disabled={creating} className="bg-accent hover:bg-accent/90 text-white border-none shrink-0 shadow-[var(--shadow-lift)]">
+            <Button type="submit" disabled={creating} className="bg-accent hover:bg-accent text-white border-none shrink-0 shadow-[var(--shadow-lift)]">
               + Add Project
             </Button>
           </form>
@@ -546,7 +546,7 @@ export default function ProjectsPage() {
           onClick={() => setTab("active")}
           className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-muted hover:text-ink transition"
         >
-          &larr; Back to active projects
+          &lsaquo; Back to active projects
         </button>
       )}
 
@@ -613,7 +613,7 @@ export default function ProjectsPage() {
           {/* Select-all header. Indeterminate when only some rows are picked,
               which is the only honest state for a partial selection — a plain
               unchecked box there implies clicking it selects nothing. */}
-          <div className="flex items-center gap-3 border-b border-border bg-canvas/50 px-5 py-2.5">
+          <div className="flex items-center gap-3 border-b border-border bg-canvas px-5 py-2.5">
             <input
               type="checkbox"
               aria-label={allPicked ? "Clear selection" : "Select all projects"}
@@ -660,7 +660,7 @@ export default function ProjectsPage() {
               <div
                 key={p.id}
                 className={`flex flex-wrap items-center gap-x-3 gap-y-3 border-b border-border/60 px-5 py-4 last:border-0 transition sm:flex-nowrap ${
-                  picked.has(p.id) ? "bg-brand/[0.06]" : "hover:bg-canvas/40"
+                  picked.has(p.id) ? "bg-brand/[0.06]" : "hover:bg-canvas"
                 }`}
               >
                 {/* Wrapping row, ordered so a phone reads: identity and the

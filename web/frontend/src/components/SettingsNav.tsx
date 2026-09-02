@@ -25,7 +25,7 @@ export function SettingsNav({
 } & HTMLAttributes<HTMLElement>) {
   const base =
     "flex items-center gap-2.5 rounded-xl text-[13.5px] font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
-  const tone = (on: boolean) => (on ? "bg-brand/10 text-brand" : "text-muted hover:bg-canvas hover:text-ink");
+  const tone = (on: boolean) => (on ? "bg-brand-soft text-brand" : "text-muted hover:bg-canvas hover:text-ink");
 
   return (
     <nav aria-label="Settings sections" className="min-w-0 lg:sticky lg:top-4 lg:w-56 lg:shrink-0" {...rest}>
@@ -61,7 +61,7 @@ export function SettingsNav({
               onClick={() => onSelect(item.id)}
               aria-current={on ? "page" : undefined}
               className={`${base} shrink-0 whitespace-nowrap border border-border bg-surface px-3 py-2 ${
-                on ? "border-brand/30 bg-brand/10 text-brand" : "text-muted"
+                on ? "border-brand/30 bg-brand-soft text-brand" : "text-muted"
               }`}
             >
               <Icon className={`h-[18px] w-[18px] shrink-0 ${on ? "text-brand" : "text-faint"}`} />

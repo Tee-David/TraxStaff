@@ -1,4 +1,5 @@
 ﻿import type { FastifyInstance } from "fastify";
+import type { Role } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
@@ -6,6 +7,13 @@ import { hashPassword, verifyPassword } from "../lib/password";
 import { sendInviteEmail, sendPasswordResetEmail } from "../lib/mailer";
 import { auditLog } from "../lib/audit";
 import { env } from "../env";
+import {
+  EMAIL_TYPES,
+  effectivePrefs,
+  sanitisePrefs,
+  visibleTypes,
+} from "../lib/email-prefs";
+import { googleAuthConfigured, resolveGoogleSignIn, verifyGoogleIdToken } from "../lib/google";
 
 // Tokens must expire. Without a TTL a copied token stays valid forever, and
 // disabling a member has no effect on any session they already hold.
@@ -41,6 +49,27 @@ export function shouldRenewToken(exp: number | undefined, now: number = Date.now
   return exp * 1000 - now < TOKEN_RENEW_AFTER_MS;
 }
 
+/**
+ * The one place a token's claims are assembled.
+ *
+ * There are five sign sites (register, login, accept-invite, reset-password and
+ * the sliding renewal in /auth/me), and `superAdmin` had to reach all of them —
+ * a claim that four out of five tokens carry is worse than one no token carries,
+ * because the staff console would then work or not depending on how the person
+ * last signed in.
+ *
+ * `superAdmin` is a convenience for clients only. Nothing is authorised by it:
+ * `requireSuperAdmin` re-reads the flag from the database on every /admin call.
+ */
+function claimsFor(user: { id: string; orgId: string; role: Role; isSuperAdmin?: boolean }) {
+  return {
+    userId: user.id,
+    orgId: user.orgId,
+    role: user.role,
+    ...(user.isSuperAdmin ? { superAdmin: true } : {}),
+  };
+}
+
 const registerSchema = z.object({
   orgName: z.string().min(1),
   email: z.string().email(),
@@ -50,6 +79,12 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+});
+
+const googleSchema = z.object({
+  // The ID token Google Identity Services hands the browser. Named
+  // `credential` because that is what GIS calls it in its callback payload.
+  credential: z.string().min(1),
 });
 
 const inviteSchema = z.object({
@@ -74,6 +109,16 @@ const resetPasswordSchema = z.object({
   token: z.string().min(1),
   password: z.string().min(8),
 });
+
+/**
+ * A sparse patch of known toggles. Unknown keys are rejected outright rather
+ * than dropped: a client sending a type this server has never heard of is a
+ * version mismatch, and quietly returning 200 for a preference that was never
+ * stored is the kind of success the user only discovers from an inbox.
+ */
+const emailPrefsSchema = z
+  .object(Object.fromEntries(EMAIL_TYPES.map((t) => [t, z.boolean().optional()])))
+  .strict();
 
 const updateMeSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -120,25 +165,182 @@ export default async function authRoutes(fastify: FastifyInstance) {
       },
     });
 
-    const token = fastify.jwt.sign({ userId: user.id, orgId: org.id, role: user.role }, { expiresIn: TOKEN_TTL });
+    const token = fastify.jwt.sign(claimsFor(user), { expiresIn: TOKEN_TTL });
     return reply.code(201).send({ token, user: { id: user.id, email: user.email, role: user.role } });
   });
 
   fastify.post("/auth/login", async (req, reply) => {
     const body = loginSchema.parse(req.body);
 
-    const user = await prisma.user.findUnique({ where: { email: body.email } });
+    const user = await prisma.user.findUnique({
+      where: { email: body.email },
+      include: { org: { select: { status: true } } },
+    });
     if (!user || !user.passwordHash || user.status !== "active") {
       return reply.code(401).send({ error: "Invalid credentials" });
     }
-
     const valid = await verifyPassword(body.password, user.passwordHash);
     if (!valid) {
       return reply.code(401).send({ error: "Invalid credentials" });
     }
 
-    const token = fastify.jwt.sign({ userId: user.id, orgId: user.orgId, role: user.role }, { expiresIn: TOKEN_TTL });
-    return reply.send({ token, user: { id: user.id, email: user.email, role: user.role } });
+    // Suspension is checked only AFTER the password has been proved correct.
+    //
+    // The first version of this sat above `verifyPassword`, which turned the
+    // login route into an oracle: anyone could type any address with any junk
+    // password and learn from the 403 that the workspace existed and was
+    // frozen. Distinguishing "suspended" from "wrong credentials" is only safe
+    // once we know we are talking to the account holder — and it is worth doing
+    // then, because "invalid credentials" would send them round a password
+    // reset that cannot possibly help.
+    if (user.org.status === "suspended" && !user.isSuperAdmin) {
+      return reply.code(403).send({
+        error: "This workspace is suspended. Contact your administrator.",
+        code: "org_suspended",
+      });
+    }
+
+    const token = fastify.jwt.sign(claimsFor(user), { expiresIn: TOKEN_TTL });
+    return reply.send({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        isSuperAdmin: user.isSuperAdmin ?? false,
+      },
+    });
+  });
+
+  /**
+   * Sign in with Google.
+   *
+   * Takes the ID token Google Identity Services produced in the browser and, if
+   * it verifies, hands back exactly the same `{ token, user }` payload as
+   * POST /auth/login. Everything downstream — the cookie, the sliding renewal,
+   * role checks — is then identical to a password login, because it *is* one.
+   *
+   * This route never creates an organization. Trax has no self-serve signup on
+   * the web; you are invited into an org or you have no account. So a verified
+   * Google address that nobody has invited is turned away rather than handed a
+   * fresh workspace. See resolveGoogleSignIn for the full rule, including the
+   * one case where this route does write: an invited member completing their
+   * invite with Google instead of setting a password.
+   */
+  fastify.post("/auth/google", async (req, reply) => {
+    const body = googleSchema.parse(req.body);
+
+    if (!googleAuthConfigured) {
+      // 503, not 400: nothing is wrong with the request. The server has simply
+      // not been given GOOGLE_CLIENT_ID, and the caller can do nothing about it.
+      return reply.code(503).send({ error: "Google sign-in is not configured on this server" });
+    }
+
+    const identity = await verifyGoogleIdToken(body.credential);
+    if (!identity) {
+      return reply.code(401).send({ error: "Google sign-in failed. Try again, or use your password." });
+    }
+    // An unverified address proves nothing: it is a string somebody typed into a
+    // Google account, and honouring it would let anyone claim any colleague's
+    // mailbox. Consumer Google accounts are verified; this mainly catches
+    // hand-made Workspace aliases.
+    if (!identity.emailVerified) {
+      return reply.code(401).send({ error: "That Google account has no verified email address." });
+    }
+
+    // Case-insensitive, because addresses were stored however they were typed
+    // into the invite form and Google always reports its own lowercased.
+    //
+    // The second comparison is not redundant. Prisma compiles an `insensitive`
+    // match to ILIKE, in which `_` and `%` are WILDCARDS — and both are legal in
+    // an email local part, so `a_b@x.com` would otherwise also match a row for
+    // `axb@x.com` and sign the wrong person in. The database query stays a broad
+    // filter; this is the exact match.
+    const candidate = await prisma.user.findFirst({
+      where: { email: { equals: identity.email, mode: "insensitive" } },
+      include: { org: { select: { status: true } } },
+    });
+    const user = candidate && candidate.email.toLowerCase() === identity.email ? candidate : null;
+
+    // Scoped by the row's own stored address rather than by another
+    // case-insensitive match, so the wildcard problem above cannot reach the
+    // invite table either: invites are written with the same string the User row
+    // carries (POST /auth/invite upserts both from one value).
+    const liveInvite =
+      user?.status === "invited"
+        ? await prisma.inviteToken.findFirst({
+            where: { email: user.email, acceptedAt: null, expiresAt: { gt: new Date() } },
+            orderBy: { expiresAt: "desc" },
+          })
+        : null;
+
+    const verdict = resolveGoogleSignIn({
+      user: user ? { status: user.status, isSuperAdmin: user.isSuperAdmin ?? false, orgStatus: user.org.status } : null,
+      hasLiveInvite: Boolean(liveInvite),
+    });
+
+    if (verdict.kind === "no-account") {
+      // Deliberately one message for "never invited", "invite lapsed" and
+      // "account disabled". The login screen is unauthenticated, so telling
+      // them apart would let anyone with a Google account probe which
+      // colleagues have Trax accounts and which of those are still enabled.
+      return reply.code(401).send({
+        error: "No active TraxStaff account uses that Google address. Ask your admin for an invite.",
+      });
+    }
+    if (verdict.kind === "suspended") {
+      return reply.code(403).send({
+        error: "This workspace is suspended. Contact your administrator.",
+        code: "org_suspended",
+      });
+    }
+
+    // `user` is non-null for both remaining verdicts — resolveGoogleSignIn only
+    // returns them when a row was found.
+    let account = user!;
+
+    if (verdict.kind === "accept-invite") {
+      account = await prisma.$transaction(async (tx) => {
+        const activated = await tx.user.update({
+          where: { id: account.id },
+          data: {
+            status: "active",
+            // Only fill a name we do not already have — an admin who typed a
+            // preferred name for this member should keep it.
+            ...(account.name ? {} : identity.name ? { name: identity.name } : {}),
+          },
+          include: { org: { select: { status: true } } },
+        });
+        // Burn every outstanding invite for this address, not just the one we
+        // matched, so a second link sitting in the inbox cannot be replayed —
+        // the same rule POST /auth/reset-password applies to reset links.
+        await tx.inviteToken.updateMany({
+          where: { email: account.email, acceptedAt: null },
+          data: { acceptedAt: new Date() },
+        });
+        return activated;
+      });
+      // Not audited, deliberately: accepting an invite through the emailed link
+      // is not audited either (the `member.invited` entry is the record), and an
+      // action that appears in the trail only when it happened to be done with
+      // Google would read as two different events.
+    }
+
+    // Note there is no passwordHash check anywhere above. A member who has only
+    // ever signed in with Google has none, and requiring one would lock out the
+    // exact people this route exists for. The password login route keeps its own
+    // `!user.passwordHash` guard, so a passwordless account still cannot be
+    // signed into with an empty password.
+    const token = fastify.jwt.sign(claimsFor(account), { expiresIn: TOKEN_TTL });
+    return reply.send({
+      token,
+      user: {
+        id: account.id,
+        email: account.email,
+        role: account.role,
+        isSuperAdmin: account.isSuperAdmin ?? false,
+      },
+    });
   });
 
   // Admin/owner invites a new member by email.
@@ -236,7 +438,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return created;
     });
 
-    const token = fastify.jwt.sign({ userId: user.id, orgId: user.orgId, role: user.role }, { expiresIn: TOKEN_TTL });
+    const token = fastify.jwt.sign(claimsFor(user), { expiresIn: TOKEN_TTL });
     return reply.send({ token, user: { id: user.id, email: user.email, role: user.role } });
   });
 
@@ -285,10 +487,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       }),
     ]);
 
-    const token = fastify.jwt.sign(
-      { userId: reset.user.id, orgId: reset.user.orgId, role: reset.user.role },
-      { expiresIn: TOKEN_TTL }
-    );
+    const token = fastify.jwt.sign(claimsFor(reset.user), { expiresIn: TOKEN_TTL });
     return reply.send({
       token,
       user: { id: reset.user.id, email: reset.user.email, role: reset.user.role },
@@ -298,13 +497,25 @@ export default async function authRoutes(fastify: FastifyInstance) {
   fastify.get("/auth/me", { preHandler: [fastify.authenticate] }, async (req, reply) => {
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: req.user.userId },
-      include: { org: { select: { dailyTargetMinutes: true, weeklyTargetMinutes: true } } },
+      include: {
+        org: { select: { dailyTargetMinutes: true, weeklyTargetMinutes: true, status: true } },
+      },
     });
     // A disabled or removed member must lose access immediately, not when
     // their token eventually expires. Checked here because every client calls
     // /auth/me to establish a session.
     if (user.status !== "active") {
       return reply.code(401).send({ error: "Account disabled" });
+    }
+    // Suspension has to bite here too, not only at login: every client calls
+    // /auth/me to establish a session, and a token minted before the suspension
+    // is otherwise good for the rest of its seven days. Super admins are exempt
+    // — someone has to be able to un-suspend it.
+    if (user.org.status === "suspended" && !user.isSuperAdmin) {
+      return reply.code(403).send({
+        error: "This workspace is suspended. Contact your administrator.",
+        code: "org_suspended",
+      });
     }
 
     // Sliding renewal — see TOKEN_RENEW_AFTER_MS. Signed from the database row
@@ -314,10 +525,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
     // their stored credential on every poll; clients that don't know the field
     // ignore it and keep working.
     const renewedToken = shouldRenewToken(req.user.exp)
-      ? fastify.jwt.sign(
-          { userId: user.id, orgId: user.orgId, role: user.role },
-          { expiresIn: TOKEN_TTL }
-        )
+      ? fastify.jwt.sign(claimsFor(user), { expiresIn: TOKEN_TTL })
       : null;
 
     return reply.send({
@@ -326,6 +534,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
       email: user.email,
       name: user.name,
       role: user.role,
+      // Read from the row, not the presented token — the same reason the
+      // renewal above signs from the database. A flag revoked an hour ago must
+      // not keep rendering the staff console for the rest of the token's life.
+      isSuperAdmin: user.isSuperAdmin ?? false,
       orgId: user.orgId,
       consentAcceptedAt: user.consentAcceptedAt,
       consentVersion: user.consentVersion,
@@ -356,6 +568,69 @@ export default async function authRoutes(fastify: FastifyInstance) {
       data: { name: body.name },
     });
     return reply.send({ id: user.id, email: user.email, name: user.name, role: user.role });
+  });
+
+  /**
+   * Which emails this account gets.
+   *
+   * Per USER, not per org: in-app notifications are org-wide for every admin
+   * (and stay that way), but a mailbox belongs to one person, and "every admin
+   * gets every email" is how a useful alert becomes a filter rule. Returns the
+   * effective set — defaults already applied — plus the metadata the settings
+   * UI renders, so labels and copy live in one place on the server rather than
+   * being duplicated per client.
+   */
+  fastify.get("/auth/me/email-preferences", { preHandler: [fastify.authenticate] }, async (req, reply) => {
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: req.user.userId },
+      select: { role: true, emailPrefs: true, orgId: true },
+    });
+    // The org's switches decide what is sent at all; this endpoint reports them
+    // alongside each type so the UI can show "off for the whole workspace"
+    // rather than a toggle that silently does nothing. Read defensively: a
+    // database missing these columns must degrade to "everything is on", never
+    // to a failed request.
+    const org = await prisma.organization
+      .findUnique({
+        where: { id: user.orgId },
+        select: {
+          emailsEnabled: true,
+          notifyDailyShortfall: true,
+          notifyWeeklyShortfall: true,
+          notifyUnusualActivity: true,
+          notifyMemberWeeklySummary: true,
+        },
+      })
+      .catch(() => null);
+
+    return reply.send({
+      preferences: effectivePrefs(user),
+      types: visibleTypes(user, org ?? {}),
+    });
+  });
+
+  fastify.patch("/auth/me/email-preferences", { preHandler: [fastify.authenticate] }, async (req, reply) => {
+    const body = emailPrefsSchema.parse(req.body);
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: req.user.userId },
+      select: { role: true, emailPrefs: true },
+    });
+
+    // Merged over what is stored, not replacing it: the UI sends the toggle
+    // that changed, and a member who is later promoted to admin should find
+    // the admin-only preferences they set as an admin still there.
+    const current =
+      user.emailPrefs && typeof user.emailPrefs === "object" && !Array.isArray(user.emailPrefs)
+        ? (user.emailPrefs as Record<string, unknown>)
+        : {};
+    const merged = { ...sanitisePrefs(current), ...sanitisePrefs(body) };
+
+    const updated = await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { emailPrefs: merged },
+      select: { role: true, emailPrefs: true },
+    });
+    return reply.send({ preferences: effectivePrefs(updated) });
   });
 
   // Authenticated password change (current + new), distinct from the

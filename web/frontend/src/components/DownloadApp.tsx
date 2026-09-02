@@ -132,7 +132,7 @@ export function DownloadApp() {
 
               {state.status === "error" && (
                 <div className="flex flex-col items-center gap-3 py-4 text-center">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-negative)]/10 text-[var(--color-negative)]">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-negative-soft)] text-[var(--color-negative)]">
                     <IconDownload />
                   </div>
                   <div>
@@ -233,9 +233,9 @@ export function DownloadApp() {
                         <a
                           href={data.android}
                           rel="noopener noreferrer"
-                          className="flex items-center gap-3 rounded-lg bg-accent/10 px-2.5 py-2 transition hover:bg-accent/15"
+                          className="flex items-center gap-3 rounded-lg bg-accent-soft px-2.5 py-2 transition hover:bg-accent-soft"
                         >
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
                             <IconAndroid />
                           </span>
                           <span className="min-w-0 flex-1">

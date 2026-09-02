@@ -195,7 +195,7 @@ export function DateRangePicker({
         bgClass = "bg-brand";
         textClass = "text-white";
       } else if (isBetween) {
-        bgClass = "bg-brand/10";
+        bgClass = "bg-brand-soft";
         roundedClass = "rounded-none";
       }
 
@@ -280,7 +280,7 @@ export function DateRangePicker({
       {isOpen && (
         <div className="fixed inset-x-3 top-20 z-50 flex max-h-[78vh] flex-col overflow-y-auto rounded-xl border border-border bg-surface shadow-xl md:absolute md:inset-x-auto md:left-0 md:top-full md:mt-2 md:max-h-none md:flex-row md:overflow-hidden md:min-w-[280px]">
           {/* Left Sidebar - Presets */}
-          <div className="w-full shrink-0 md:w-32 border-b md:border-b-0 md:border-r border-border bg-canvas/30 p-1.5 grid grid-cols-2 gap-1 sm:grid-cols-3 md:flex md:flex-col md:gap-0.5 md:max-h-none">
+          <div className="w-full shrink-0 md:w-32 border-b md:border-b-0 md:border-r border-border bg-canvas p-1.5 grid grid-cols-2 gap-1 sm:grid-cols-3 md:flex md:flex-col md:gap-0.5 md:max-h-none">
             {PRESETS.map((p) => (
               <button
                 key={p.id}
@@ -293,7 +293,7 @@ export function DateRangePicker({
                 className={`text-left px-2.5 py-1.5 rounded-md text-[13px] transition ${
                   tempType === "preset" && tempPreset === p.id
                     ? "bg-surface font-medium text-ink shadow-sm border border-border/50"
-                    : "text-muted hover:text-ink hover:bg-surface/50"
+                    : "text-muted hover:text-ink hover:bg-surface"
                 }`}
               >
                 {p.label}

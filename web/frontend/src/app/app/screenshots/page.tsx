@@ -247,7 +247,7 @@ export default function ScreenshotsPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border bg-canvas/30 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                    <tr className="border-b border-border bg-canvas text-[11px] font-semibold uppercase tracking-wide text-muted">
                       <th className="px-5 py-3 text-left w-20">Preview</th>
                       <th className="px-4 py-3 text-left">Project</th>
                       {isAdmin && <th className="px-4 py-3 text-left">Member</th>}
@@ -259,7 +259,7 @@ export default function ScreenshotsPage() {
                   </thead>
                   <tbody className="divide-y divide-border/60">
                     {shots.map((s) => (
-                      <tr key={s.id} className="hover:bg-canvas/40 transition group">
+                      <tr key={s.id} className="hover:bg-canvas transition group">
                         <td className="px-5 py-3">
                           <button
                             onClick={() => s.viewable && setLightbox(s)}

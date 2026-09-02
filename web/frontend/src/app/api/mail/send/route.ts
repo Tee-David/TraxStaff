@@ -37,6 +37,22 @@ const transporter =
       })
     : null;
 
+/**
+ * The `From` header, display name included.
+ *
+ * The bare `process.env.SMTP_USER` fallback this replaces is why sent mail
+ * showed up as "info" in every inbox: with no display name, clients fall back to
+ * the local part of the address. The brand name is defaulted in code rather than
+ * left to `SMTP_FROM` alone so that a missing env var — which is exactly what
+ * happened on this deployment — degrades to the right name instead of a wrong
+ * one.
+ */
+function fromAddress(): string | undefined {
+  if (process.env.SMTP_FROM) return process.env.SMTP_FROM;
+  const user = process.env.SMTP_USER;
+  return user ? `TraxStaff <${user}>` : undefined;
+}
+
 export async function POST(req: NextRequest) {
   const secret = process.env.MAIL_RELAY_SECRET;
   if (!secret) {
@@ -56,7 +72,7 @@ export async function POST(req: NextRequest) {
   const { to, subject, html, text } = parsed.data;
 
   try {
-    await transporter.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to, subject, html, text });
+    await transporter.sendMail({ from: fromAddress(), to, subject, html, text });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(

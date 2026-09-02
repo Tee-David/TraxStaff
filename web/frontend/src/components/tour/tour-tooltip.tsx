@@ -58,7 +58,7 @@ export function TourTooltip({
         </div>
 
         {meta.showEstimate && meta.estimateMinutes && meta.totalStops ? (
-          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-brand/10 px-2.5 py-1 text-[11px] font-semibold text-brand">
+          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-semibold text-brand">
             <Clock3 className="size-3" aria-hidden />~{meta.estimateMinutes} min · {meta.totalStops}{" "}
             stops
           </p>

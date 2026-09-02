@@ -33,7 +33,7 @@ test("a live session with a fresh heartbeat runs to now", () => {
   const s = {
     startedAt: before(mins(7)),
     endedAt: null,
-    device: { lastSeenAt: before(mins(1)) },
+    lastSyncAt: before(mins(1)),
   };
   assert.equal(effectiveEnd(s, NOW).getTime(), NOW.getTime());
   assert.equal(Math.round(grossSeconds(s, NOW)), 420);
@@ -42,7 +42,7 @@ test("a live session with a fresh heartbeat runs to now", () => {
 
 test("a session still inside the grace window is not yet abandoned", () => {
   // Two minutes since the last beat: one missed beat, still trusted.
-  const s = { startedAt: before(mins(30)), endedAt: null, device: { lastSeenAt: before(mins(2)) } };
+  const s = { startedAt: before(mins(30)), endedAt: null, lastSyncAt: before(mins(2)) };
   assert.equal(isAbandoned(s, NOW), false);
   assert.equal(effectiveEnd(s, NOW).getTime(), NOW.getTime());
 });
@@ -51,7 +51,7 @@ test("an abandoned session is pinned to its last evidence, not to now", () => {
   // The reported bug: opened Monday 17:10, machine shut down, reopened Wednesday.
   const startedAt = new Date("2026-08-10T17:10:00.000Z");
   const lastBeat = new Date("2026-08-10T17:22:00.000Z");
-  const s = { startedAt, endedAt: null, device: { lastSeenAt: lastBeat } };
+  const s = { startedAt, endedAt: null, lastSyncAt: lastBeat };
 
   assert.equal(isAbandoned(s, NOW), true);
   assert.equal(effectiveEnd(s, NOW).getTime(), lastBeat.getTime() + STALE_GRACE_MS);
@@ -68,7 +68,6 @@ test("the strongest witness wins, whichever it is", () => {
   const s = {
     startedAt,
     endedAt: null,
-    device: { lastSeenAt: beat },
     lastSyncAt: sync,
     latestBlockEnd: block,
   };
@@ -77,10 +76,10 @@ test("the strongest witness wins, whichever it is", () => {
 });
 
 test("a session that died before its first heartbeat never goes negative", () => {
-  // device.lastSeenAt predates startedAt — a device registered, then the session
-  // began, then the app was killed before it could beat.
+  // The only evidence predates startedAt — a stale value carried over from
+  // before the session began, then the app was killed before it could beat.
   const startedAt = before(hours(30));
-  const s = { startedAt, endedAt: null, device: { lastSeenAt: before(hours(31)) } };
+  const s = { startedAt, endedAt: null, lastSyncAt: before(hours(31)) };
   assert.equal(lastEvidenceAt(s).getTime(), startedAt.getTime());
   assert.ok(grossSeconds(s, NOW) >= 0);
   assert.equal(Math.round(grossSeconds(s, NOW)), STALE_GRACE_MS / 1000);
@@ -89,7 +88,7 @@ test("a session that died before its first heartbeat never goes negative", () =>
 test("a closed session is its own authority and ignores stale evidence", () => {
   const startedAt = before(hours(3));
   const endedAt = before(hours(1));
-  const s = { startedAt, endedAt, device: { lastSeenAt: before(hours(2)) } };
+  const s = { startedAt, endedAt, lastSyncAt: before(hours(2)) };
   assert.equal(effectiveEnd(s, NOW).getTime(), endedAt.getTime());
   assert.equal(Math.round(grossSeconds(s, NOW)), 7200);
   assert.equal(isAbandoned(s, NOW), false);
@@ -147,7 +146,7 @@ test("overlap of an abandoned session is bounded by its evidence", () => {
   const s = {
     startedAt: new Date("2026-08-10T17:10:00.000Z"),
     endedAt: null,
-    device: { lastSeenAt: new Date("2026-08-10T17:22:00.000Z") },
+    lastSyncAt: new Date("2026-08-10T17:22:00.000Z"),
   };
   const todayStart = new Date("2026-08-12T00:00:00.000Z").getTime();
   assert.equal(overlapSeconds(s, todayStart, NOW.getTime(), NOW), 0);
@@ -278,4 +277,39 @@ test("overlapsRange admits a session that began before the window", () => {
     { OR: [{ endedAt: null }, { endedAt: { gte: from } }] },
   ]);
   assert.deepEqual(overlapsRange(undefined, undefined), []);
+});
+
+// ── evidence cannot come from the future ──────────────────────────────────
+
+test("a future-dated block cannot extend a session's evidence", () => {
+  // `blockEnd` is client-supplied and sits INSIDE the hash chain, so a modified
+  // client can hash a block ending next month and have it verify perfectly.
+  // Uncapped, that value flowed through lastEvidenceAt into `endedAt` and minted
+  // 720 hours from a single block — recorded as a clean "stopped".
+  const startedAt = before(mins(30));
+  const s = {
+    startedAt,
+    endedAt: null,
+    lastSyncAt: before(mins(1)),
+    latestBlockEnd: new Date(NOW.getTime() + hours(720)),
+  };
+  assert.equal(lastEvidenceAt(s, NOW).getTime(), NOW.getTime());
+  assert.ok(grossSeconds(s, NOW) <= 30 * 60 + 1);
+});
+
+test("a future lastSyncAt is clamped too", () => {
+  const s = {
+    startedAt: before(mins(10)),
+    endedAt: null,
+    lastSyncAt: new Date(NOW.getTime() + hours(5)),
+  };
+  assert.equal(lastEvidenceAt(s, NOW).getTime(), NOW.getTime());
+});
+
+test("clamping never drags evidence below the session's own start", () => {
+  // A session started moments ago, with a future block. The floor still wins.
+  const startedAt = new Date(NOW.getTime() + mins(1));
+  const s = { startedAt, endedAt: null, latestBlockEnd: new Date(NOW.getTime() + hours(9)) };
+  assert.equal(lastEvidenceAt(s, NOW).getTime(), startedAt.getTime());
+  assert.ok(grossSeconds(s, NOW) >= 0);
 });

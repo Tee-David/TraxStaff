@@ -8,28 +8,10 @@ import {
 import { api, asArray } from "@/lib/api";
 import { DELETED_USER_KEY, type LeaderRow, type PresenceRow, type UnusualFlag, type ByProjectRow, type TimesheetDay } from "@/lib/reports";
 import { Badge, Card, PageHeader, Skeleton, StatTile } from "@/components/ui";
+import FlagBadge from "@/components/FlagBadge";
+import { IconClock, IconFlag, IconTrend, IconUsers } from "@/components/icons";
 import { DateRange, FilterBar, rangeToParams, type DateRangeValue } from "@/components/filters";
 import { formatDurationShort, ownerName } from "@/lib/format";
-
-const FLAG_LABELS: Record<string, string> = {
-  sustained_high_activity: "Sustained high activity",
-  low_variance_robotic: "Robotic / low variance",
-  input_channel_imbalance: "Input channel imbalance",
-  jiggler_process_detected: "Mouse-jiggler detected",
-  clock_skew_detected: "System clock changed",
-  exceeds_elapsed_cap: "Claimed more time than elapsed",
-  block_outside_session_window: "Activity outside session window",
-};
-
-const FLAG_COLORS: Record<string, string> = {
-  sustained_high_activity: "accent",
-  low_variance_robotic: "red",
-  input_channel_imbalance: "red",
-  jiggler_process_detected: "red",
-  clock_skew_detected: "accent",
-  exceeds_elapsed_cap: "red",
-  block_outside_session_window: "accent",
-};
 
 const PROJ_COLORS = ["var(--color-cat-focus)", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b", "#0ea5e9", "#84cc16"];
 
@@ -157,10 +139,10 @@ export default function InsightsPage() {
 
       {/* ── KPI stat row ── */}
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4" data-tour="insights-kpis">
-        <StatTile icon="🟢" tone="teal" label="Online now" value={String(onlineCount)} />
-        <StatTile icon="⏱" tone="brand" label="Tracking now" value={String(trackingCount)} />
-        <StatTile icon="📊" tone="teal" label="Avg activity" value={`${avgActivity}%`} />
-        <StatTile icon="🚨" tone={openFlags > 0 ? "accent" : "muted"} label="Open flags" value={String(openFlags)} />
+        <StatTile icon={<IconUsers width={18} height={18} />} tone="teal" label="Online now" value={String(onlineCount)} />
+        <StatTile icon={<IconClock width={18} height={18} />} tone="brand" label="Tracking now" value={String(trackingCount)} />
+        <StatTile icon={<IconTrend width={18} height={18} />} tone="teal" label="Avg activity" value={`${avgActivity}%`} />
+        <StatTile icon={<IconFlag width={18} height={18} />} tone={openFlags > 0 ? "accent" : "muted"} label="Open flags" value={String(openFlags)} />
       </div>
 
       {loadError && !loading && (
@@ -251,7 +233,7 @@ export default function InsightsPage() {
                       </div>
                       <div className="ml-[2.5rem] h-1 rounded-full bg-canvas overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-brand/60 transition-all duration-700"
+                          className="h-full rounded-full bg-brand transition-all duration-700"
                           style={{ width: `${barPct}%` }}
                         />
                       </div>
@@ -350,15 +332,15 @@ export default function InsightsPage() {
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
 
             {/* Activity% bar chart */}
-            <Card className="p-5">
-              <div className="mb-4 flex items-center justify-between">
+            <Card className="flex flex-col p-5">
+              <div className="mb-4 flex shrink-0 items-center justify-between">
                 <h2 className="font-heading text-base font-semibold">Activity Rate per Member</h2>
                 <span className="text-[11px] text-muted">Avg keyboard + mouse %</span>
               </div>
               {board.length === 0 ? (
                 <p className="text-sm text-muted">No data for this period.</p>
               ) : (
-                <div className="h-52">
+                <div className="min-h-52 flex-1">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={board.slice(0, 10).map((r) => ({ name: r.email.split("@")[0], pct: r.avgActivityPct }))}
@@ -382,7 +364,7 @@ export default function InsightsPage() {
                       />
                       <Bar dataKey="pct" radius={[6, 6, 0, 0]} maxBarSize={40}>
                         {board.slice(0, 10).map((_, i) => (
-                          <Cell key={i} fill={PROJ_COLORS[i % PROJ_COLORS.length]} fillOpacity={0.85} />
+                          <Cell key={i} fill={PROJ_COLORS[i % PROJ_COLORS.length]} />
                         ))}
                       </Bar>
                     </BarChart>
@@ -411,14 +393,12 @@ export default function InsightsPage() {
                     <div
                       key={f.id}
                       className={`flex items-start justify-between gap-3 rounded-xl p-3 transition ${
-                        f.acknowledgedAt ? "opacity-40 bg-canvas/50" : "bg-canvas hover:bg-canvas/80"
+                        f.acknowledgedAt ? "bg-canvas opacity-40" : "bg-canvas hover:bg-border"
                       }`}
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
-                          <Badge tone={(FLAG_COLORS[f.type] as "red" | "accent") ?? "red"} dot={false}>
-                            {FLAG_LABELS[f.type] ?? f.type}
-                          </Badge>
+                          <FlagBadge type={f.type} />
                         </div>
                         {/* A flag hangs off the session, not the member, so it
                             outlives a hard-deleted owner and arrives here with a
@@ -473,7 +453,7 @@ export default function InsightsPage() {
                   const healthTone: "green" | "accent" | "red" | "muted" =
                     activity >= 60 ? "green" : activity >= 35 ? "accent" : activity > 0 ? "red" : "muted";
                   return (
-                    <div key={p.projectId} className="rounded-xl border border-border bg-canvas/40 p-4 hover:bg-canvas transition">
+                    <div key={p.projectId} className="rounded-xl border border-border bg-canvas p-4 transition hover:bg-border">
                       <div className="flex items-start justify-between mb-3">
                         <div className="min-w-0">
                           <div className="text-sm font-semibold truncate">{p.project}</div>

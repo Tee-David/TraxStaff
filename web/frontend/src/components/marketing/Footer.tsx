@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { motion } from "motion/react";
 import { useMotionPresets } from "@/lib/motion";
 import { SUPPORT_EMAIL } from "@/lib/site";
@@ -8,10 +9,12 @@ import { RELEASES_FALLBACK_URL } from "@/lib/releases";
 import { IconMail } from "@/components/icons";
 
 /**
- * Only links to things that actually exist: there is no privacy policy, terms
- * page, or any other legal page in this app yet, so there is no "Legal" column
- * here — and no social icons, since none of those accounts are confirmed to
- * exist. Add both back once they're real.
+ * Only links to things that actually exist: no social icons, since none of
+ * those accounts are confirmed to exist. Add them back once they're real.
+ *
+ * The section links are root-relative (`/#features`, not `#features`) because
+ * this footer is rendered on /policies too, where a bare hash resolves against
+ * that page and jumps nowhere.
  *
  * Sits on the deeper navy so it reads as a distinct band under the download
  * panel rather than one continuous slab.
@@ -20,15 +23,21 @@ import { IconMail } from "@/components/icons";
  * page; there is no interactivity here beyond the links.
  */
 const product = [
-  { href: "#features", label: "Features" },
-  { href: "#transparency", label: "Transparency" },
-  { href: "#download", label: "Download" },
+  { href: "/#features", label: "Features" },
+  { href: "/#transparency", label: "Transparency" },
+  { href: "/#download", label: "Download" },
 ];
 
 const platforms = [
-  { label: "Windows", href: "#download" },
-  { label: "Linux", href: "#download" },
-  { label: "Android", href: "#download" },
+  { label: "Windows", href: "/#download" },
+  { label: "Linux", href: "/#download" },
+  { label: "Android", href: "/#download" },
+];
+
+const legal = [
+  { href: "/policies", label: "Policies" },
+  { href: "/policies#terms", label: "Terms & Conditions" },
+  { href: "/policies#privacy", label: "Privacy Policy" },
 ];
 
 function Column({
@@ -132,10 +141,10 @@ export function Footer({ currentYear }: { currentYear: number }) {
       <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 lg:py-20">
         <motion.div
           {...revealStagger()}
-          className="grid gap-12 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr]"
+          className="grid gap-12 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr_1fr]"
         >
           <motion.div {...revealItem}>
-            <a href="#top" className="flex items-center gap-3" aria-label="TraxStaff — back to top">
+            <a href="/#top" className="flex items-center gap-3" aria-label="TraxStaff — back to top">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/icon-badge.svg" alt="" width={44} height={44} className="h-10 w-10 sm:h-11 sm:w-11" />
               <span className="font-heading text-xl font-bold tracking-[-0.03em] sm:text-[1.375rem]">TraxStaff</span>
@@ -166,6 +175,19 @@ export function Footer({ currentYear }: { currentYear: number }) {
               </li>
             ))}
             <li className="text-sm text-white/35">iOS &mdash; soon</li>
+          </Column>
+
+          <Column title="Legal" item={revealItem}>
+            {legal.map((l) => (
+              <li key={l.href}>
+                <Link
+                  href={l.href}
+                  className="cursor-target inline-block py-1 text-sm text-white/60 transition hover:text-white"
+                >
+                  {l.label}
+                </Link>
+              </li>
+            ))}
           </Column>
 
           <Column title="Contact" item={revealItem}>

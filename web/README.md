@@ -171,6 +171,11 @@ R2_ACCESS_KEY_ID=...
 R2_SECRET_ACCESS_KEY=...
 R2_BUCKET_NAME=trax
 
+# Sign in with Google (optional — unset simply disables the button)
+# The OAuth *client id* only; the ID-token flow uses no client secret.
+# Comma-separated if more than one client (web / desktop / mobile) signs in.
+GOOGLE_CLIENT_ID=<id>.apps.googleusercontent.com
+
 # Mail (optional locally — falls back gracefully if unset)
 SMTP_HOST=... SMTP_PORT=... SMTP_USER=... SMTP_PASSWORD=... SMTP_FROM=...
 # Production only — Render can't send SMTP directly:
@@ -183,7 +188,26 @@ Frontend (`web/frontend/.env.local`):
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:3099
 MAIL_RELAY_SECRET=<same shared secret as the backend>
+# Same OAuth client id as the backend's GOOGLE_CLIENT_ID (a single one, not the
+# comma-separated list). Public by design — an id is not a secret; the backend
+# checks that every ID token was minted for it. Omit to hide the button.
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=<id>.apps.googleusercontent.com
 ```
+
+#### Setting up Google sign-in
+
+In the [Google Cloud console](https://console.cloud.google.com/apis/credentials), under
+**APIs & Services → Credentials → Create credentials → OAuth client ID → Web application**:
+
+- **Authorised JavaScript origins** — every origin that renders the login page:
+  `https://app.traxstaff.com`, `https://traxstaff.com`, and `http://localhost:3000` for dev.
+  Vercel preview deployments each have their own origin and would need adding individually.
+- **Authorised redirect URIs** — none. Google Identity Services returns the ID token to the
+  page that asked for it; there is no callback route to register.
+
+Then put the generated client id in both variables above. Google sign-in does **not** create
+accounts: `POST /auth/google` matches the verified address against an existing user, and an
+address nobody has invited is refused (see `resolveGoogleSignIn` in `src/lib/google.ts`).
 
 ### CockroachDB migrations — read this before running any
 

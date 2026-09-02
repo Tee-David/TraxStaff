@@ -13,6 +13,7 @@ import {
   sanitisePrefs,
   visibleTypes,
 } from "../lib/email-prefs";
+import { googleAuthConfigured, resolveGoogleSignIn, verifyGoogleIdToken } from "../lib/google";
 
 // Tokens must expire. Without a TTL a copied token stays valid forever, and
 // disabling a member has no effect on any session they already hold.
@@ -78,6 +79,12 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+});
+
+const googleSchema = z.object({
+  // The ID token Google Identity Services hands the browser. Named
+  // `credential` because that is what GIS calls it in its callback payload.
+  credential: z.string().min(1),
 });
 
 const inviteSchema = z.object({
@@ -201,6 +208,137 @@ export default async function authRoutes(fastify: FastifyInstance) {
         email: user.email,
         role: user.role,
         isSuperAdmin: user.isSuperAdmin ?? false,
+      },
+    });
+  });
+
+  /**
+   * Sign in with Google.
+   *
+   * Takes the ID token Google Identity Services produced in the browser and, if
+   * it verifies, hands back exactly the same `{ token, user }` payload as
+   * POST /auth/login. Everything downstream — the cookie, the sliding renewal,
+   * role checks — is then identical to a password login, because it *is* one.
+   *
+   * This route never creates an organization. Trax has no self-serve signup on
+   * the web; you are invited into an org or you have no account. So a verified
+   * Google address that nobody has invited is turned away rather than handed a
+   * fresh workspace. See resolveGoogleSignIn for the full rule, including the
+   * one case where this route does write: an invited member completing their
+   * invite with Google instead of setting a password.
+   */
+  fastify.post("/auth/google", async (req, reply) => {
+    const body = googleSchema.parse(req.body);
+
+    if (!googleAuthConfigured) {
+      // 503, not 400: nothing is wrong with the request. The server has simply
+      // not been given GOOGLE_CLIENT_ID, and the caller can do nothing about it.
+      return reply.code(503).send({ error: "Google sign-in is not configured on this server" });
+    }
+
+    const identity = await verifyGoogleIdToken(body.credential);
+    if (!identity) {
+      return reply.code(401).send({ error: "Google sign-in failed. Try again, or use your password." });
+    }
+    // An unverified address proves nothing: it is a string somebody typed into a
+    // Google account, and honouring it would let anyone claim any colleague's
+    // mailbox. Consumer Google accounts are verified; this mainly catches
+    // hand-made Workspace aliases.
+    if (!identity.emailVerified) {
+      return reply.code(401).send({ error: "That Google account has no verified email address." });
+    }
+
+    // Case-insensitive, because addresses were stored however they were typed
+    // into the invite form and Google always reports its own lowercased.
+    //
+    // The second comparison is not redundant. Prisma compiles an `insensitive`
+    // match to ILIKE, in which `_` and `%` are WILDCARDS — and both are legal in
+    // an email local part, so `a_b@x.com` would otherwise also match a row for
+    // `axb@x.com` and sign the wrong person in. The database query stays a broad
+    // filter; this is the exact match.
+    const candidate = await prisma.user.findFirst({
+      where: { email: { equals: identity.email, mode: "insensitive" } },
+      include: { org: { select: { status: true } } },
+    });
+    const user = candidate && candidate.email.toLowerCase() === identity.email ? candidate : null;
+
+    // Scoped by the row's own stored address rather than by another
+    // case-insensitive match, so the wildcard problem above cannot reach the
+    // invite table either: invites are written with the same string the User row
+    // carries (POST /auth/invite upserts both from one value).
+    const liveInvite =
+      user?.status === "invited"
+        ? await prisma.inviteToken.findFirst({
+            where: { email: user.email, acceptedAt: null, expiresAt: { gt: new Date() } },
+            orderBy: { expiresAt: "desc" },
+          })
+        : null;
+
+    const verdict = resolveGoogleSignIn({
+      user: user ? { status: user.status, isSuperAdmin: user.isSuperAdmin ?? false, orgStatus: user.org.status } : null,
+      hasLiveInvite: Boolean(liveInvite),
+    });
+
+    if (verdict.kind === "no-account") {
+      // Deliberately one message for "never invited", "invite lapsed" and
+      // "account disabled". The login screen is unauthenticated, so telling
+      // them apart would let anyone with a Google account probe which
+      // colleagues have Trax accounts and which of those are still enabled.
+      return reply.code(401).send({
+        error: "No active TraxStaff account uses that Google address. Ask your admin for an invite.",
+      });
+    }
+    if (verdict.kind === "suspended") {
+      return reply.code(403).send({
+        error: "This workspace is suspended. Contact your administrator.",
+        code: "org_suspended",
+      });
+    }
+
+    // `user` is non-null for both remaining verdicts — resolveGoogleSignIn only
+    // returns them when a row was found.
+    let account = user!;
+
+    if (verdict.kind === "accept-invite") {
+      account = await prisma.$transaction(async (tx) => {
+        const activated = await tx.user.update({
+          where: { id: account.id },
+          data: {
+            status: "active",
+            // Only fill a name we do not already have — an admin who typed a
+            // preferred name for this member should keep it.
+            ...(account.name ? {} : identity.name ? { name: identity.name } : {}),
+          },
+          include: { org: { select: { status: true } } },
+        });
+        // Burn every outstanding invite for this address, not just the one we
+        // matched, so a second link sitting in the inbox cannot be replayed —
+        // the same rule POST /auth/reset-password applies to reset links.
+        await tx.inviteToken.updateMany({
+          where: { email: account.email, acceptedAt: null },
+          data: { acceptedAt: new Date() },
+        });
+        return activated;
+      });
+      // Not audited, deliberately: accepting an invite through the emailed link
+      // is not audited either (the `member.invited` entry is the record), and an
+      // action that appears in the trail only when it happened to be done with
+      // Google would read as two different events.
+    }
+
+    // Note there is no passwordHash check anywhere above. A member who has only
+    // ever signed in with Google has none, and requiring one would lock out the
+    // exact people this route exists for. The password login route keeps its own
+    // `!user.passwordHash` guard, so a passwordless account still cannot be
+    // signed into with an empty password.
+    const token = fastify.jwt.sign(claimsFor(account), { expiresIn: TOKEN_TTL });
+    return reply.send({
+      token,
+      user: {
+        id: account.id,
+        email: account.email,
+        role: account.role,
+        isSuperAdmin: account.isSuperAdmin ?? false,
       },
     });
   });

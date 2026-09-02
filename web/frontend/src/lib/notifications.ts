@@ -5,7 +5,13 @@
  * they drifted apart when each had its own copy of `describe` — the bell said
  * "Babatope@…: Jiggler process detected" while the page would have said
  * something else for the same row. One definition, used by both.
+ *
+ * The flag labels themselves live in `lib/flags.ts`, next to the plain-language
+ * descriptions the insights page shows on hover, for the same reason: this file
+ * and that page had their own copies and had already drifted by a word.
  */
+import { FLAG_LABELS } from "./flags";
+
 export interface AppNotification {
   id: string;
   type: string;
@@ -13,17 +19,6 @@ export interface AppNotification {
   readAt: string | null;
   createdAt: string;
 }
-
-/** Human labels for the flag types the detector emits (see backend sync.ts). */
-const FLAG_LABELS: Record<string, string> = {
-  sustained_high_activity: "Sustained high activity",
-  low_variance_robotic: "Robotic / low-variance input",
-  input_channel_imbalance: "Input channel imbalance",
-  jiggler_process_detected: "Mouse-jiggler detected",
-  clock_skew_detected: "System clock changed",
-  exceeds_elapsed_cap: "Claimed more time than elapsed",
-  block_outside_session_window: "Activity outside session window",
-};
 
 /** The member a notification is about, as a short name rather than a full address. */
 export function notificationWho(n: AppNotification): string | null {

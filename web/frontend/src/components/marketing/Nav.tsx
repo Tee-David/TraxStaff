@@ -11,11 +11,14 @@ import { IconLogin, IconArrowRight } from "@/components/icons";
 /**
  * Only sections that actually exist on the page — there is no pricing,
  * solutions or customers page to link to, so the nav doesn't pretend there is.
+ *
+ * Root-relative rather than bare hashes: this nav renders on /policies too,
+ * where `#features` would resolve against that page and jump nowhere.
  */
 const links = [
-  { href: "#features", label: "Features" },
-  { href: "#transparency", label: "Transparency" },
-  { href: "#download", label: "Download" },
+  { href: "/#features", label: "Features" },
+  { href: "/#transparency", label: "Transparency" },
+  { href: "/#download", label: "Download" },
 ];
 
 /**
@@ -130,7 +133,7 @@ export function MarketingNav() {
             lifted ? "h-16 px-3.5 sm:h-[4.25rem] sm:px-5" : "h-[4.5rem] px-5 sm:px-8"
           }`}
         >
-        <a href="#top" className="flex items-center gap-2.5" aria-label="TraxStaff — home">
+        <a href="/#top" className="flex items-center gap-2.5" aria-label="TraxStaff — home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/icon-badge.svg" alt="" width={32} height={32} className="h-8 w-8" />
           <span className={`font-heading text-lg font-bold tracking-[-0.03em] transition-colors ${wordmarkTone}`}>

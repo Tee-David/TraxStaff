@@ -19,6 +19,12 @@ const envSchema = z.object({
   // physically sent from the Vercel deployment instead (see lib/mailer.ts).
   MAIL_RELAY_URL: z.string().url().optional(),
   MAIL_RELAY_SECRET: z.string().optional(),
+  // OAuth client id(s) accepted by "Sign in with Google". Comma-separated so
+  // the desktop and mobile apps can be added alongside the web client later.
+  // Only the *id* — the ID-token flow needs no client secret (see lib/google.ts).
+  // Unset simply means Google sign-in is off; POST /auth/google then 503s and
+  // the login page hides the button.
+  GOOGLE_CLIENT_ID: z.string().optional(),
   // Comma-separated addresses that are platform super admins. Only the
   // bootstrap: the first super admin cannot be granted through an API that
   // requires one. See lib/superadmin.ts.

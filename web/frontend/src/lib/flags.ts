@@ -49,7 +49,7 @@ export const FLAGS: Record<FlagType, FlagInfo> = {
   input_channel_imbalance: {
     label: "Input channel imbalance",
     description:
-      "For nearly an hour, one input was busy while the other was almost completely unused — lots of mouse movement with virtually no typing, or the reverse. Most real work uses both.",
+      "For nearly an hour, one input was busy while the other was almost completely unused: lots of mouse movement with virtually no typing, or the reverse. Most real work uses both.",
   },
   jiggler_process_detected: {
     label: "Mouse-jiggler detected",
@@ -69,7 +69,7 @@ export const FLAGS: Record<FlagType, FlagInfo> = {
   block_outside_session_window: {
     label: "Activity outside session window",
     description:
-      "Some tracked time was stamped outside the session it belongs to — before it began, after it ended, or in the future. Timestamps should always land inside the session that produced them.",
+      "Some tracked time was stamped outside the session it belongs to: before it began, after it ended, or in the future. Timestamps should always land inside the session that produced them.",
   },
 };
 

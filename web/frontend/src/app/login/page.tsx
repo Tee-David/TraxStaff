@@ -191,7 +191,7 @@ function LoginForm() {
               disabled={loading}
               className="group flex w-full items-center justify-center gap-2 rounded-lg bg-brand py-2.5 text-sm font-semibold text-brand-fg transition hover:bg-brand-600 disabled:opacity-50"
             >
-              {loading ? "Signing in…" : <>Sign in <span aria-hidden className="transition-transform duration-200 group-hover:translate-x-1">→</span></>}
+              {loading ? "Signing in…" : <>Sign in <span aria-hidden className="transition-transform duration-200 group-hover:translate-x-1">›</span></>}
             </button>
           </form>
         </motion.div>

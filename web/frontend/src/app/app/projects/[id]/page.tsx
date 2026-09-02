@@ -596,8 +596,8 @@ function Board({
                         {t.dueDate && <span className="text-[11px] text-muted">⚑ {formatDate(t.dueDate)}</span>}
                       </div>
                       <div className="mt-2 flex gap-1 border-t border-border/60 pt-2">
-                        <button onClick={() => onMove(t, -1)} disabled={col.key === "todo"} className="rounded px-1.5 text-xs text-muted hover:bg-canvas disabled:opacity-30" aria-label="Move left">←</button>
-                        <button onClick={() => onMove(t, 1)} disabled={col.key === "done"} className="rounded px-1.5 text-xs text-muted hover:bg-canvas disabled:opacity-30" aria-label="Move right">→</button>
+                        <button onClick={() => onMove(t, -1)} disabled={col.key === "todo"} className="rounded px-1.5 text-xs text-muted hover:bg-canvas disabled:opacity-30" aria-label="Move left">‹</button>
+                        <button onClick={() => onMove(t, 1)} disabled={col.key === "done"} className="rounded px-1.5 text-xs text-muted hover:bg-canvas disabled:opacity-30" aria-label="Move right">›</button>
                       </div>
                     </motion.div>
                   ))}

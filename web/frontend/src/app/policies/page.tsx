@@ -30,7 +30,7 @@ const JURISDICTION = "the Federal Republic of Nigeria";
 const LAST_UPDATED = "2 September 2026";
 
 export const metadata: Metadata = {
-  title: "Policies — TraxStaff",
+  title: "Policies · TraxStaff",
   description:
     "The terms you agree to when you use TraxStaff, and exactly what the apps record, what they never record, and who can see it.",
   alternates: { canonical: "/policies" },
@@ -196,8 +196,8 @@ export default function PoliciesPage() {
             <H2 id="terms">Terms &amp; Conditions</H2>
             <P>
               These terms are a contract between {LEGAL_ENTITY} (&ldquo;we&rdquo;,
-              &ldquo;us&rdquo;, TraxStaff) and whoever uses TraxStaff &mdash; both
-              the organisation that signs up and each person who signs in. Using
+              &ldquo;us&rdquo;, TraxStaff) and whoever uses TraxStaff: both the
+              organisation that signs up and each person who signs in. Using
               the apps or the dashboard means you accept them.
             </P>
 
@@ -242,8 +242,8 @@ export default function PoliciesPage() {
                 their organisation.
               </LI>
               <LI>
-                We may suspend an account or a whole workspace where we have to
-                &mdash; unpaid fees, a security problem, or a use of the service
+                We may suspend an account or a whole workspace where we have to:
+                unpaid fees, a security problem, or a use of the service
                 that breaks section 5.
               </LI>
             </UL>
@@ -283,7 +283,7 @@ export default function PoliciesPage() {
             <P>
               You agree to indemnify us against claims brought by your staff
               arising from your failure to do the above. We cannot advise you on
-              employment or data-protection law in your country &mdash; get your
+              employment or data-protection law in your country; get your
               own advice before you roll TraxStaff out.
             </P>
 
@@ -301,7 +301,7 @@ export default function PoliciesPage() {
               </LI>
               <LI>
                 Tamper with the tracking data, the app, or the record of how
-                time was captured &mdash; or attempt to defeat the
+                time was captured, or attempt to defeat the
                 tamper-evidence that makes those records worth anything.
               </LI>
               <LI>
@@ -332,8 +332,7 @@ export default function PoliciesPage() {
 
             <H3 id="t-ip">8. Ownership</H3>
             <P>
-              We own TraxStaff &mdash; the software, the brand and everything in
-              it. You own your data: the time records, screenshots, project
+              We own TraxStaff: the software, the brand and everything in it. You own your data: the time records, screenshots, project
               names and everything else your organisation puts in or generates.
               You grant us only the permission we need to host, process and show
               that data back to you, and to keep backups of it.
@@ -344,8 +343,8 @@ export default function PoliciesPage() {
               An organisation can stop using TraxStaff at any time. We can end
               the agreement for a material breach of these terms that is not put
               right within 30 days of us asking. On termination, access stops
-              and your data is deleted on the schedule in section 18 &mdash;
-              export anything you need before you go.
+              and your data is deleted on the schedule in section 18; export
+              anything you need before you go.
             </P>
 
             <H3 id="t-liability">10. Disclaimers and liability</H3>
@@ -364,7 +363,7 @@ export default function PoliciesPage() {
               brought by your staff. Our total liability for any claim is capped
               at what your organisation paid us in the twelve months before it
               arose. Nothing here excludes liability that cannot legally be
-              excluded &mdash; including for death or personal injury caused by
+              excluded, including for death or personal injury caused by
               negligence, or for fraud.
             </P>
 
@@ -391,7 +390,7 @@ export default function PoliciesPage() {
               and we hold it on their behalf. In GDPR terms they are the
               controller and we are the processor. Questions about why you are
               being monitored, or requests to delete your tracking history, go
-              to your employer first &mdash; we cannot overrule them about their
+              to your employer first; we cannot overrule them about their
               own organisation&rsquo;s data.
             </P>
             <P>
@@ -402,8 +401,8 @@ export default function PoliciesPage() {
             <H3 id="p-collect">13. What we record</H3>
             <P>
               <Strong>Account information.</Strong> Your name, email address,
-              your role in the organisation, and a password hash &mdash; or, if
-              you sign in with Google, no password at all.
+              your role in the organisation, and a password hash. If you sign in
+              with Google, there is no password at all.
             </P>
             <P>
               <Strong>While the desktop tracker is running,</Strong> and only
@@ -416,19 +415,19 @@ export default function PoliciesPage() {
                 turns blurring on.
               </LI>
               <LI>
-                <Strong>Activity level</Strong> &mdash; how often the keyboard
+                <Strong>Activity level:</Strong> how often the keyboard
                 and mouse are used. Timing and intensity only.
               </LI>
               <LI>
-                <Strong>Apps and sites</Strong> &mdash; the names of the
+                <Strong>Apps and sites:</Strong> the names of the
                 applications you use and the domains of the sites you visit.
               </LI>
               <LI>
-                <Strong>Device</Strong> &mdash; an identifier for the machine,
+                <Strong>Device:</Strong> an identifier for the machine,
                 so tracked time is attributed to the right one.
               </LI>
               <LI>
-                <Strong>Time records</Strong> &mdash; when sessions started and
+                <Strong>Time records:</Strong> when sessions started and
                 stopped, against which project and task, and the integrity
                 information used to detect whether a record was altered
                 afterwards.
@@ -438,9 +437,9 @@ export default function PoliciesPage() {
               <Strong>On mobile,</Strong> only the time records. See section 14.
             </P>
             <P>
-              <Strong>Technical information.</Strong> Ordinary server logs
-              &mdash; IP address, app version, timestamps &mdash; kept for
-              security and debugging.
+              <Strong>Technical information.</Strong> Ordinary server logs (IP
+              address, app version, timestamps), kept for security and
+              debugging.
             </P>
 
             <H3 id="p-never">14. What we never record</H3>
@@ -482,8 +481,8 @@ export default function PoliciesPage() {
             <P>
               We ask for no other permission. We cannot read your Gmail, your
               contacts, your calendar or your files, and we never receive your
-              Google password. Signing in with Google creates nothing on its own
-              &mdash; if nobody has invited your address, there is no account
+              Google password. Signing in with Google creates nothing on its own;
+              if nobody has invited your address, there is no account
               for it to reach. You can revoke our access at any time from your
               Google account&rsquo;s security settings and go back to using a
               password.
@@ -492,7 +491,7 @@ export default function PoliciesPage() {
             <H3 id="p-use">16. How we use it</H3>
             <UL>
               <LI>
-                To run the service &mdash; showing your organisation the
+                To run the service: showing your organisation the
                 reports, screenshots and activity it configured.
               </LI>
               <LI>
@@ -512,30 +511,30 @@ export default function PoliciesPage() {
             </P>
             <UL>
               <LI>
-                <Strong>Cockroach Labs</Strong> &mdash; the database holding
+                <Strong>Cockroach Labs:</Strong> the database holding
                 accounts, projects and time records.
               </LI>
               <LI>
-                <Strong>Cloudflare</Strong> &mdash; object storage for
+                <Strong>Cloudflare:</Strong> object storage for
                 screenshots.
               </LI>
               <LI>
-                <Strong>Render</Strong> and <Strong>Vercel</Strong> &mdash;
+                <Strong>Render</Strong> and <Strong>Vercel:</Strong>
                 hosting for the API and the web dashboard.
               </LI>
               <LI>
-                <Strong>Our email provider</Strong> &mdash; delivery of
+                <Strong>Our email provider:</Strong> delivery of
                 invitations, resets and digests.
               </LI>
               <LI>
-                <Strong>Google</Strong> &mdash; only if you choose to sign in
+                <Strong>Google:</Strong> only if you choose to sign in
                 with Google.
               </LI>
             </UL>
             <P>
               Beyond those, we share data only where the law requires it, or
               where a business transfer means someone else takes over running
-              the service &mdash; in which case this policy travels with it.
+              the service, in which case this policy travels with it.
             </P>
             <P>
               These providers run in data centres outside your country, so your
@@ -547,21 +546,21 @@ export default function PoliciesPage() {
             <H3 id="p-retention">18. How long we keep it</H3>
             <UL>
               <LI>
-                <Strong>Screenshots</Strong> &mdash; for the retention period
+                <Strong>Screenshots:</Strong> for the retention period
                 your organisation sets, then deleted. An administrator can
                 delete any screenshot immediately.
               </LI>
               <LI>
-                <Strong>Time records and reports</Strong> &mdash; for as long as
+                <Strong>Time records and reports:</Strong> for as long as
                 your organisation&rsquo;s account is open, since they are the
                 record of work done.
               </LI>
               <LI>
-                <Strong>Account information</Strong> &mdash; until the account
+                <Strong>Account information:</Strong> until the account
                 is removed.
               </LI>
               <LI>
-                <Strong>Server logs</Strong> &mdash; a short rolling window,
+                <Strong>Server logs:</Strong> a short rolling window,
                 then discarded.
               </LI>
             </UL>
@@ -577,8 +576,8 @@ export default function PoliciesPage() {
               never in plain text. Sessions expire, and disabling an account
               revokes access at the next request rather than whenever its
               session happens to run out. Every ordinary page in the dashboard
-              defaults every role &mdash; administrators included &mdash; to
-              seeing only their own data; organisation-wide visibility is opt-in
+              defaults every role, administrators included, to seeing only their
+              own data; organisation-wide visibility is opt-in
               and confined to the admin pages that exist for it.
             </P>
             <P>
@@ -594,7 +593,7 @@ export default function PoliciesPage() {
             </P>
             <Callout>
               If you are a member of an organisation, exercise these rights with
-              your employer &mdash; they control your tracking data. Contact us
+              your employer; they control your tracking data. Contact us
               at <MailLink /> if they do not respond, or if your request is
               about data we hold as controller, such as the newsletter.
             </Callout>
@@ -626,7 +625,7 @@ export default function PoliciesPage() {
 
             <div className="mt-16 border-t border-border pt-8">
               <Link href="/" className="text-sm font-medium text-accent underline underline-offset-2">
-                &larr; Back to traxstaff.com
+                &lsaquo; Back to traxstaff.com
               </Link>
             </div>
           </article>

@@ -546,7 +546,7 @@ export default function ProjectsPage() {
           onClick={() => setTab("active")}
           className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-muted hover:text-ink transition"
         >
-          &larr; Back to active projects
+          &lsaquo; Back to active projects
         </button>
       )}
 

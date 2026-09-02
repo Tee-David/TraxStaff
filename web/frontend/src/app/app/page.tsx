@@ -427,7 +427,7 @@ export default function DashboardPage() {
                 </thead>
                 <tbody>
                   {week.slice(0, 8).map((s) => (
-                    <tr key={s.id} className="border-b border-border/60 transition last:border-0 hover:bg-canvas/60">
+                    <tr key={s.id} className="border-b border-border/60 transition last:border-0 hover:bg-canvas">
                       <td className="px-5 py-3 font-medium">
                         {s.project.name}
                         {s.task && <span className="ml-2 text-xs text-muted">{s.task.title}</span>}

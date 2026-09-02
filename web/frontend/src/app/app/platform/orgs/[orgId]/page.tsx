@@ -147,7 +147,7 @@ export default function PlatformOrgDetailPage() {
   if (loading) return <Skeleton className="h-64 w-full" />;
   if (!data) {
     return (
-      <Card className="border-[var(--color-negative)]/30 bg-[var(--color-negative)]/5 p-4 text-sm text-[var(--color-negative)]">
+      <Card className="border-[var(--color-negative)]/30 bg-[var(--color-negative-soft)] p-4 text-sm text-[var(--color-negative)]">
         {error ?? "Not found"}
       </Card>
     );
@@ -174,7 +174,7 @@ export default function PlatformOrgDetailPage() {
       />
 
       {suspended && (
-        <Card className="border-[var(--color-negative)]/30 bg-[var(--color-negative)]/5 p-4">
+        <Card className="border-[var(--color-negative)]/30 bg-[var(--color-negative-soft)] p-4">
           <div className="text-sm font-semibold text-[var(--color-negative)]">
             This workspace is suspended
           </div>
@@ -184,12 +184,12 @@ export default function PlatformOrgDetailPage() {
         </Card>
       )}
       {error && (
-        <Card className="border-[var(--color-negative)]/30 bg-[var(--color-negative)]/5 p-4 text-sm text-[var(--color-negative)]">
+        <Card className="border-[var(--color-negative)]/30 bg-[var(--color-negative-soft)] p-4 text-sm text-[var(--color-negative)]">
           {error}
         </Card>
       )}
       {notice && (
-        <Card className="border-[var(--color-positive)]/30 bg-[var(--color-positive)]/5 p-4 text-sm text-[var(--color-positive)]">
+        <Card className="border-[var(--color-positive)]/30 bg-[var(--color-positive-soft)] p-4 text-sm text-[var(--color-positive)]">
           {notice}
         </Card>
       )}

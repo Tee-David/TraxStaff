@@ -107,7 +107,7 @@ export function StepWho({
                     onClick={() => update({ many, userId: "", userIds: [] })}
                     className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
                       state.many === many
-                        ? "border-brand bg-brand/10 text-brand"
+                        ? "border-brand bg-brand-soft text-brand"
                         : "border-border text-muted hover:bg-canvas"
                     }`}
                   >
@@ -143,7 +143,7 @@ export function StepWho({
                       <label
                         key={m.id}
                         className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm transition ${
-                          on ? "bg-brand/5" : "hover:bg-canvas"
+                          on ? "bg-brand-soft" : "hover:bg-canvas"
                         }`}
                       >
                         <input type="checkbox" checked={on} onChange={() => toggleMember(m.id)} />

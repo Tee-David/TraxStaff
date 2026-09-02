@@ -350,7 +350,7 @@ export function AddTimeDialog({
             )}
 
             {error && (
-              <p className="mt-4 rounded-lg bg-[var(--color-negative)]/10 px-3 py-2.5 text-[13px] text-[var(--color-negative)]">
+              <p className="mt-4 rounded-lg bg-[var(--color-negative-soft)] px-3 py-2.5 text-[13px] text-[var(--color-negative)]">
                 {error}
               </p>
             )}

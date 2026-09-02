@@ -10,8 +10,8 @@ import { Select } from "@/components/Select";
 import { formatDate } from "@/lib/format";
 
 const ROLE_CONFIG = {
-  owner: { label: "Owner", bg: "bg-brand/10", text: "text-brand", dot: "#000065" },
-  admin: { label: "Admin", bg: "bg-accent/10", text: "text-accent", dot: "#ff6600" },
+  owner: { label: "Owner", bg: "bg-brand-soft", text: "text-brand", dot: "#000065" },
+  admin: { label: "Admin", bg: "bg-accent-soft", text: "text-accent", dot: "#ff6600" },
   member: { label: "Member", bg: "bg-border", text: "text-muted", dot: "var(--color-faint)" },
 } as const;
 
@@ -523,7 +523,7 @@ export default function MembersPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border/60 bg-canvas/30 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                    <tr className="border-b border-border/60 bg-canvas text-[11px] font-semibold uppercase tracking-wide text-muted">
                       <th className="px-6 py-3 text-left">User</th>
                       <th className="px-4 py-3 text-left w-24">Status</th>
                       <th className="px-4 py-3 text-left hidden sm:table-cell w-44">Email</th>
@@ -534,7 +534,7 @@ export default function MembersPage() {
                   </thead>
                   <tbody className="divide-y divide-border/60">
                     {active.map((m) => (
-                      <tr key={m.id} className="hover:bg-canvas/40 transition group">
+                      <tr key={m.id} className="hover:bg-canvas transition group">
                         {/* User */}
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
@@ -612,14 +612,14 @@ export default function MembersPage() {
               <div className="border-b border-border px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <h2 className="font-heading text-[14px] font-semibold text-ink">Pending invitations</h2>
-                  <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-accent/10 text-[11px] font-bold text-accent">{pending.length}</span>
+                  <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-accent-soft text-[11px] font-bold text-accent">{pending.length}</span>
                 </div>
                 <span className="text-[12px] text-muted">Awaiting acceptance</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border/60 bg-canvas/30 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                    <tr className="border-b border-border/60 bg-canvas text-[11px] font-semibold uppercase tracking-wide text-muted">
                       <th className="px-6 py-3 text-left">User</th>
                       <th className="px-4 py-3 text-left hidden sm:table-cell">Email</th>
                       <th className="px-4 py-3 text-left hidden md:table-cell w-32">Invited</th>
@@ -629,7 +629,7 @@ export default function MembersPage() {
                   </thead>
                   <tbody className="divide-y divide-border/60">
                     {pending.map((m) => (
-                      <tr key={m.id} className="hover:bg-canvas/40 transition">
+                      <tr key={m.id} className="hover:bg-canvas transition">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
                             <MemberAvatar email={displayEmail(m)} disabled />

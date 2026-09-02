@@ -489,7 +489,7 @@ function ListsTable({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] text-left border-collapse">
           <thead>
-            <tr className="border-b border-border/80 bg-canvas/30 text-[11px] font-semibold uppercase tracking-wide text-faint">
+            <tr className="border-b border-border/80 bg-canvas text-[11px] font-semibold uppercase tracking-wide text-faint">
               <th className="w-10 px-5 py-3" />
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3 w-32">Start</th>
@@ -503,7 +503,7 @@ function ListsTable({
             {tasks.map((t) => {
               const pct = statusProgressPct(t.status);
               return (
-                <tr key={t.id} className="border-b border-border/60 last:border-0 hover:bg-canvas/40 transition">
+                <tr key={t.id} className="border-b border-border/60 last:border-0 hover:bg-canvas transition">
                   <td className="px-5 py-3">
                     <input
                       type="checkbox"

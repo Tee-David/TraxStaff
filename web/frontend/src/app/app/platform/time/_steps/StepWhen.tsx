@@ -56,7 +56,7 @@ export function StepWhen({
               onClick={() => update({ mode: value })}
               className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
                 state.mode === value
-                  ? "border-brand bg-brand/10 text-brand"
+                  ? "border-brand bg-brand-soft text-brand"
                   : "border-border text-muted hover:bg-canvas"
               }`}
             >
@@ -117,7 +117,7 @@ export function StepWhen({
                       }
                       className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
                         on
-                          ? "border-brand bg-brand/10 text-brand"
+                          ? "border-brand bg-brand-soft text-brand"
                           : "border-border text-muted hover:bg-canvas"
                       }`}
                     >
@@ -199,7 +199,7 @@ export function StepWhen({
 
       {/* ── the destructive one, on its own ────────────────────────────── */}
       {canReplaceCaptured && (
-        <label className="mt-4 flex max-w-2xl cursor-pointer items-start gap-3 rounded-lg border border-[var(--color-negative)]/40 bg-[var(--color-negative)]/5 p-3">
+        <label className="mt-4 flex max-w-2xl cursor-pointer items-start gap-3 rounded-lg border border-[var(--color-negative)]/40 bg-[var(--color-negative-soft)] p-3">
           <input
             type="checkbox"
             checked={state.replaceCaptured}

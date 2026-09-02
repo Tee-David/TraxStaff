@@ -504,7 +504,7 @@ const FLAG_LABELS: Record<string, string> = {
   jiggler_process_detected: "Mouse-jiggler detected",
   clock_skew_detected: "System clock changed",
   exceeds_elapsed_cap: "Claimed more time than elapsed",
-  block_outside_session_window: "Activity outside session window",
+  block_outside_session_window: "Time recorded outside the session",
 };
 
 export type FlagRow = { member: string; type: string };

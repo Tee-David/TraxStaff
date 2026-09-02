@@ -64,12 +64,12 @@ export const FLAGS: Record<FlagType, FlagInfo> = {
   exceeds_elapsed_cap: {
     label: "Claimed more time than elapsed",
     description:
-      "The app reported more worked time than has actually passed on our own server clock since the session started. Time cannot be created, so more was sent than the session could possibly contain.",
+      "The tracker app reported more worked time for this session than has actually passed since the session started, measured on our own server clock rather than the device's. This looks only at time the tracker itself recorded; hours an admin or owner adds by hand are never counted here, so approving manual time cannot cause this flag. The usual innocent causes are a device clock that is wrong, or the same stretch of time being sent twice after a failed upload was retried.",
   },
   block_outside_session_window: {
-    label: "Activity outside session window",
+    label: "Time recorded outside the session",
     description:
-      "Some tracked time was stamped outside the session it belongs to: before it began, after it ended, or in the future. Timestamps should always land inside the session that produced them.",
+      "Every session runs between a start time and a stop time, and all the time it records should fall between those two. Here some of it did not: the tracker sent time stamped from before this session started, from after it had already stopped, or from a moment that has not happened yet. Almost always this means the clock on that computer is set wrong.",
   },
 };
 

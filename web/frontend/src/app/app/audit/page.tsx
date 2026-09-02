@@ -199,7 +199,7 @@ export default function AuditLogPage() {
           <div className="hidden overflow-x-auto sm:block">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border/60 bg-canvas/30 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                <tr className="border-b border-border/60 bg-canvas text-[11px] font-semibold uppercase tracking-wide text-muted">
                   <th className="px-5 py-3 text-left">Action</th>
                   <th className="px-4 py-3 text-left">Who</th>
                   <th className="px-4 py-3 text-left">Target</th>
@@ -214,7 +214,7 @@ export default function AuditLogPage() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ duration: 0.15, delay: Math.min(i, 10) * 0.015 }}
-                    className="transition hover:bg-canvas/40"
+                    className="transition hover:bg-canvas"
                   >
                     <td className="px-5 py-3">
                       <Badge tone={actionTone(r.action)}>{actionLabel(r.action)}</Badge>

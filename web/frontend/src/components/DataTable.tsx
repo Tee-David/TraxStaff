@@ -83,7 +83,7 @@ export function DataTable<T>({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="flex items-center justify-between gap-3 border-b border-border bg-brand/5 px-5 py-2.5"
+            className="flex items-center justify-between gap-3 border-b border-border bg-brand-soft px-5 py-2.5"
           >
             <span className="text-sm font-medium text-brand">{selected.size} selected</span>
             <div className="flex items-center gap-2">
@@ -122,7 +122,7 @@ export function DataTable<T>({
             {pageRows.map((row) => {
               const id = rowId(row);
               return (
-                <tr key={id} className={`border-b border-border/60 transition last:border-0 hover:bg-canvas/60 ${selected.has(id) ? "bg-brand/5" : ""}`}>
+                <tr key={id} className={`border-b border-border/60 transition last:border-0 hover:bg-canvas ${selected.has(id) ? "bg-brand-soft" : ""}`}>
                   {selectable && (
                     <td className="px-5 py-3">
                       <input type="checkbox" checked={selected.has(id)} onChange={() => toggle(id)} className="accent-brand" aria-label="Select row" />

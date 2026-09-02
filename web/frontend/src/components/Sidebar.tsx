@@ -115,7 +115,7 @@ export function Sidebar({
         data-tour={`nav-${item.tourId}`}
         className={`relative flex items-center rounded-xl text-sm font-medium transition ${
           collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5"
-        } ${on ? "bg-brand/10 text-brand" : "text-muted hover:bg-canvas hover:text-ink"}`}
+        } ${on ? "bg-brand-soft text-brand" : "text-muted hover:bg-canvas hover:text-ink"}`}
       >
         <Icon className={on ? "text-brand" : "text-faint"} />
         {!collapsed && <span className="flex-1">{item.label}</span>}
@@ -219,7 +219,7 @@ export function Sidebar({
                     title={collapsed ? i.label : undefined}
                     className={`relative flex items-center rounded-xl text-sm font-medium transition ${
                       collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5"
-                    } ${on ? "bg-accent/10 text-accent" : "text-muted hover:bg-canvas hover:text-ink"}`}
+                    } ${on ? "bg-accent-soft text-accent" : "text-muted hover:bg-canvas hover:text-ink"}`}
                   >
                     <Icon className={on ? "text-accent" : "text-faint"} />
                     {!collapsed && <span className="flex-1">{i.label}</span>}
@@ -283,7 +283,7 @@ export function Sidebar({
 
       {/* User */}
       <div className={`flex items-center border-t border-border ${collapsed ? "justify-center px-2 py-3.5" : "gap-3 px-4 py-3.5"}`}>
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-sm font-semibold uppercase text-brand">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-sm font-semibold uppercase text-brand">
           {(user.name?.trim() || user.email).slice(0, 1)}
         </span>
         {!collapsed && (

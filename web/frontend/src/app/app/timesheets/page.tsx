@@ -242,7 +242,7 @@ export default function TimesheetsPage() {
               {v.id === "approvals" && pending.length > 0 && (
                 <span
                   className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${
-                    view === v.id ? "bg-white/20" : "bg-accent/15 text-accent"
+                    view === v.id ? "bg-white/20" : "bg-accent-soft text-accent"
                   }`}
                 >
                   {pending.length}

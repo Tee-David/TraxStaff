@@ -26,7 +26,7 @@ function ProfileMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void 
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Account"
-        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-brand/10 text-sm font-semibold text-brand ring-offset-2 ring-offset-surface transition hover:ring-2 hover:ring-brand/30"
+        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-brand-soft text-sm font-semibold text-brand ring-offset-2 ring-offset-surface transition hover:ring-2 hover:ring-brand/30"
       >
         {avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -40,7 +40,7 @@ function ProfileMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void 
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-11 z-50 w-56 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-lift">
             <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand/10 text-sm font-semibold uppercase text-brand">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-soft text-sm font-semibold uppercase text-brand">
                 {avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
@@ -141,7 +141,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar */}
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-surface/80 px-4 py-3 backdrop-blur lg:px-8">
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-surface px-4 py-3 backdrop-blur lg:px-8">
           <div className="flex items-center gap-3">
             <button
               className="rounded-lg p-1.5 text-xl hover:bg-canvas lg:hidden"

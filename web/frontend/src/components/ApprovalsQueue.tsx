@@ -149,7 +149,7 @@ export function ApprovalsQueue({
   return (
     <div className="space-y-3">
       {error && (
-        <p className="rounded-lg bg-[var(--color-negative)]/10 px-3 py-2.5 text-[13px] text-[var(--color-negative)]">
+        <p className="rounded-lg bg-[var(--color-negative-soft)] px-3 py-2.5 text-[13px] text-[var(--color-negative)]">
           {error}
         </p>
       )}

@@ -139,12 +139,12 @@ export function TourIcon({
 
   return (
     <span
-      className={`relative grid size-9 shrink-0 place-items-center rounded-full bg-brand/10 text-brand ${className ?? ""}`}
+      className={`relative grid size-9 shrink-0 place-items-center rounded-full bg-brand-soft text-brand ${className ?? ""}`}
     >
       {!reduced && (
         <motion.span
           aria-hidden
-          className="absolute inset-0 rounded-full bg-brand/10"
+          className="absolute inset-0 rounded-full bg-brand-soft"
           animate={{ scale: [1, 1.3, 1], opacity: [0.55, 0, 0.55] }}
           transition={{ duration: 3, repeat: Infinity, ease: "easeOut" }}
         />

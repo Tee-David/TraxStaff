@@ -113,7 +113,7 @@ export default function NotificationsPage() {
               onClick={() => setUnreadOnly((v) => !v)}
               className={`rounded-xl border px-3.5 py-2 text-sm font-medium transition ${
                 unreadOnly
-                  ? "border-brand bg-brand/10 text-brand"
+                  ? "border-brand bg-brand-soft text-brand"
                   : "border-border text-muted hover:bg-canvas hover:text-ink"
               }`}
             >
@@ -164,7 +164,7 @@ export default function NotificationsPage() {
                     animate={{ opacity: 1 }}
                     transition={{ duration: 0.15, delay: Math.min(i, 10) * 0.015 }}
                     className={`flex items-start gap-3 px-4 py-3.5 transition sm:px-5 ${
-                      n.readAt ? "opacity-55" : "bg-canvas/40"
+                      n.readAt ? "opacity-55" : "bg-canvas"
                     }`}
                   >
                     <span

@@ -162,7 +162,7 @@ export function StepReview({
       </p>
 
       {error && (
-        <Card className="mt-4 border-[var(--color-negative)]/30 bg-[var(--color-negative)]/5 p-4 text-sm text-[var(--color-negative)]">
+        <Card className="mt-4 border-[var(--color-negative)]/30 bg-[var(--color-negative-soft)] p-4 text-sm text-[var(--color-negative)]">
           {error}
         </Card>
       )}

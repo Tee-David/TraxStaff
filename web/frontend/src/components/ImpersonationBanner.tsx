@@ -83,7 +83,7 @@ export function ImpersonationBanner() {
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--color-negative)]/30 bg-[var(--color-negative)]/10 px-4 py-2 text-sm lg:px-8">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--color-negative)]/30 bg-[var(--color-negative-soft)] px-4 py-2 text-sm lg:px-8">
       <div className="flex min-w-0 items-center gap-2">
         <svg
           viewBox="0 0 24 24"
@@ -102,7 +102,7 @@ export function ImpersonationBanner() {
       </div>
       <button
         onClick={stop}
-        className="shrink-0 rounded-lg border border-[var(--color-negative)]/40 px-3 py-1 text-xs font-semibold text-[var(--color-negative)] transition hover:bg-[var(--color-negative)]/10"
+        className="shrink-0 rounded-lg border border-[var(--color-negative)]/40 px-3 py-1 text-xs font-semibold text-[var(--color-negative)] transition hover:bg-[var(--color-negative-soft)]"
       >
         Return to platform
       </button>

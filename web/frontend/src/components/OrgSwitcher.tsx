@@ -89,7 +89,7 @@ export function OrgSwitcher({
             : "px-3 py-1.5"
         } ${
           elsewhere
-            ? "border-accent/40 bg-accent/10 text-accent"
+            ? "border-accent/40 bg-accent-soft text-accent"
             : "border-border bg-surface text-muted hover:bg-canvas"
         }`}
         aria-label="Switch organization"
@@ -159,7 +159,7 @@ export function OrgSwitcher({
                 <span className="min-w-0 flex-1 truncate">
                   {o.name}
                   {o.status === "suspended" && (
-                    <span className="ml-2 rounded bg-[var(--color-negative)]/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-negative)]">
+                    <span className="ml-2 rounded bg-[var(--color-negative-soft)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-negative)]">
                       Suspended
                     </span>
                   )}
@@ -192,7 +192,7 @@ export function ActingOrgBanner() {
   if (!user?.isSuperAdmin || !orgId) return null;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-accent/30 bg-accent/10 px-4 py-2 text-sm lg:px-8">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-accent/30 bg-accent-soft px-4 py-2 text-sm lg:px-8">
       <div className="flex min-w-0 items-center gap-2">
         <span className="relative flex h-2 w-2 shrink-0">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
@@ -205,7 +205,7 @@ export function ActingOrgBanner() {
       </div>
       <button
         onClick={() => switchTo(null)}
-        className="shrink-0 rounded-lg border border-accent/40 px-3 py-1 text-xs font-semibold text-accent transition hover:bg-accent/10"
+        className="shrink-0 rounded-lg border border-accent/40 px-3 py-1 text-xs font-semibold text-accent transition hover:bg-accent-soft"
       >
         Return to your organization
       </button>

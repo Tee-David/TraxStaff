@@ -49,7 +49,7 @@ export function WizardSteps({
         aria-current={active ? "step" : undefined}
         className={`flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition ${
           active
-            ? "bg-brand/10 text-brand"
+            ? "bg-brand-soft text-brand"
             : reachable
               ? "text-muted hover:bg-canvas hover:text-ink"
               : "cursor-default text-faint"
@@ -91,7 +91,7 @@ export function WizardSteps({
               aria-current={i === current ? "step" : undefined}
               className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-medium transition ${
                 i === current
-                  ? "bg-brand/10 text-brand"
+                  ? "bg-brand-soft text-brand"
                   : reachable
                     ? "text-muted hover:bg-canvas"
                     : "cursor-default text-faint"

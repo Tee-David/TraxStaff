@@ -84,12 +84,12 @@ export default function PlatformLogPage() {
       />
 
       {error && (
-        <Card className="border-[var(--color-negative)]/30 bg-[var(--color-negative)]/5 p-4 text-sm text-[var(--color-negative)]">
+        <Card className="border-[var(--color-negative)]/30 bg-[var(--color-negative-soft)] p-4 text-sm text-[var(--color-negative)]">
           {error}
         </Card>
       )}
       {notice && (
-        <Card className="border-[var(--color-positive)]/30 bg-[var(--color-positive)]/5 p-4 text-sm text-[var(--color-positive)]">
+        <Card className="border-[var(--color-positive)]/30 bg-[var(--color-positive-soft)] p-4 text-sm text-[var(--color-positive)]">
           {notice}
         </Card>
       )}

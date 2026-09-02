@@ -184,7 +184,7 @@ export function PlanPreview({ plan }: { plan: TimePlanResponse }) {
       </Card>
 
       {superseded.length > 0 && (
-        <Card className="border-[var(--color-negative)]/40 bg-[var(--color-negative)]/5 p-5">
+        <Card className="border-[var(--color-negative)]/40 bg-[var(--color-negative-soft)] p-5">
           <h3 className="font-heading text-base font-semibold text-[var(--color-negative)]">
             {plan.written ? "Deleted" : "Will be deleted"} — {superseded.length}{" "}
             {superseded.length === 1 ? "session" : "sessions"},{" "}

@@ -43,7 +43,7 @@ export function StepIntent({
             >
               <Card
                 className={`h-full p-4 transition ${
-                  on ? "border-brand bg-brand/5 ring-1 ring-brand/30" : "hover:border-brand/40"
+                  on ? "border-brand bg-brand-soft ring-1 ring-brand/30" : "hover:border-brand/40"
                 }`}
               >
                 <div className={`text-sm font-semibold ${on ? "text-brand" : "text-ink"}`}>

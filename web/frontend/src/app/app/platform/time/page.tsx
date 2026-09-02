@@ -154,7 +154,7 @@ export default function PlatformTimePage() {
     return (
       <div className="space-y-6">
         <PageHeader title="Time &amp; activity" />
-        <Card className="border-[var(--color-positive)]/30 bg-[var(--color-positive)]/5 p-6">
+        <Card className="border-[var(--color-positive)]/30 bg-[var(--color-positive-soft)] p-6">
           <h2 className="font-heading text-lg font-semibold text-[var(--color-positive)]">
             {done.message}
           </h2>
@@ -186,7 +186,7 @@ export default function PlatformTimePage() {
       />
 
       {error && (
-        <Card className="border-[var(--color-negative)]/30 bg-[var(--color-negative)]/5 p-4 text-sm text-[var(--color-negative)]">
+        <Card className="border-[var(--color-negative)]/30 bg-[var(--color-negative-soft)] p-4 text-sm text-[var(--color-negative)]">
           {error}
         </Card>
       )}

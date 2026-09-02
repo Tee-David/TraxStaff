@@ -2,33 +2,40 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { IconInfo } from "@/components/icons";
 import { flagDescription, flagLabel } from "@/lib/flags";
 
 /**
- * A risk/anomaly flag, with its plain-language explanation on hover, tap or
- * keyboard focus.
+ * A risk/anomaly flag: a solid red pill with an ⓘ at the end of the label, and
+ * the plain-language explanation on hover, tap or keyboard focus.
  *
- * Two details drive the implementation:
+ * The ⓘ is the trigger, not the whole pill. That distinction is the point of it
+ * being there: a badge that silently reacts to hover gives the reader nothing to
+ * aim at and no reason to think anything would happen, whereas an info glyph is
+ * the one control everybody already knows means "there is more to read here".
+ *
+ * Two implementation details carry weight:
  *
  * 1. **The panel is portalled to `document.body`.** The flags list on the
- *    insights page is a `max-h-64 overflow-y-auto` scroller, so a tooltip
- *    rendered inline is clipped by its own container — which is exactly where
- *    it needs to appear. A portal plus fixed positioning escapes that; the
- *    trade is that the position has to be recomputed on scroll and resize,
- *    which the effect below does.
+ *    insights page is a `overflow-y-auto` scroller, so a tooltip rendered inline
+ *    is clipped by the very container it needs to escape. A portal plus fixed
+ *    positioning gets out; the cost is recomputing position on scroll and
+ *    resize, which the effect below does on the capture phase (the list scrolls
+ *    itself, and that scroll does not bubble to the window).
  *
- * 2. **Hover is not enough.** Hover does not exist on a phone and does not
+ * 2. **Hover alone is not enough.** It does not exist on a phone and does not
  *    exist for keyboard users, so the trigger is a real `<button>` that also
- *    responds to click and focus. Click *latches* the panel open so it can be
- *    read without holding the pointer still, and Escape or an outside click
- *    closes it.
+ *    answers to click and focus. A click *latches* the panel open so it can be
+ *    read without holding the pointer still; Escape or an outside click closes.
  */
 
-/** Distance between the badge and the panel. */
-const GAP = 8;
+/** Gap between the trigger and the panel — the tail lives in this space. */
+const GAP = 10;
 /** Keeps the panel off the very edge of the viewport. */
 const MARGIN = 8;
-const PANEL_WIDTH = 280;
+const PANEL_WIDTH = 300;
+/** Half the tail square's diagonal, so the panel edge hides its inner half. */
+const TAIL = 7;
 
 export default function FlagBadge({ type }: { type: string }) {
   const label = flagLabel(type);
@@ -38,13 +45,11 @@ export default function FlagBadge({ type }: { type: string }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const panelId = useId();
 
-  // `latched` is a click; `hovered` is a pointer or focus. Either opens it, but
-  // only a latch survives the pointer leaving.
   const [latched, setLatched] = useState(false);
   const [hovered, setHovered] = useState(false);
   const open = latched || hovered;
 
-  const [pos, setPos] = useState<{ top: number; left: number; above: boolean } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; above: boolean; tailX: number } | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -54,28 +59,33 @@ export default function FlagBadge({ type }: { type: string }) {
     const r = el.getBoundingClientRect();
     const panelH = panelRef.current?.offsetHeight ?? 0;
 
-    // Below by default; flip above when the bottom of the viewport is closer
-    // than the panel is tall.
+    // Below by default; flip above only when there is genuinely more room up
+    // there, so a flag near the bottom of the list still shows its whole panel.
     const roomBelow = window.innerHeight - r.bottom;
     const above = panelH > 0 && roomBelow < panelH + GAP + MARGIN && r.top > roomBelow;
 
+    // Centre the panel on the trigger, then pull it back inside the viewport.
+    const centreX = r.left + r.width / 2;
     const left = Math.min(
-      Math.max(MARGIN, r.left),
+      Math.max(MARGIN, centreX - PANEL_WIDTH / 2),
       Math.max(MARGIN, window.innerWidth - PANEL_WIDTH - MARGIN)
     );
-    setPos({ top: above ? r.top - GAP : r.bottom + GAP, left, above });
+
+    // The tail keeps pointing at the trigger even after that clamp moved the
+    // panel — but never so far that it hangs off the panel's rounded corner.
+    const tailX = Math.min(Math.max(centreX - left, 18), PANEL_WIDTH - 18);
+
+    setPos({ top: above ? r.top - GAP : r.bottom + GAP, left, above, tailX });
   }, []);
 
-  // Layout effect so the panel is positioned in the same frame it appears —
-  // otherwise it paints once at the top-left corner and jumps.
+  // Layout effect so the panel is positioned in the frame it appears, rather
+  // than painting once in the corner and jumping.
   useLayoutEffect(() => {
     if (!open) {
       setPos(null);
       return;
     }
     place();
-    // `true` for the capture phase: the flags list scrolls in its own container,
-    // not the window, and a scroll there does not bubble.
     window.addEventListener("scroll", place, true);
     window.addEventListener("resize", place);
     return () => {
@@ -84,8 +94,8 @@ export default function FlagBadge({ type }: { type: string }) {
     };
   }, [open, place]);
 
-  // Escape closes, and so does a click anywhere outside. Only while latched —
-  // a hover-opened panel closes on its own when the pointer leaves.
+  // Escape and outside clicks close a latched panel. A hover-opened one closes
+  // on its own when the pointer leaves, so it needs neither.
   useEffect(() => {
     if (!latched) return;
     const onKey = (e: KeyboardEvent) => {
@@ -106,37 +116,39 @@ export default function FlagBadge({ type }: { type: string }) {
     };
   }, [latched]);
 
-  // Solid red, white text — a flag is the one thing on this page that should
-  // not be mistaken for decoration.
-  const badge = (
-    <span className="inline-flex items-center rounded-full bg-[var(--color-negative)] px-2.5 py-0.5 text-xs font-semibold text-white">
-      {label}
-    </span>
-  );
-
-  // An unrecognised flag type has no explanation to give, so it renders as a
-  // plain badge rather than a control that opens an empty panel.
-  if (!description) return badge;
+  // An unrecognised flag type has no explanation to offer, so it gets a plain
+  // pill with no ⓘ rather than a control that opens an empty panel.
+  if (!description) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-[var(--color-negative)] px-2.5 py-0.5 text-xs font-semibold text-white">
+        {label}
+      </span>
+    );
+  }
 
   return (
     <>
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-describedby={open ? panelId : undefined}
-        aria-expanded={latched}
-        onClick={() => {
-          setLatched((v) => !v);
-          setHovered(false);
-        }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onFocus={() => setHovered(true)}
-        onBlur={() => setHovered(false)}
-        className="cursor-help rounded-full text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-negative)] focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-      >
-        {badge}
-      </button>
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-negative)] py-0.5 pl-2.5 pr-1.5 text-xs font-semibold text-white">
+        {label}
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label={`What "${label}" means`}
+          aria-describedby={open ? panelId : undefined}
+          aria-expanded={latched}
+          onClick={() => {
+            setLatched((v) => !v);
+            setHovered(false);
+          }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          onFocus={() => setHovered(true)}
+          onBlur={() => setHovered(false)}
+          className="flex h-4 w-4 items-center justify-center rounded-full text-white outline-none transition hover:text-[var(--color-negative-soft)] focus-visible:ring-2 focus-visible:ring-white"
+        >
+          <IconInfo width={13} height={13} strokeWidth={2.2} />
+        </button>
+      </span>
 
       {mounted &&
         open &&
@@ -150,15 +162,31 @@ export default function FlagBadge({ type }: { type: string }) {
               top: pos?.top ?? -9999,
               left: pos?.left ?? -9999,
               width: PANEL_WIDTH,
-              // Flipping above means the panel's *bottom* sits at `top`.
+              // Flipped above means the panel's bottom edge sits at `top`.
               transform: pos?.above ? "translateY(-100%)" : undefined,
-              // Hidden until placed, so it never flashes in the corner.
+              // Hidden until measured, so it never flashes in the corner.
               visibility: pos ? "visible" : "hidden",
             }}
-            className="z-[100] rounded-xl border border-border bg-surface p-3.5 shadow-lg"
+            className="z-[100] rounded-2xl bg-[var(--color-tooltip)] p-4 text-[var(--color-tooltip-fg)] shadow-xl"
           >
-            <div className="text-[13px] font-semibold text-ink">{label}</div>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-muted">{description}</p>
+            {/* The tail. A rotated square tucked half under the panel, so its two
+                outer edges read as a point and the seam is covered. */}
+            <span
+              aria-hidden
+              style={{
+                position: "absolute",
+                left: pos?.tailX ?? 0,
+                [pos?.above ? "bottom" : "top"]: -TAIL,
+                width: TAIL * 2,
+                height: TAIL * 2,
+                marginLeft: -TAIL,
+              }}
+              className="rotate-45 rounded-[3px] bg-[var(--color-tooltip)]"
+            />
+            <div className="relative text-[13px] font-semibold">{label}</div>
+            <p className="relative mt-1.5 text-[12px] leading-relaxed text-[var(--color-tooltip-fg-muted)]">
+              {description}
+            </p>
           </div>,
           document.body
         )}

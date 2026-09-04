@@ -169,6 +169,9 @@ SMTP_HOST=... SMTP_PORT=... SMTP_USER=... SMTP_PASSWORD=... SMTP_FROM=...
 # Production only — Render can't send SMTP directly:
 MAIL_RELAY_URL=https://app.traxstaff.com/api/mail/send
 MAIL_RELAY_SECRET=<shared secret, also set on the frontend>
+
+# Google sign-in (optional — the button falls back to email/password without it)
+GOOGLE_CLIENT_ID=<same OAuth client id as the frontend>
 ```
 
 Frontend (`web/frontend/.env.local`):
@@ -176,7 +179,32 @@ Frontend (`web/frontend/.env.local`):
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:3099
 MAIL_RELAY_SECRET=<same shared secret as the backend>
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=<same OAuth client id as the backend>
 ```
+
+### Google sign-in
+
+"Continue with Google" signs **existing** members in; it never creates an
+account or an organization. An address Google verifies has to already belong to
+an active user — an unknown address, a pending invite, or a disabled account is
+turned away with a message saying which.
+
+Setup is one OAuth 2.0 **Web application** client in the Google Cloud console:
+
+1. Add every origin the login page is served from to *Authorized JavaScript
+   origins* (`http://localhost:3000`, `https://app.traxstaff.com`, and any
+   preview domain). No redirect URI is needed — the browser gets an ID token,
+   not a code.
+2. Put that client id in **both** `GOOGLE_CLIENT_ID` (backend) and
+   `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (frontend). They are two halves of one check:
+   the backend refuses any ID token whose `aud` isn't this client, which is what
+   stops a token minted for some other Google app from signing anyone in.
+
+Leave either unset and the page shows a plain "Continue with Google" button that
+explains sign-in isn't configured, rather than a control that silently fails.
+The button label is pinned to English (`?hl=en` on the Google script plus
+`locale: "en"` on the button) — left to itself Google localises it to the
+visitor's account language.
 
 ### CockroachDB migrations — read this before running any
 

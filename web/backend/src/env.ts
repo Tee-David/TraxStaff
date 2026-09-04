@@ -19,9 +19,16 @@ const envSchema = z.object({
   // physically sent from the Vercel deployment instead (see lib/mailer.ts).
   MAIL_RELAY_URL: z.string().url().optional(),
   MAIL_RELAY_SECRET: z.string().optional(),
+  // OAuth client that Google ID tokens must be minted for. Optional: without it
+  // Google sign-in stays off (POST /auth/google refuses) rather than accepting
+  // tokens it cannot pin to this app. Must match NEXT_PUBLIC_GOOGLE_CLIENT_ID
+  // on the frontend — they are two halves of the same client.
+  GOOGLE_CLIENT_ID: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);
+
+export const googleAuthConfigured = Boolean(env.GOOGLE_CLIENT_ID);
 
 export const smtpConfigured = Boolean(
   env.SMTP_HOST && env.SMTP_PORT && env.SMTP_USER && env.SMTP_PASSWORD

@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { hashPassword, verifyPassword } from "../lib/password";
+import { refuseGoogleSignIn, verifyGoogleIdToken } from "../lib/google-auth";
 import { sendInviteEmail, sendPasswordResetEmail } from "../lib/mailer";
 import { auditLog } from "../lib/audit";
 import { env } from "../env";
@@ -52,6 +53,11 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const googleSignInSchema = z.object({
+  // The ID token ("credential") Google Identity Services hands the browser.
+  credential: z.string().min(1),
+});
+
 const inviteSchema = z.object({
   email: z.string().email(),
   role: z.enum(["admin", "member"]),
@@ -98,6 +104,26 @@ const RESET_TTL_MS = 60 * 60 * 1000;
  */
 const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Look an account up by email for a caller that has proved it owns the address.
+ *
+ * Emails are stored as typed — nothing in the product folds them to lowercase —
+ * so an account registered as `Ada@example.com` would never match the
+ * all-lowercase address Google reports. The exact match stays first (it uses
+ * the unique index); the case-insensitive pass is the fallback, and is
+ * tolerated failing so a connector without `mode: "insensitive"` degrades to
+ * "no match" rather than a 500 on a valid sign-in.
+ */
+async function findUserByEmail(email: string) {
+  const exact = await prisma.user.findUnique({ where: { email } });
+  if (exact) return exact;
+  try {
+    return await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
+  } catch {
+    return null;
+  }
+}
+
 export default async function authRoutes(fastify: FastifyInstance) {
   // Register a brand-new organization + its owner account.
   fastify.post("/auth/register", async (req, reply) => {
@@ -135,6 +161,64 @@ export default async function authRoutes(fastify: FastifyInstance) {
     const valid = await verifyPassword(body.password, user.passwordHash);
     if (!valid) {
       return reply.code(401).send({ error: "Invalid credentials" });
+    }
+
+    const token = fastify.jwt.sign({ userId: user.id, orgId: user.orgId, role: user.role }, { expiresIn: TOKEN_TTL });
+    return reply.send({ token, user: { id: user.id, email: user.email, role: user.role } });
+  });
+
+  /**
+   * Sign in with Google.
+   *
+   * Sign-in only, never sign-up: this route mints a token for an account that
+   * already exists and refuses everything else. Letting a Google login create
+   * an account would hand anyone with a Google address a free organization,
+   * and would quietly bypass the invite flow that decides which org a member
+   * belongs to and what role they get.
+   *
+   * Telling an unknown address that it has no account is deliberate. It is not
+   * an enumeration oracle: the caller has just proved to Google that they own
+   * that mailbox, so they are the one person entitled to know, and the
+   * alternative ("sign-in failed") strands an invited member with no idea that
+   * they are meant to accept an invite first.
+   */
+  fastify.post("/auth/google", async (req, reply) => {
+    const clientId = env.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      return reply
+        .code(503)
+        .send({ error: "Google sign-in isn't set up on this server — sign in with your email instead." });
+    }
+
+    const body = googleSignInSchema.parse(req.body);
+
+    let identity;
+    try {
+      identity = await verifyGoogleIdToken(body.credential, { clientId });
+    } catch (err) {
+      req.log.warn({ err: err instanceof Error ? err.message : err }, "Google sign-in rejected");
+      return reply
+        .code(401)
+        .send({ error: "Google couldn't verify that sign-in. Try again, or sign in with your email." });
+    }
+
+    const user = await findUserByEmail(identity.email);
+    const refusal = refuseGoogleSignIn(user, identity.email);
+    // Every `user === null` is a refusal, so the second half only narrows the
+    // type — it is not a case `refuseGoogleSignIn` can leave unhandled.
+    if (refusal || !user) {
+      return reply.code(403).send({ error: refusal ?? "Google sign-in failed" });
+    }
+
+    // First Google sign-in is often the first time we learn a member's real
+    // name (email/password signup never asks for one). Best-effort: a failure
+    // here must not cost them the login.
+    if (!user.name && identity.name) {
+      try {
+        await prisma.user.update({ where: { id: user.id }, data: { name: identity.name } });
+      } catch (err) {
+        req.log.warn({ err: err instanceof Error ? err.message : err }, "could not store name from Google profile");
+      }
     }
 
     const token = fastify.jwt.sign({ userId: user.id, orgId: user.orgId, role: user.role }, { expiresIn: TOKEN_TTL });

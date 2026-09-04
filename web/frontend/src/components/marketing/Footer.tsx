@@ -6,6 +6,7 @@ import { useMotionPresets } from "@/lib/motion";
 import { SUPPORT_EMAIL } from "@/lib/site";
 import { RELEASES_FALLBACK_URL } from "@/lib/releases";
 import { IconMail } from "@/components/icons";
+import BrandLockup from "@/components/BrandLockup";
 
 /**
  * Only links to things that actually exist: there is no privacy policy, terms
@@ -135,10 +136,8 @@ export function Footer({ currentYear }: { currentYear: number }) {
           className="grid gap-12 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr]"
         >
           <motion.div {...revealItem}>
-            <a href="#top" className="flex items-center gap-3" aria-label="TraxStaff — back to top">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/icon-badge.svg" alt="" width={44} height={44} className="h-10 w-10 sm:h-11 sm:w-11" />
-              <span className="font-heading text-xl font-bold tracking-[-0.03em] sm:text-[1.375rem]">TraxStaff</span>
+            <a href="#top" className="inline-flex" aria-label="TraxStaff — back to top">
+              <BrandLockup variant="badge" markHeight={2} className="text-xl sm:text-[1.375rem]" />
             </a>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/55">
               Visible time tracking for teams &mdash; on Windows, Linux and

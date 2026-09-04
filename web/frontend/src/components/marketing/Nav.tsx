@@ -7,6 +7,7 @@ import { useTheme } from "@/lib/theme";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { StaggeredMenu } from "./StaggeredMenu";
 import { IconLogin, IconArrowRight } from "@/components/icons";
+import BrandLockup from "@/components/BrandLockup";
 
 /**
  * Only sections that actually exist on the page — there is no pricing,
@@ -130,12 +131,12 @@ export function MarketingNav() {
             lifted ? "h-16 px-3.5 sm:h-[4.25rem] sm:px-5" : "h-[4.5rem] px-5 sm:px-8"
           }`}
         >
-        <a href="#top" className="flex items-center gap-2.5" aria-label="TraxStaff — home">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/icon-badge.svg" alt="" width={32} height={32} className="h-8 w-8" />
-          <span className={`font-heading text-lg font-bold tracking-[-0.03em] transition-colors ${wordmarkTone}`}>
-            TraxStaff
-          </span>
+        <a href="#top" className="inline-flex" aria-label="TraxStaff — home">
+          <BrandLockup
+            variant="badge"
+            className="text-lg"
+            wordmarkClassName={`transition-colors ${wordmarkTone}`}
+          />
         </a>
 
         {/* Tighter between `md` and `lg`: the centred links are positioned off

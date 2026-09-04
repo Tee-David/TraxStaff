@@ -95,6 +95,7 @@ web/
 │   │       ├── mail/send/               # SMTP relay (Render can't send mail directly)
 │   │       └── releases/latest/          # GitHub Releases proxy for the download widgets
 │   ├── src/components/
+│   │   ├── BrandLockup.tsx             # Mark + wordmark — the lockup's spacing lives here, not at call sites
 │   │   ├── marketing/                  # Landing-page sections (Nav, Hero, Features, DownloadCta, ...)
 │   │   ├── tour/                        # Onboarding tour (react-joyride provider/registry/tooltip)
 │   │   ├── ui.tsx, icons.tsx, filters.tsx, DataTable.tsx, ...
@@ -181,6 +182,27 @@ NEXT_PUBLIC_API_URL=http://localhost:3099
 MAIL_RELAY_SECRET=<same shared secret as the backend>
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=<same OAuth client id as the backend>
 ```
+
+### Brand assets
+
+`public/brand/` carries two versions of the mark, and which one a layout wants
+depends on the background behind it:
+
+| File | Ink | Use it when |
+| --- | --- | --- |
+| `mark-color.svg` | fills its box | The lockup sits on a light surface — login, docs, anywhere the disc would be invisible. |
+| `icon-badge.svg` | disc fills the box, art is 52% of it | The mark sits on a dark or busy background and needs the white disc to separate it. |
+
+Both are honest about their size: the height a layout asks for is the height
+that shows up, and the art is centred in its box. That is the whole reason the
+pair exists — the badge used to be the only option, so on white backgrounds its
+invisible disc padding turned a 12px gap into a 28px one and left the mark
+looking adrift.
+
+Don't hand-place a mark next to the word "TraxStaff". Use `<BrandLockup />`,
+which owns the mark choice, the size (in `em`, so it tracks the wordmark) and
+the gap. If a mark ever looks low in a lockup, the fix belongs in the asset —
+its art is off-centre in its own box — not in a nudge at the call site.
 
 ### Google sign-in
 

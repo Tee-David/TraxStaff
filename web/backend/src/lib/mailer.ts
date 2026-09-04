@@ -77,9 +77,12 @@ const ASSETS = (env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$
 /**
  * Brand pill button. Deliberately a padded anchor with a unicode glyph, not an
  * image: Gmail strips inline SVG and most clients block remote images by default.
+ *
+ * The caret follows the label, the way it does in the app: it points at where
+ * the button takes you, so it belongs after the words, not in front of them.
  */
-function emailButton(href: string, label: string, icon: string): string {
-  return `<a href="${href}" class="btn" style="display:inline-block;background:${C.navy};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:13px 26px;border-radius:9999px;"><span style="display:inline-block;padding-right:8px;font-size:15px;line-height:1;">${icon}</span>${label}</a>`;
+function emailButton(href: string, label: string): string {
+  return `<a href="${href}" class="btn" style="display:inline-block;background:${C.navy};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:13px 26px;border-radius:9999px;">${label}<span style="display:inline-block;padding-left:8px;font-size:15px;line-height:1;">&rsaquo;</span></a>`;
 }
 
 /** Full branded email document. `preheader` is the inbox preview snippet. */
@@ -96,7 +99,7 @@ function emailLayout(bodyHtml: string, preheader: string): string {
   a:not(.btn) { color:${C.brand}; }
   @media (prefers-color-scheme: dark) {
     .bg-page { background:#0a0a14 !important; }
-    /* Footer must be the SAME surface as the card — a darker footer reads as a
+    /* Footer must be the SAME surface as the card; a darker footer reads as a
        detached panel floating under the email. */
     .card, .foot { background:#15152a !important; }
     .card { border-color:#282844 !important; }
@@ -104,7 +107,7 @@ function emailLayout(bodyHtml: string, preheader: string): string {
     .body { color:#b8bad0 !important; }
     .muted { color:#8d90ab !important; }
     .hair { border-color:#282844 !important; }
-    /* The unfilled half of a progress bar is a light hairline — on a dark card
+    /* The unfilled half of a progress bar is a light hairline; on a dark card
        it reads as the *filled* portion unless it's darkened too. */
     .bar-track { background:#282844 !important; }
     /* Navy-on-navy is invisible: lift the detail card off the surface. */
@@ -112,9 +115,9 @@ function emailLayout(bodyHtml: string, preheader: string): string {
     /* The navy pill all but disappears on a dark card (and clients then
        auto-invert it to a washed-out lilac). Brighten it instead. */
     .btn { background:#4a4af0 !important; color:#ffffff !important; }
-    /* Brand blue is unreadable on dark — lift links too, but never the button. */
+    /* Brand blue is unreadable on dark; lift links too, but never the button. */
     a:not(.btn) { color:#9a9aff !important; }
-    /* The navy lockup vanishes on a dark card — swap to the white one. */
+    /* The navy lockup vanishes on a dark card; swap to the white one. */
     .logo-light { display:none !important; }
     .logo-dark { display:block !important; }
   }
@@ -129,8 +132,8 @@ function emailLayout(bodyHtml: string, preheader: string): string {
         <!-- header: the real brand lockup, left-aligned. Two variants because a
              navy logo is invisible on a dark card. -->
         <tr><td align="left" class="pad" style="padding:34px 40px 16px;">
-          <img src="${ASSETS}/brand/email-logo-navy.png" width="160" height="41" alt="TraxStaff" class="logo-light" style="display:block;border:0;outline:none;">
-          <img src="${ASSETS}/brand/email-logo-white.png" width="160" height="41" alt="TraxStaff" class="logo-dark" style="display:none;border:0;outline:none;mso-hide:all;">
+          <img src="${ASSETS}/brand/email-logo-navy.png" width="168" height="44" alt="TraxStaff" class="logo-light" style="display:block;border:0;outline:none;">
+          <img src="${ASSETS}/brand/email-logo-white.png" width="168" height="44" alt="TraxStaff" class="logo-dark" style="display:none;border:0;outline:none;mso-hide:all;">
         </td></tr>
         <!-- body -->
         <tr><td class="ink pad" style="padding:22px 40px 36px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:${C.ink};">
@@ -271,8 +274,8 @@ export async function sendInviteEmail(to: string, inviteUrl: string, orgName: st
   const html = emailLayout(
     `
     <p style="margin:0 0 6px;font-size:20px;font-weight:700;">You've been invited to ${orgName} 👋</p>
-    <p class="body" style="margin:0 0 22px;color:${C.body};">Set your password to join the workspace on TraxStaff — track your time, see your activity, and keep your projects moving.</p>
-    <p style="margin:0 0 24px;">${emailButton(inviteUrl, "Accept invite", "→")}</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">Set your password to join the workspace on TraxStaff; track your time, see your activity, and keep your projects moving.</p>
+    <p style="margin:0 0 24px;">${emailButton(inviteUrl, "Accept invite")}</p>
     <p class="muted" style="margin:0 0 6px;font-size:13px;color:${C.muted};">Or paste this link into your browser:</p>
     <p style="margin:0 0 18px;font-size:12px;word-break:break-all;"><a href="${inviteUrl}" style="color:${C.brand};">${inviteUrl}</a></p>
     <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">This link expires in 24 hours. If you weren't expecting this, you can ignore this email.</p>
@@ -396,8 +399,8 @@ export async function sendDailyShortfallEmail(
   const n = rows.length;
   const subject =
     n === 0
-      ? `All targets met — ${dateLabel}`
-      : `${n} of ${totalMembers} below target — ${dateLabel}`;
+      ? `All targets met; ${dateLabel}`
+      : `${n} of ${totalMembers} below target; ${dateLabel}`;
 
   const html = emailLayout(
     `
@@ -413,8 +416,8 @@ export async function sendDailyShortfallEmail(
         ? allClearBlock("yesterday", totalMembers)
         : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 26px;border-collapse:collapse;">${shortfallRows(rows)}</table>`
     }
-    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Open dashboard", "→")}</p>
-    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">Hours below target can mean leave, a public holiday, or approved time off — this is a prompt to look, not a verdict. Turn these off under Settings → Work targets.</p>
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Open dashboard")}</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">Hours below target can mean leave, a public holiday, or approved time off; this is a prompt to look, not a verdict. Turn these off under Settings → Work targets.</p>
   `,
     n === 0
       ? `Everyone met the ${fmtHours(targetHours)} daily target on ${dateLabel}.`
@@ -423,8 +426,8 @@ export async function sendDailyShortfallEmail(
 
   const text =
     n === 0
-      ? `${orgName} — ${dateLabel}\n\nAll ${totalMembers} tracked members met the ${fmtHours(targetHours)} daily target.\n\n${dashboardUrl}`
-      : `${orgName} — ${dateLabel}\n\n${n} of ${totalMembers} tracked members were below the ${fmtHours(targetHours)} daily target:\n\n` +
+      ? `${orgName}; ${dateLabel}\n\nAll ${totalMembers} tracked members met the ${fmtHours(targetHours)} daily target.\n\n${dashboardUrl}`
+      : `${orgName}; ${dateLabel}\n\n${n} of ${totalMembers} tracked members were below the ${fmtHours(targetHours)} daily target:\n\n` +
         rows
           .map(
             (r) =>
@@ -446,8 +449,8 @@ export async function sendWeeklyShortfallEmail(
   const n = rows.length;
   const subject =
     n === 0
-      ? `All weekly targets met — week of ${rangeLabel}`
-      : `${n} of ${totalMembers} below the weekly target — ${rangeLabel}`;
+      ? `All weekly targets met; week of ${rangeLabel}`
+      : `${n} of ${totalMembers} below the weekly target; ${rangeLabel}`;
 
   const html = emailLayout(
     `
@@ -463,7 +466,7 @@ export async function sendWeeklyShortfallEmail(
         ? allClearBlock("last week", totalMembers)
         : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 26px;border-collapse:collapse;">${shortfallRows(rows)}</table>`
     }
-    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Open reports", "→")}</p>
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Open reports")}</p>
     <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">A short week can mean leave, a public holiday, or approved time off. Turn these off under Settings → Work targets.</p>
   `,
     n === 0
@@ -473,8 +476,8 @@ export async function sendWeeklyShortfallEmail(
 
   const text =
     n === 0
-      ? `${orgName} — week of ${rangeLabel}\n\nAll ${totalMembers} tracked members met the ${fmtHours(targetHours)} weekly target.\n\n${dashboardUrl}`
-      : `${orgName} — week of ${rangeLabel}\n\n${n} of ${totalMembers} tracked members were below the ${fmtHours(targetHours)} weekly target:\n\n` +
+      ? `${orgName}; week of ${rangeLabel}\n\nAll ${totalMembers} tracked members met the ${fmtHours(targetHours)} weekly target.\n\n${dashboardUrl}`
+      : `${orgName}; week of ${rangeLabel}\n\n${n} of ${totalMembers} tracked members were below the ${fmtHours(targetHours)} weekly target:\n\n` +
         rows
           .map(
             (r) =>
@@ -541,20 +544,20 @@ export async function sendUnusualActivityEmail(
     <p style="margin:0 0 6px;font-size:20px;font-weight:700;">${rangeLabel}</p>
     <p class="body" style="margin:0 0 24px;color:${C.body};">${n} ${n === 1 ? "session was" : "sessions were"} flagged for review.</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 26px;border-collapse:collapse;">${rows}</table>
-    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Review flags", "→")}</p>
-    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">A flag is a signal to look, not proof of anything — several have innocent causes, such as a laptop resuming from sleep. Turn these off under Settings → Emails.</p>
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "Review flags")}</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">A flag is a signal to look, not proof of anything; several have innocent causes, such as a laptop resuming from sleep. Turn these off under Settings → Emails.</p>
   `,
     `${n} flagged ${n === 1 ? "session" : "sessions"} for ${rangeLabel}.`
   );
 
   const text =
-    `${orgName} — ${rangeLabel}\n\n${n} flagged ${n === 1 ? "session" : "sessions"}:\n\n` +
+    `${orgName}; ${rangeLabel}\n\n${n} flagged ${n === 1 ? "session" : "sessions"}:\n\n` +
     flags.map((f) => `  ${f.member}: ${label(f.type)}`).join("\n") +
     `\n\nReview: ${dashboardUrl}\n\nA flag is a signal to look, not proof. Turn these off under Settings > Emails.`;
 
   return send(
     to,
-    `${n} flagged ${n === 1 ? "session" : "sessions"} — ${rangeLabel}`,
+    `${n} flagged ${n === 1 ? "session" : "sessions"}; ${rangeLabel}`,
     html,
     text,
     "unusual activity digest",
@@ -591,7 +594,7 @@ export async function sendMemberWeeklySummaryEmail(
     `
     <p class="muted" style="margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:${C.muted};">Your week · ${orgName}</p>
     <p style="margin:0 0 6px;font-size:20px;font-weight:700;">${rangeLabel}</p>
-    <p class="body" style="margin:0 0 22px;color:${C.body};">Hi ${name} — here is what TraxStaff recorded for you last week.</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">Hi ${name}; here is what TraxStaff recorded for you last week.</p>
 
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="tint" style="background:${C.tint};border-radius:12px;margin:0 0 26px;">
       <tr><td style="padding:22px 24px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
@@ -606,22 +609,22 @@ export async function sendMemberWeeklySummaryEmail(
 
     <p class="body" style="margin:0 0 24px;color:${C.body};">${
       met
-        ? "You met your target — nothing to do."
+        ? "You met your target; nothing to do."
         : "If that looks wrong, check for time that never synced, or add any missing entries from your timesheet."
     }</p>
-    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "View your timesheet", "→")}</p>
-    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">This is the same figure your admins see for you — no more, no less.</p>
+    <p style="margin:0 0 24px;">${emailButton(dashboardUrl, "View your timesheet")}</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">This is the same figure your admins see for you; no more, no less.</p>
   `,
     `${fmtHours(trackedHours)} tracked of a ${fmtHours(targetHours)} target for ${rangeLabel}.`
   );
 
   const text =
-    `${orgName} — your week, ${rangeLabel}\n\n` +
+    `${orgName}; your week, ${rangeLabel}\n\n` +
     `Tracked: ${fmtHours(trackedHours)} of a ${fmtHours(targetHours)} target` +
-    (met ? " — target met.\n" : ` (${fmtHours(short)} short).\n`) +
+    (met ? "; target met.\n" : ` (${fmtHours(short)} short).\n`) +
     `\nView your timesheet: ${dashboardUrl}\n\nThis is the same figure your admins see for you.`;
 
-  return send(to, `Your week at ${orgName} — ${rangeLabel}`, html, text, "member weekly summary", {
+  return send(to, `Your week at ${orgName}; ${rangeLabel}`, html, text, "member weekly summary", {
     dedupeKey: input.dedupeKey,
   });
 }
@@ -630,11 +633,11 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
   const html = emailLayout(
     `
     <p style="margin:0 0 6px;font-size:20px;font-weight:700;">Reset your password</p>
-    <p class="body" style="margin:0 0 22px;color:${C.body};">We received a request to reset your TraxStaff password. Choose a new one below — the link expires in 1 hour.</p>
-    <p style="margin:0 0 24px;">${emailButton(resetUrl, "Reset password", "→")}</p>
+    <p class="body" style="margin:0 0 22px;color:${C.body};">We received a request to reset your TraxStaff password. Choose a new one below; the link expires in 1 hour.</p>
+    <p style="margin:0 0 24px;">${emailButton(resetUrl, "Reset password")}</p>
     <p class="muted" style="margin:0 0 6px;font-size:13px;color:${C.muted};">Or paste this link into your browser:</p>
     <p style="margin:0 0 18px;font-size:12px;word-break:break-all;"><a href="${resetUrl}" style="color:${C.brand};">${resetUrl}</a></p>
-    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">If you didn't request this, you can safely ignore this email — your password won't change.</p>
+    <p class="muted" style="margin:0;font-size:13px;color:${C.muted};">If you didn't request this, you can safely ignore this email; your password won't change.</p>
   `,
     "Reset your TraxStaff password (link expires in 1 hour)."
   );
@@ -643,7 +646,7 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
     to,
     "Reset your TraxStaff password",
     html,
-    `Someone asked to reset the password for your TraxStaff account.\n\nReset it here: ${resetUrl}\n\nThis link expires in 1 hour. If this wasn't you, ignore this email — your password stays unchanged.`,
+    `Someone asked to reset the password for your TraxStaff account.\n\nReset it here: ${resetUrl}\n\nThis link expires in 1 hour. If this wasn't you, ignore this email; your password stays unchanged.`,
     "reset email",
     // The token itself dies in an hour, so retrying past that only delivers a
     // link that fails — more confusing than no mail at all. The user re-requests.
@@ -694,7 +697,7 @@ export interface ManualEntryFacts {
 export async function sendManualTimeSubmittedEmail(to: string, facts: ManualEntryFacts) {
   const rows: [string, string][] = [
     ["Member", facts.memberLabel],
-    ["Project", facts.taskTitle ? `${facts.projectName} — ${facts.taskTitle}` : facts.projectName],
+    ["Project", facts.taskTitle ? `${facts.projectName}; ${facts.taskTitle}` : facts.projectName],
     ["When", facts.when],
     ["Duration", facts.duration],
     ["Reason", facts.reason],
@@ -704,10 +707,10 @@ export async function sendManualTimeSubmittedEmail(to: string, facts: ManualEntr
     <p style="margin:0 0 6px;font-size:20px;font-weight:700;">Manual time needs your approval</p>
     <p class="body" style="margin:0 0 22px;color:${C.body};">${facts.memberLabel} added ${facts.duration} the tracker didn't record. It won't count as approved time until an admin reviews it.</p>
     ${detailRows(rows)}
-    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Review this entry", "→")}</p>
+    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Review this entry")}</p>
     ${prefsFooter("&ldquo;Manual time awaiting approval&rdquo;")}
   `,
-    `${facts.memberLabel} added ${facts.duration} of manual time — awaiting approval.`
+    `${facts.memberLabel} added ${facts.duration} of manual time; awaiting approval.`
   );
 
   return send(
@@ -727,7 +730,7 @@ export async function sendManualTimeDecisionEmail(
 ) {
   const approved = decision === "approved";
   const rows: [string, string][] = [
-    ["Project", facts.taskTitle ? `${facts.projectName} — ${facts.taskTitle}` : facts.projectName],
+    ["Project", facts.taskTitle ? `${facts.projectName}; ${facts.taskTitle}` : facts.projectName],
     ["When", facts.when],
     ["Duration", facts.duration],
     ["Reviewed by", facts.decidedBy],
@@ -736,14 +739,14 @@ export async function sendManualTimeDecisionEmail(
 
   const lead = approved
     ? `Your ${facts.duration} entry has been approved and counts toward your timesheet.`
-    : `Your ${facts.duration} entry was rejected, so it won't count toward your timesheet. The entry stays on your timesheet marked as rejected — nothing was deleted.`;
+    : `Your ${facts.duration} entry was rejected, so it won't count toward your timesheet. The entry stays on your timesheet marked as rejected; nothing was deleted.`;
 
   const html = emailLayout(
     `
     <p style="margin:0 0 6px;font-size:20px;font-weight:700;">Manual time ${approved ? "approved" : "rejected"}</p>
     <p class="body" style="margin:0 0 22px;color:${C.body};">${lead}</p>
     ${detailRows(rows)}
-    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Open your timesheet", "→")}</p>
+    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Open your timesheet")}</p>
     ${prefsFooter("&ldquo;Your manual time was reviewed&rdquo;")}
   `,
     lead
@@ -771,20 +774,20 @@ export async function sendManualTimeAddedEmail(
   facts: ManualEntryFacts & { addedBy: string }
 ) {
   const rows: [string, string][] = [
-    ["Project", facts.taskTitle ? `${facts.projectName} — ${facts.taskTitle}` : facts.projectName],
+    ["Project", facts.taskTitle ? `${facts.projectName}; ${facts.taskTitle}` : facts.projectName],
     ["When", facts.when],
     ["Duration", facts.duration],
     ["Added by", facts.addedBy],
     ["Reason", facts.reason],
   ];
-  const lead = `${facts.addedBy} added ${facts.duration} to your timesheet. It counts as approved time. If that doesn't look right, take it up with them — nothing here is hidden from you.`;
+  const lead = `${facts.addedBy} added ${facts.duration} to your timesheet. It counts as approved time. If that doesn't look right, take it up with them; nothing here is hidden from you.`;
 
   const html = emailLayout(
     `
     <p style="margin:0 0 6px;font-size:20px;font-weight:700;">Time was added to your timesheet</p>
     <p class="body" style="margin:0 0 22px;color:${C.body};">${lead}</p>
     ${detailRows(rows)}
-    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Open your timesheet", "→")}</p>
+    <p style="margin:0 0 8px;">${emailButton(TIMESHEETS_URL, "Open your timesheet")}</p>
     ${prefsFooter("&ldquo;Your manual time was reviewed&rdquo;")}
   `,
     lead

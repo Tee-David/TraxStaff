@@ -62,11 +62,17 @@ function LoginForm() {
   const [showPw, setShowPw] = useState(false);
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Kept apart from `error` so it can be shown against the Google button
+  // itself. The form's error line sits below the password field — far enough
+  // down that on a phone a refused Google sign-in scrolled out of sight and
+  // read as the button doing nothing at all.
+  const [googleError, setGoogleError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setGoogleError(null);
     setLoading(true);
     try {
       const res = await api<{ token: string; user: AuthUser }>("/auth/login", {
@@ -91,6 +97,7 @@ function LoginForm() {
    */
   async function onGoogleCredential(credential: string) {
     setError(null);
+    setGoogleError(null);
     setLoading(true);
     try {
       const res = await api<{ token: string; user: AuthUser }>("/auth/google", {
@@ -100,7 +107,7 @@ function LoginForm() {
       setToken(res.token);
       router.push(params.get("next") ?? "/app");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Google sign-in failed");
+      setGoogleError(err instanceof Error ? err.message : "Google sign-in failed");
     } finally {
       setLoading(false);
     }
@@ -124,7 +131,12 @@ function LoginForm() {
             Sign in to access your dashboard, settings and projects.
           </p>
 
-          <GoogleSignInButton className="mt-7" onCredential={onGoogleCredential} onError={setError} />
+          <GoogleSignInButton className="mt-7" onCredential={onGoogleCredential} onError={setGoogleError} />
+          {googleError && (
+            <p role="alert" className="mt-2.5 text-sm text-[var(--color-negative)]">
+              {googleError}
+            </p>
+          )}
 
           <div className="my-5 flex items-center gap-3 text-xs text-faint">
             <span className="h-px flex-1 bg-border" />

@@ -178,7 +178,7 @@ GOOGLE_CLIENT_ID=<same OAuth client id as the frontend>
 Frontend (`web/frontend/.env.local`):
 
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:3099
+NEXT_PUBLIC_BACKEND_URL=http://localhost:3099   # the name src/lib/api.ts actually reads
 MAIL_RELAY_SECRET=<same shared secret as the backend>
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=<same OAuth client id as the backend>
 ```

@@ -36,12 +36,37 @@ interface GsiCredentialResponse {
   credential?: string;
 }
 
+/** What GIS hands `error_callback` when the flow never reaches the callback. */
+interface GsiError {
+  type?: string;
+  message?: string;
+}
+
+/**
+ * Turn a GIS failure into something a person can act on.
+ *
+ * The type is kept in the text on purpose: these failures happen on other
+ * people's devices, and "popup_failed_to_open" in a screenshot is worth more
+ * than a tidy sentence when someone reports that sign-in "just doesn't work".
+ */
+function describeGsiError(err: GsiError): string {
+  switch (err.type) {
+    case "popup_failed_to_open":
+      return "Your browser blocked the Google sign-in window. Allow pop-ups for this site, or sign in with your email below.";
+    case "popup_closed":
+      return "The Google sign-in window closed before finishing. Try again, or sign in with your email below.";
+    default:
+      return `Google sign-in didn't complete (${err.type ?? "unknown error"}). Try again, or sign in with your email below.`;
+  }
+}
+
 interface GsiClient {
   accounts: {
     id: {
       initialize(config: {
         client_id: string;
         callback: (response: GsiCredentialResponse) => void;
+        error_callback?: (error: GsiError) => void;
         auto_select?: boolean;
         cancel_on_tap_outside?: boolean;
         itp_support?: boolean;
@@ -157,6 +182,9 @@ export default function GoogleSignInButton({ onCredential, onError, className }:
             }
             void handlers.current.onCredential(response.credential);
           },
+          // Without this, a window Google couldn't open — or one the person
+          // closed — leaves the page looking like the button did nothing.
+          error_callback: (err) => handlers.current.onError(describeGsiError(err)),
         });
         window.google.accounts.id.renderButton(target.current, {
           type: "standard",

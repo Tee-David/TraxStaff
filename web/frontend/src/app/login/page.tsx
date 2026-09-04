@@ -7,6 +7,7 @@ import { motion } from "motion/react";
 import { api, setToken, type AuthUser } from "@/lib/api";
 import LightRays from "@/components/LightRays";
 import GoogleSignInButton, { googleSignInEnabled as googleEnabled } from "@/components/GoogleSignInButton";
+import Lockup from "@/components/Lockup";
 
 // Flat, single-stroke line icons (no color) for the form fields.
 const iconProps = {
@@ -114,21 +115,8 @@ function LoginForm() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
         >
-          {/* The bare mark, not the badge: the badge's white disc is invisible
-              on this page, which left its padding acting as ~16px of dead space
-              on every side — a 12px gap that rendered as 28px, around a mark
-              drawing at half the size its box reserved.
-
-              The two numbers are the proportions the Dropbox lockup uses, which
-              is the standard being matched here: the mark stands 1.6x the
-              wordmark's cap height (40px against 25px) and the gap is 0.36 of
-              it (9px). Centring does the rest — for Space Grotesk, ascent minus
-              descent is nearly the cap height, so the middle of the line box and
-              the middle of the capitals coincide. */}
-          <div className="flex items-center justify-center gap-[9px]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/mark-color.svg" alt="" className="h-10 w-10" />
-            <span className="font-heading text-4xl font-bold tracking-tight">TraxStaff</span>
+          <div className="flex justify-center">
+            <Lockup />
           </div>
           <h1 className="mt-5 text-center font-heading text-4xl font-bold tracking-tight">Welcome back</h1>
           <p className="mx-auto mt-2 max-w-xs text-center text-sm text-muted">

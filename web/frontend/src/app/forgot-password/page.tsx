@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Button, Card, Input, Label } from "@/components/ui";
+import Lockup from "@/components/Lockup";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -32,8 +33,7 @@ export default function ForgotPasswordPage() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm p-8">
         <div className="mb-6 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/logo-color.svg" alt="TraxStaff" className="mx-auto mb-3 h-20 w-auto" />
+          <Lockup className="mb-3" />
           <p className="text-sm text-muted">
             {sent ? "Check your inbox" : "We'll email you a reset link"}
           </p>

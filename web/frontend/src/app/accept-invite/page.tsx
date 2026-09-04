@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, setToken, type AuthUser } from "@/lib/api";
 import { Button, Card, Input, Label } from "@/components/ui";
+import Lockup from "@/components/Lockup";
 
 function AcceptInviteForm() {
   const router = useRouter();
@@ -36,8 +37,7 @@ function AcceptInviteForm() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm p-8">
         <div className="mb-6 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/logo-color.svg" alt="TraxStaff" className="mx-auto mb-3 h-20 w-auto" />
+          <Lockup className="mb-3" />
           <p className="text-sm text-muted">Set your password to join</p>
         </div>
         {!token ? (

@@ -133,19 +133,19 @@ export function MarketingNav() {
             lifted ? "h-16 px-3.5 sm:h-[4.25rem] sm:px-5" : "h-[4.5rem] px-5 sm:px-8"
           }`}
         >
-        {/* Same proportions as the login lockup: the mark at 1.6x the
-            wordmark's cap height (12.5px at this size) and a gap of 0.36 of
+        {/* Same proportions as the login lockup: the mark at 1.4x the
+            wordmark's cap height (12.5px at this size) and a gap of 0.30 of
             it. The bare mark in both themes rather than the badge — the
             badge's disc only earns its padding where the disc itself shows,
             and here it would change the lockup's size on every theme flip. */}
-        <a href="/#top" className="flex items-center gap-[4.5px]" aria-label="TraxStaff — home">
+        <a href="/#top" className="flex items-center gap-[3.75px]" aria-label="TraxStaff — home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={onDark ? "/brand/mark-white.svg" : "/brand/mark-color.svg"}
             alt=""
-            width={20}
-            height={20}
-            className="h-5 w-5"
+            width={18}
+            height={18}
+            className="h-[17.5px] w-[17.5px]"
           />
           <span className={`font-heading text-lg font-bold tracking-[-0.03em] transition-colors ${wordmarkTone}`}>
             TraxStaff

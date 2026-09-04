@@ -2,11 +2,16 @@
  * The TraxStaff lockup: the mark, then the wordmark.
  *
  * The proportions are fixed here rather than at each call site: the mark stands
- * 1.6x the wordmark's cap height (40px against 25px) and the gap is 0.36 of
- * that cap (9px). Those are the numbers a well-set lockup uses — the same ones
- * the Dropbox logo is built on — and centring does the rest, because for Space
- * Grotesk the ascent minus the descent is very nearly the cap height, so the
- * middle of the line box and the middle of the capitals coincide.
+ * 1.4x the wordmark's cap height (35px against 25px) and the gap is 0.30 of
+ * that cap (7.5px). Centring does the rest, because for Space Grotesk the
+ * ascent minus the descent is very nearly the cap height, so the middle of the
+ * line box and the middle of the capitals coincide.
+ *
+ * 1.4 rather than the 1.6 a diamond- or square-shaped mark can carry: ours is a
+ * filled circle, and a circle covers far more area than an open cluster of the
+ * same height, so the same number makes it the heavier of the two objects. The
+ * gap is tighter than the usual third of a cap for the same reason — a circle's
+ * edge curves away from the wordmark, so a measured gap reads wider than it is.
  *
  * They live in one component because the last time they were copied per page,
  * two surfaces were left behind on the old numbers and the lockup looked
@@ -25,15 +30,15 @@
  */
 export default function Lockup({ className = "" }: { className?: string }) {
   return (
-    <span className={`inline-flex items-center gap-[9px] ${className}`}>
+    <span className={`inline-flex items-center gap-[7.5px] ${className}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/brand/mark-color.svg"
         alt=""
         aria-hidden
-        width={40}
-        height={40}
-        className="h-10 w-10"
+        width={35}
+        height={35}
+        className="h-[35px] w-[35px]"
         style={{ transform: "translateY(-0.8px)" }}
       />
       <span className="font-heading text-4xl font-bold tracking-tight">TraxStaff</span>

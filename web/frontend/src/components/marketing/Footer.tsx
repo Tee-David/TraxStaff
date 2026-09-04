@@ -144,12 +144,12 @@ export function Footer({ currentYear }: { currentYear: number }) {
           className="grid gap-12 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr_1fr]"
         >
           <motion.div {...revealItem}>
-            {/* 1.6x the wordmark's cap height with a 0.36 gap, as on the
+            {/* 1.4x the wordmark's cap height with a 0.30 gap, as on the
                 login page and in the nav. The footer is dark, so the white
                 mark. */}
-            <a href="/#top" className="flex items-center gap-[5.5px]" aria-label="TraxStaff — back to top">
+            <a href="/#top" className="flex items-center gap-[4.5px]" aria-label="TraxStaff — back to top">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/mark-white.svg" alt="" width={24} height={24} className="h-[22px] w-[22px] sm:h-6 sm:w-6" />
+              <img src="/brand/mark-white.svg" alt="" width={21} height={21} className="h-[19.5px] w-[19.5px] sm:h-[21px] sm:w-[21px]" />
               <span className="font-heading text-xl font-bold tracking-[-0.03em] sm:text-[1.375rem]">TraxStaff</span>
             </a>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/55">

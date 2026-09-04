@@ -28,7 +28,16 @@ const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
  * build time, so this is a constant, not a runtime lookup.
  */
 export const googleSignInEnabled = Boolean(CLIENT_ID);
-const GSI_SRC = "https://accounts.google.com/gsi/client";
+/**
+ * `hl=en` pins the language of everything Google draws for us.
+ *
+ * GIS localises its own button to the viewer's Google account or browser
+ * language, which is how an otherwise English login page came to offer
+ * "Doorgaan met Google". The `locale` option below covers the button; this
+ * covers the account chooser and the rest of the GIS chrome, which that option
+ * cannot reach.
+ */
+const GSI_SRC = "https://accounts.google.com/gsi/client?hl=en";
 
 interface GsiButtonOptions {
   type?: "standard" | "icon";
@@ -38,6 +47,7 @@ interface GsiButtonOptions {
   shape?: "rectangular" | "pill" | "circle" | "square";
   logo_alignment?: "left" | "center";
   width?: number;
+  locale?: string;
 }
 
 interface GsiClient {
@@ -163,6 +173,8 @@ export default function GoogleSignInButton({
           shape: "rectangular",
           logo_alignment: "left",
           width,
+          // Not the viewer's language: this button sits in an English page.
+          locale: "en",
         });
       })
       .catch((err: Error) => {

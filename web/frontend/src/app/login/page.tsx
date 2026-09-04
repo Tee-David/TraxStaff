@@ -117,11 +117,17 @@ function LoginForm() {
           {/* The bare mark, not the badge: the badge's white disc is invisible
               on this page, which left its padding acting as ~16px of dead space
               on every side — a 12px gap that rendered as 28px, around a mark
-              drawing at half the size its box reserved. `h-9` is the wordmark's
-              own font-size, so the two scale together. */}
-          <div className="flex items-center justify-center gap-3">
+              drawing at half the size its box reserved.
+
+              The two numbers are the proportions the Dropbox lockup uses, which
+              is the standard being matched here: the mark stands 1.6x the
+              wordmark's cap height (40px against 25px) and the gap is 0.36 of
+              it (9px). Centring does the rest — for Space Grotesk, ascent minus
+              descent is nearly the cap height, so the middle of the line box and
+              the middle of the capitals coincide. */}
+          <div className="flex items-center justify-center gap-[9px]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/mark-color.svg" alt="" className="h-9 w-9" />
+            <img src="/brand/mark-color.svg" alt="" className="h-10 w-10" />
             <span className="font-heading text-4xl font-bold tracking-tight">TraxStaff</span>
           </div>
           <h1 className="mt-5 text-center font-heading text-4xl font-bold tracking-tight">Welcome back</h1>

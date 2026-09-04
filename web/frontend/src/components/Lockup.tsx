@@ -41,7 +41,12 @@ export default function Lockup({ className = "" }: { className?: string }) {
         className="h-[35px] w-[35px]"
         style={{ transform: "translateY(-0.8px)" }}
       />
-      <span className="font-heading text-4xl font-bold tracking-tight">TraxStaff</span>
+      {/* A hair lower than centring puts it. The mark reads as sitting a touch
+          high against the capitals otherwise; 1px is the whole correction, and
+          it moves the word, not the mark. */}
+      <span className="font-heading text-4xl font-bold tracking-tight" style={{ transform: "translateY(1px)" }}>
+        TraxStaff
+      </span>
     </span>
   );
 }

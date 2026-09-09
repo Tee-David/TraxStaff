@@ -44,7 +44,14 @@
         "depends": [
           "libwebkit2gtk-4.1-0",
           "libgtk-3-0",
-          "libayatana-appindicator3-1"
+          "libayatana-appindicator3-1",
+          "libxtst6",
+          "libxcb-randr0",
+          "libglib2.0-bin",
+          "xdg-desktop-portal"
+        ],
+        "recommends": [
+          "xdg-desktop-portal-gtk"
         ]
       }
     },

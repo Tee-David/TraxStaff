@@ -39,6 +39,11 @@ base64 = "0.22"                                          # inline data: URLs for
 # Linux-only: CLOCK_MONOTONIC / CLOCK_BOOTTIME for tamper-resistant timing (see clock.rs).
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+# Decoding the PNG the compositor hands back for a Wayland screenshot. Already
+# in the tree as an xcap dependency, so this pins no new code — it only makes
+# the existing version reachable directly. Default features off: we decode one
+# format, and the full set drags in every codec the crate supports.
+image = { version = "0.24", default-features = false, features = ["png"] }
 
 # Windows-only: OS idle time (GetLastInputInfo) + browser URL sampling (UI Automation).
 [target.'cfg(windows)'.dependencies]

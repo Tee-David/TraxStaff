@@ -125,6 +125,23 @@ pub fn credit_away(secs: i64) {
 // Whether the rdev input hook is delivering events. Starts true; the supervisor
 // flips it false if the listener dies so the UI can warn that activity % is 0.
 static INPUT_HOOK_OK: AtomicBool = AtomicBool::new(true);
+// Whether the input hook has EVER delivered an event on this machine.
+//
+// Distinct from INPUT_HOOK_OK, which only answers "did listen() return an
+// error". rdev is X11-only, and in a Wayland session `listen()` succeeds
+// against XWayland and then sees none of the input going to Wayland-native
+// apps — so the hook reports itself healthy while witnessing nothing. Silence
+// from a hook that has never once fired is blindness, not absence, and must
+// never be read as the member being away.
+static HOOK_SEEN_INPUT: AtomicBool = AtomicBool::new(false);
+// How recent an OS-reported idle figure must be to count as input during this
+// tick. The worker runs once a second; the slack absorbs scheduling jitter on a
+// busy machine, which would otherwise drop seconds a member actually worked.
+const OS_INPUT_FRESH_MS: i64 = 1_500;
+// How long a never-firing hook is given before we call it blind. Long enough
+// that a member who genuinely walked away before touching anything isn't
+// mislabelled, short enough to warn within the first block.
+const HOOK_BLIND_AFTER_SECS: i64 = 120;
 // Whether the last screenshot attempt produced any image (see trax:capture-health).
 static SHOTS_OK: AtomicBool = AtomicBool::new(true);
 static CAPTURE: Lazy<Mutex<Option<Capture>>> = Lazy::new(|| Mutex::new(None));
@@ -160,6 +177,12 @@ struct Capture {
     block_start: DateTime<Utc>,
     kb_secs: HashSet<i64>,
     mouse_secs: HashSet<i64>,
+    // Seconds the OS/compositor reported input for, when the input hook itself
+    // could not see it. Kept apart from kb/mouse because the idle monitor
+    // reports only THAT input happened, never which device produced it — and
+    // inventing a keyboard/mouse split we cannot observe would put a fabricated
+    // number inside the hash chain.
+    os_secs: HashSet<i64>,
     shot_offsets: Vec<i64>,
     shots_taken: HashSet<i64>,
     pending_shots: Vec<PendingShot>,
@@ -210,6 +233,7 @@ impl Capture {
             block_start: Utc::now(),
             kb_secs: HashSet::new(),
             mouse_secs: HashSet::new(),
+            os_secs: HashSet::new(),
             shot_offsets: Vec::new(),
             shots_taken: HashSet::new(),
             pending_shots: Vec::new(),
@@ -275,7 +299,9 @@ fn emit<S: serde::Serialize + Clone>(event: &str, payload: S) {
 
 /// Record an input event into the current block's per-second active buckets.
 pub fn on_input(is_keyboard: bool) {
-    // First event confirms the hook is alive.
+    // First event confirms the hook is alive — and, separately, that it can see
+    // anything at all, which is the claim the idle logic in tick() relies on.
+    HOOK_SEEN_INPUT.store(true, Ordering::Relaxed);
     if !INPUT_HOOK_OK.swap(true, Ordering::Relaxed) {
         emit("trax:capture-health", serde_json::json!({ "inputHook": true }));
     }
@@ -284,26 +310,7 @@ pub fn on_input(is_keyboard: bool) {
     }
     let sec = Utc::now().timestamp();
     let prev = LAST_INPUT.swap(sec, Ordering::Relaxed);
-    // Returning from an idle stretch we already notified about → offer the
-    // keep/discard prompt for the gap (from last input to now).
-    if IDLE_NOTIFIED.swap(false, Ordering::Relaxed) && prev > 0 {
-        // Take it off the clock first, then ask. The prompt carries the exact number
-        // of seconds deducted so "Keep" can put back precisely that much — deriving
-        // it again from the timestamps would drift if the two paths disagreed about
-        // where the span started.
-        let deducted = account_away(prev, sec);
-        if deducted > 0 {
-            emit(
-                "trax:idle-ended",
-                serde_json::json!({
-                    "minutes": (sec - prev) / 60,
-                    "fromISO": iso_ts(prev),
-                    "toISO": iso_ts(sec),
-                    "deductedSecs": deducted,
-                }),
-            );
-        }
-    }
+    close_away_span(prev, sec);
     if let Ok(mut guard) = CAPTURE.lock() {
         if let Some(c) = guard.as_mut() {
             if is_keyboard {
@@ -311,6 +318,59 @@ pub fn on_input(is_keyboard: bool) {
             } else {
                 c.mouse_secs.insert(sec);
             }
+        }
+    }
+}
+
+/// Returning from an idle stretch we already notified about → offer the
+/// keep/discard prompt for the gap (from last input to now).
+///
+/// Shared by both ways input reaches us — the rdev hook and the compositor idle
+/// monitor — because the member coming back is the same event either way, and a
+/// second copy of this would be a second place for the deduction arithmetic to
+/// drift.
+fn close_away_span(prev: i64, sec: i64) {
+    if !(IDLE_NOTIFIED.swap(false, Ordering::Relaxed) && prev > 0) {
+        return;
+    }
+    // Take it off the clock first, then ask. The prompt carries the exact number
+    // of seconds deducted so "Keep" can put back precisely that much — deriving
+    // it again from the timestamps would drift if the two paths disagreed about
+    // where the span started.
+    let deducted = account_away(prev, sec);
+    if deducted > 0 {
+        emit(
+            "trax:idle-ended",
+            serde_json::json!({
+                "minutes": (sec - prev) / 60,
+                "fromISO": iso_ts(prev),
+                "toISO": iso_ts(sec),
+                "deductedSecs": deducted,
+            }),
+        );
+    }
+}
+
+/// The OS/compositor reported input during this second, which the input hook
+/// did not see. Credits activity and closes an away stretch exactly as a real
+/// event does: the member was demonstrably there, and only the *device* is
+/// unknown.
+///
+/// This is what makes tracking work on Wayland at all. It deliberately does NOT
+/// set HOOK_SEEN_INPUT — that flag answers "can the rdev hook see anything on
+/// this machine", and the answer here is still no.
+fn on_os_activity(sec: i64) {
+    if !ACTIVE.load(Ordering::Relaxed) {
+        return;
+    }
+    let prev = LAST_INPUT.swap(sec, Ordering::Relaxed);
+    if prev == sec {
+        return; // this second is already credited
+    }
+    close_away_span(prev, sec);
+    if let Ok(mut guard) = CAPTURE.lock() {
+        if let Some(c) = guard.as_mut() {
+            c.os_secs.insert(sec);
         }
     }
 }
@@ -479,6 +539,30 @@ pub fn tick() {
         emit("trax:tick", serde_json::json!({ "elapsedSecs": secs }));
     }
 
+    // Compositor-reported input, sampled before anything reads LAST_INPUT so the
+    // app attribution and idle arithmetic below both see it.
+    //
+    // This is the Wayland path. rdev is X11-only: in a Wayland session its
+    // listen() succeeds against XWayland and then sees none of the input going
+    // to Wayland-native apps, so the hook reports itself healthy while measuring
+    // exactly zero — which is how a member working all day reads as 0% active
+    // and permanently away. Where the OS can tell us input happened, that
+    // second counts.
+    //
+    // Asked for only while the hook is not covering us: either it has yet to
+    // prove it can see anything (Wayland, where it never will) or it has since
+    // died. Where the hook works, its own events are strictly better — they
+    // carry the device — and every reading here costs a `gdbus` spawn, all day,
+    // on a laptop.
+    let hook_covering = HOOK_SEEN_INPUT.load(Ordering::Relaxed) && INPUT_HOOK_OK.load(Ordering::Relaxed);
+    if !hook_covering {
+        if let Some(ms) = crate::os_idle::idle_millis() {
+            if ms <= OS_INPUT_FRESH_MS {
+                on_os_activity(now_ts);
+            }
+        }
+    }
+
     // A second counts toward app/URL only if the user was active in it.
     let rdev_idle = now_ts - LAST_INPUT.load(Ordering::Relaxed);
     let active_now = rdev_idle <= ACTIVE_WINDOW_SECS;
@@ -498,15 +582,32 @@ pub fn tick() {
     // If the active app is a browser, sample its domain via UI Automation.
     let active_domain = active_app.as_deref().and_then(browser_domain);
 
-    // Idle detection: use whichever clock reports the *smaller* idle so a dead
-    // rdev hook can't keep the user "active" forever.
+    // Idle detection. `None` here means "we have no witness", which is NOT the
+    // same as "the member is away" — and conflating the two is what told a
+    // Linux member they were away all afternoon and made them re-enter the time
+    // by hand.
     let idle_threshold = CAPTURE.lock().ok().and_then(|g| g.as_ref().map(|c| c.idle_threshold)).unwrap_or(300);
+    let hook_sees_input = HOOK_SEEN_INPUT.load(Ordering::Relaxed);
     let idle_for = match os_idle_secs() {
-        Some(os) => rdev_idle.min(os),
-        None => rdev_idle,
+        // The OS knows. Take whichever clock reports the *smaller* idle, so a
+        // dead input hook can't keep the member "active" forever.
+        Some(os) => Some(rdev_idle.min(os)),
+        // No OS opinion, but the hook has proved it can see input on this box,
+        // so its silence is real.
+        None if hook_sees_input => Some(rdev_idle),
+        // No OS opinion and a hook that has never witnessed a single event.
+        // We are blind. Say nothing about idleness rather than accuse.
+        None => None,
     };
-    if idle_for >= idle_threshold && !IDLE_NOTIFIED.swap(true, Ordering::Relaxed) {
-        emit("trax:idle", serde_json::json!({ "minutes": idle_for / 60 }));
+    if let Some(idle_for) = idle_for {
+        if idle_for >= idle_threshold && !IDLE_NOTIFIED.swap(true, Ordering::Relaxed) {
+            emit("trax:idle", serde_json::json!({ "minutes": idle_for / 60 }));
+        }
+    } else if rdev_idle >= HOOK_BLIND_AFTER_SECS && INPUT_HOOK_OK.swap(false, Ordering::Relaxed) {
+        // Blindness must never be silent: the member's activity % will read 0
+        // through no fault of theirs, and they need to know before it shows up
+        // in a review. Reuses the existing dead-hook banner and OS notification.
+        emit("trax:capture-health", serde_json::json!({ "inputHook": false }));
     }
 
     // Determine due screenshots + whether the block is complete (under lock, briefly).
@@ -538,12 +639,16 @@ pub fn tick() {
 
     // Capture screenshots outside the lock (slow), then stash bytes.
     if !due.is_empty() {
-        let shots = capture_all_monitors();
-        // Screen capture can fail silently (no monitors, denied permission,
-        // Wayland without a portal). Surface transitions so the UI can warn.
+        let attempt = capture_all_monitors();
+        let shots = attempt.frames;
+        // Screen capture can fail for reasons the member can act on, and used to
+        // report all of them as silence. Surface transitions, with the reason.
         let ok = !shots.is_empty();
         if ok != SHOTS_OK.swap(ok, Ordering::Relaxed) {
-            emit("trax:capture-health", serde_json::json!({ "screenshots": ok }));
+            emit(
+                "trax:capture-health",
+                serde_json::json!({ "screenshots": ok, "screenshotsReason": attempt.failure }),
+            );
         }
         let mut announced: Vec<serde_json::Value> = Vec::new();
         if let Ok(mut guard) = CAPTURE.lock() {
@@ -594,22 +699,68 @@ fn browser_domain(_app_name: &str) -> Option<String> {
     None
 }
 
-fn capture_all_monitors() -> Vec<(u32, Vec<u8>)> {
+/// Encode one RGBA frame as lossy WebP — q72, a good size/quality balance for
+/// something a reviewer glances at rather than zooms into.
+fn encode_webp(raw: &[u8], w: u32, h: u32) -> Vec<u8> {
+    webp::Encoder::from_rgba(raw, w, h).encode(72.0).to_vec()
+}
+
+/// The outcome of one capture attempt: the frames, and — when there are none —
+/// why. The reason travels to the UI, because "no screenshots" on its own is a
+/// support ticket while "this desktop has no screenshot service" is an answer.
+struct ShotAttempt {
+    frames: Vec<(u32, Vec<u8>)>,
+    failure: Option<String>,
+}
+
+/// Wayland: ask the compositor, which is the only thing that can see the screen.
+///
+/// Kept separate from the X11 path rather than folded into it because the two
+/// fail for unrelated reasons and a member deserves to be told which.
+#[cfg(target_os = "linux")]
+fn capture_wayland() -> ShotAttempt {
+    match crate::linux_shot::capture_desktop() {
+        Ok(img) => {
+            let (w, h) = (img.width(), img.height());
+            ShotAttempt { frames: vec![(0, encode_webp(img.as_raw(), w, h))], failure: None }
+        }
+        Err(e) => ShotAttempt { frames: Vec::new(), failure: Some(e.message().to_string()) },
+    }
+}
+
+fn capture_all_monitors() -> ShotAttempt {
+    // On Wayland the X11 path below cannot work: xcap enumerates monitors over
+    // XCB and then captures through a portal that waits a full minute for a
+    // permission dialog, on this very thread. See linux_shot.rs.
+    #[cfg(target_os = "linux")]
+    {
+        if crate::linux_shot::is_wayland() {
+            return capture_wayland();
+        }
+    }
+
     let mut out = Vec::new();
     let monitors = match xcap::Monitor::all() {
         Ok(m) => m,
-        Err(_) => return out,
+        Err(_) => {
+            return ShotAttempt {
+                frames: out,
+                failure: Some("No screens could be found to capture.".to_string()),
+            }
+        }
     };
     for (i, m) in monitors.iter().enumerate() {
         if let Ok(img) = m.capture_image() {
             let (w, h) = (img.width(), img.height());
-            let raw = img.as_raw();
-            let encoder = webp::Encoder::from_rgba(raw, w, h);
-            let mem = encoder.encode(72.0); // lossy q72 — good size/quality balance
-            out.push((i as u32, mem.to_vec()));
+            out.push((i as u32, encode_webp(img.as_raw(), w, h)));
         }
     }
-    out
+    let failure = if out.is_empty() {
+        Some("Screens were found but none could be captured.".to_string())
+    } else {
+        None
+    };
+    ShotAttempt { frames: out, failure }
 }
 
 fn detect_jiggler() -> Option<String> {
@@ -791,6 +942,7 @@ struct ActiveSeconds {
 fn count_active_seconds(
     kb: &HashSet<i64>,
     mouse: &HashSet<i64>,
+    os: &HashSet<i64>,
     block_start_ts: i64,
     wall_end_ts: i64,
     pause_secs: i64,
@@ -798,8 +950,14 @@ fn count_active_seconds(
     let in_block = |s: i64| s >= block_start_ts && s <= wall_end_ts;
     let fill = pause_secs.max(1);
 
+    // `os` counts toward activity but never toward the per-device totals: the
+    // compositor idle monitor can say a second had input, not whether it came
+    // from a key or a mouse. On Wayland that leaves keyboard/mouse at 0 while
+    // activity is real, which is the honest reading and — checked deliberately —
+    // does not trip the backend's input_channel_imbalance rule, since that
+    // needs one channel ABOVE 10% while the other is silent.
     let mut active: HashSet<i64> = HashSet::new();
-    for &t in kb.iter().chain(mouse.iter()) {
+    for &t in kb.iter().chain(mouse.iter()).chain(os.iter()) {
         for s in t..t.saturating_add(fill) {
             if in_block(s) {
                 active.insert(s);
@@ -851,6 +1009,7 @@ fn finalize_block(stopping: bool) {
         let counts = count_active_seconds(
             &c.kb_secs,
             &c.mouse_secs,
+            &c.os_secs,
             c.block_start.timestamp(),
             end.timestamp(),
             PAUSE_DEFINITION_SECS,
@@ -916,6 +1075,7 @@ fn finalize_block(stopping: bool) {
             c.block_clock = clock_now;
             c.kb_secs.clear();
             c.mouse_secs.clear();
+            c.os_secs.clear();
             c.plan_shots();
         }
         (payload, sid, backend, token, blur, seq, shots, app_usage, url_usage, block_start_iso)
@@ -1233,6 +1393,12 @@ pub fn is_capturing() -> bool {
 mod tests {
     use super::*;
 
+    /// No compositor-reported activity — the ordinary case on X11 and Windows,
+    /// where the input hook sees everything itself.
+    fn no_os() -> HashSet<i64> {
+        HashSet::new()
+    }
+
     /// Block starting at an arbitrary fixed epoch second, so the tests read in
     /// block-relative offsets rather than absolute timestamps.
     const T0: i64 = 1_760_000_000;
@@ -1289,6 +1455,34 @@ mod tests {
         assert_eq!(block_duration_secs(600, 600), 600);
     }
 
+    // ── count_active_seconds: compositor-reported input (Wayland) ───────────
+
+    /// On Wayland the input hook is blind and the compositor's idle monitor is
+    /// the only witness. Those seconds must count as activity — otherwise a
+    /// member who worked all day reads 0% — while leaving the per-device totals
+    /// alone, because the idle monitor cannot say which device produced them.
+    #[test]
+    fn compositor_seconds_are_activity_but_not_keyboard_or_mouse() {
+        let empty = HashSet::new();
+        let os: HashSet<i64> = (0..60).map(|i| T0 + i).collect();
+        let c = count_active_seconds(&empty, &empty, &os, T0, T0 + 600, 1);
+        assert_eq!(c.active, 60, "compositor input must count as activity");
+        assert_eq!(c.keyboard, 0, "the idle monitor cannot attribute a keyboard");
+        assert_eq!(c.mouse, 0, "the idle monitor cannot attribute a mouse");
+    }
+
+    /// The X11/Windows case where both sources see the same second: activity is
+    /// a union, so nothing is double-counted into a percentage above 100.
+    #[test]
+    fn hook_and_compositor_agreeing_does_not_double_count() {
+        let kb: HashSet<i64> = (0..60).map(|i| T0 + i).collect();
+        let os: HashSet<i64> = (0..60).map(|i| T0 + i).collect();
+        let empty = HashSet::new();
+        let c = count_active_seconds(&kb, &empty, &os, T0, T0 + 600, 1);
+        assert_eq!(c.active, 60, "the same second seen twice is still one second");
+        assert_eq!(c.keyboard, 60);
+    }
+
     // ── count_active_seconds: the pause definition ──────────────────────────
 
     #[test]
@@ -1297,7 +1491,7 @@ mod tests {
         // `kb ∪ mouse` cardinality.
         let kb = secs([0, 1, 2, 50, 51]);
         let mouse = secs([2, 3, 90]);
-        let c = count_active_seconds(&kb, &mouse, T0, T0 + 600, 1);
+        let c = count_active_seconds(&kb, &mouse, &no_os(), T0, T0 + 600, 1);
         assert_eq!(c.active, 7); // {0,1,2,3,50,51,90}
         assert_eq!(c.keyboard, 5);
         assert_eq!(c.mouse, 3);
@@ -1310,7 +1504,7 @@ mod tests {
         // it is. If this ever fails, the metric has become fabrication.
         let empty = HashSet::new();
         for pause in 0..=10 {
-            let c = count_active_seconds(&empty, &empty, T0, T0 + 600, pause);
+            let c = count_active_seconds(&empty, &empty, &no_os(), T0, T0 + 600, pause);
             assert_eq!(c.active, 0, "pause={pause} invented activity from nothing");
         }
     }
@@ -1319,7 +1513,7 @@ mod tests {
     fn a_single_event_credits_exactly_the_pause_definition() {
         let kb = secs([10]);
         let empty = HashSet::new();
-        let c = count_active_seconds(&kb, &empty, T0, T0 + 600, PAUSE_DEFINITION_SECS);
+        let c = count_active_seconds(&kb, &empty, &no_os(), T0, T0 + 600, PAUSE_DEFINITION_SECS);
         assert_eq!(c.active, 3); // seconds 10, 11, 12
         assert_eq!(c.keyboard, 1, "the raw signal is not smoothed");
     }
@@ -1329,7 +1523,7 @@ mod tests {
         // Events one second apart must union, not sum.
         let kb = secs([10, 11, 12]);
         let empty = HashSet::new();
-        let c = count_active_seconds(&kb, &empty, T0, T0 + 600, 3);
+        let c = count_active_seconds(&kb, &empty, &no_os(), T0, T0 + 600, 3);
         assert_eq!(c.active, 5); // 10..=14, not 9
     }
 
@@ -1338,7 +1532,7 @@ mod tests {
         let kb: HashSet<i64> = secs(0..600);
         let empty = HashSet::new();
         for pause in 1..=5 {
-            let c = count_active_seconds(&kb, &empty, T0, T0 + 599, pause);
+            let c = count_active_seconds(&kb, &empty, &no_os(), T0, T0 + 599, pause);
             assert_eq!(pct(c.active, 600), 100.0, "pause={pause}");
         }
     }
@@ -1348,7 +1542,7 @@ mod tests {
         // An event in the last second must not bleed into the next block.
         let kb = secs([599]);
         let empty = HashSet::new();
-        let c = count_active_seconds(&kb, &empty, T0, T0 + 599, PAUSE_DEFINITION_SECS);
+        let c = count_active_seconds(&kb, &empty, &no_os(), T0, T0 + 599, PAUSE_DEFINITION_SECS);
         assert_eq!(c.active, 1);
     }
 
@@ -1358,7 +1552,7 @@ mod tests {
         // during the block) contributes nothing rather than back-dating work.
         let kb = secs([-5]);
         let empty = HashSet::new();
-        let c = count_active_seconds(&kb, &empty, T0, T0 + 600, PAUSE_DEFINITION_SECS);
+        let c = count_active_seconds(&kb, &empty, &no_os(), T0, T0 + 600, PAUSE_DEFINITION_SECS);
         assert_eq!(c.active, 0);
         assert_eq!(c.keyboard, 0);
     }
@@ -1370,7 +1564,7 @@ mod tests {
         let kb: HashSet<i64> = secs(0..300);
         let empty = HashSet::new();
         let block_secs = block_duration_secs(300, 68_700);
-        let c = count_active_seconds(&kb, &empty, T0, T0 + 68_700, PAUSE_DEFINITION_SECS);
+        let c = count_active_seconds(&kb, &empty, &no_os(), T0, T0 + 68_700, PAUSE_DEFINITION_SECS);
         assert!(c.active >= block_secs);
         assert_eq!(pct(c.active, block_secs), 100.0);
     }
@@ -1380,7 +1574,7 @@ mod tests {
         // The same second touched by both must count once.
         let kb = secs([0, 1, 2]);
         let mouse = secs([0, 1, 2]);
-        let c = count_active_seconds(&kb, &mouse, T0, T0 + 600, 1);
+        let c = count_active_seconds(&kb, &mouse, &no_os(), T0, T0 + 600, 1);
         assert_eq!(c.active, 3);
         assert_eq!(c.keyboard, 3);
         assert_eq!(c.mouse, 3);
@@ -1421,8 +1615,8 @@ mod tests {
             kb.insert(T0 + s);
         }
 
-        let raw = count_active_seconds(&kb, &mouse, T0, T0 + 599, 1);
-        let filled = count_active_seconds(&kb, &mouse, T0, T0 + 599, PAUSE_DEFINITION_SECS);
+        let raw = count_active_seconds(&kb, &mouse, &no_os(), T0, T0 + 599, 1);
+        let filled = count_active_seconds(&kb, &mouse, &no_os(), T0, T0 + 599, PAUSE_DEFINITION_SECS);
 
         let before = pct(raw.active, 600);
         let after = pct(filled.active, 600);
@@ -1447,7 +1641,7 @@ mod tests {
         let empty = HashSet::new();
         let mut previous = 0;
         for pause in 1..=6 {
-            let c = count_active_seconds(&kb, &empty, T0, T0 + 600, pause);
+            let c = count_active_seconds(&kb, &empty, &no_os(), T0, T0 + 600, pause);
             assert!(
                 c.active >= previous,
                 "widening the window from {} lowered activity", pause - 1

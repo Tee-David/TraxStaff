@@ -4,6 +4,8 @@ mod notify;
 mod scope;
 mod sync;
 mod os_idle;
+#[cfg(target_os = "linux")]
+mod linux_shot;
 #[cfg(windows)]
 mod url_capture;
 

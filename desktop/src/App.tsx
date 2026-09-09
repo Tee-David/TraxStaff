@@ -6,6 +6,7 @@ import CircularTimer from "./CircularTimer";
 import LightRays from "./LightRays";
 import Consent from "./Consent";
 import { DatePicker } from "./DatePicker";
+import { AddTimeRequest } from "./AddTimeRequest";
 import { Select } from "./Select";
 import { useInfiniteList } from "./useInfinite";
 import {
@@ -846,6 +847,9 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
   const [closeInfo, setCloseInfo] = useState<{ capturing: boolean; pending: number } | null>(null);
   const [closingRemaining, setClosingRemaining] = useState<number | null>(null);
   const [shotsOk, setShotsOk] = useState(true);
+  // Why capture failed, when the engine could say. Null falls back to the
+  // generic wording, which is all an older engine can offer.
+  const [shotsReason, setShotsReason] = useState<string | null>(null);
   const [shotCount, setShotCount] = useState(0); // screenshots this session
   const [localShots, setLocalShots] = useState<{ takenAt: string; monitorIndex: number; dataUrl: string; status?: ShotStatus }[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -965,8 +969,8 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
       // Capture health: input hook and/or screenshots. These are integrity
       // alerts — deliberately not behind a reminder toggle, and raised at OS
       // level too because the in-app banner is invisible from the tray.
-      listen<{ inputHook?: boolean; screenshots?: boolean }>("trax:capture-health", (e) => {
-        const { inputHook, screenshots } = e.payload;
+      listen<{ inputHook?: boolean; screenshots?: boolean; screenshotsReason?: string | null }>("trax:capture-health", (e) => {
+        const { inputHook, screenshots, screenshotsReason } = e.payload;
         if (typeof inputHook === "boolean") {
           setHookOk(inputHook);
           if (!inputHook && !alerted.current.hook) {
@@ -977,8 +981,18 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
         if (typeof screenshots === "boolean") {
           setShotsOk(screenshots);
           if (!screenshots && !alerted.current.shots) {
-            notify("TraxStaff", "Screenshots couldn't be captured on this screen — time and activity still record.");
+            // The engine knows WHY, so say it. "A Wayland desktop with no
+            // screenshot service" reads very differently from a transient
+            // failure, and the generic line sent people to support for
+            // something they could have understood themselves.
+            setShotsReason(screenshotsReason ?? null);
+            notify(
+              "TraxStaff",
+              screenshotsReason ??
+                "Screenshots couldn't be captured on this screen — time and activity still record."
+            );
           }
+          if (screenshots) setShotsReason(null);
           alerted.current.shots = !screenshots;
         }
       }),
@@ -1713,7 +1727,9 @@ function Tracker({ onLogout }: { onLogout: () => void }) {
 
       {/* Screenshot capture failing (e.g. no display / denied) — time still counts. */}
       {!shotsOk && active && (
-        <div className="warn-banner">Screenshots couldn&rsquo;t be captured on this screen — time and activity still record.</div>
+        <div className="warn-banner">
+          {shotsReason ?? "Screenshots couldn’t be captured on this screen — time and activity still record."}
+        </div>
       )}
 
       {/* Transient action toast (tracking started/stopped/switched, screenshot). */}
@@ -2398,6 +2414,7 @@ function DateRangePicker({ value, custom, onChange }: {
 
 function TimesheetsPage({ week }: { week: Session[] }) {
   const [sub, setSub] = useState<"edit" | "approvals">("edit");
+  const [requesting, setRequesting] = useState(false);
   const [rangeKey, setRangeKey] = useState<RangeKey>("week");
   const [custom, setCustom] = useState<{ from?: string; to?: string }>({});
   const range = useMemo(() => rangeFor(rangeKey, custom.from, custom.to), [rangeKey, custom]);
@@ -2490,7 +2507,24 @@ function TimesheetsPage({ week }: { week: Session[] }) {
 
       <div className="ts-controls">
         <SubTabs tabs={[{ id: "edit", label: "View & edit" }, { id: "approvals", label: "Approvals" }]} value={sub} onChange={setSub} />
+        <button className="ts-addtime" onClick={() => setRequesting(true)}>
+          {isPrivilegedCached() ? "Add time" : "Request time"}
+        </button>
       </div>
+
+      <AnimatePresence>
+        {requesting && (
+          <AddTimeRequest
+            isAdmin={isPrivilegedCached()}
+            onClose={() => setRequesting(false)}
+            // Show the new entry straight away instead of waiting for a refetch:
+            // "This week" is served from already-merged data that this dialog
+            // has no other way to reach, so without this a member sends a
+            // request and the screen looks as though nothing happened.
+            onAdded={(s) => setFetched((prev) => [s, ...prev.filter((p) => p.id !== s.id)])}
+          />
+        )}
+      </AnimatePresence>
 
       <DateRangePicker
         value={rangeKey}

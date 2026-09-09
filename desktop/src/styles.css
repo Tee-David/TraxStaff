@@ -641,3 +641,30 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .sel-opt:hover { background: var(--canvas); }
 .sel-opt.sel-on { color: var(--brand); font-weight: 700; }
 .sel-opt.sel-on svg { color: var(--brand); }
+
+/* ---------- request-time dialog ---------- */
+/* Reuses the note modal's overlay and buttons; only the form body is new. */
+.addtime-modal { max-width: 340px; max-height: 86vh; overflow-y: auto; }
+.addtime-sub { font-size: 12px; color: var(--muted); line-height: 1.45; margin: -6px 0 14px; }
+.addtime-label { display: block; font-size: 11.5px; font-weight: 600; color: var(--muted); margin: 12px 0 5px; }
+.addtime-input {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px;
+  font-family: inherit; font-size: 13.5px; color: var(--ink); background: var(--card); outline: none;
+}
+.addtime-input:focus { border-color: var(--brand); }
+.addtime-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.addtime-reason { min-height: 68px; margin-top: 2px; font-size: 13px; }
+.addtime-empty {
+  font-size: 12.5px; color: var(--muted); line-height: 1.5;
+  background: var(--canvas); border-radius: 12px; padding: 14px; margin: 4px 0 2px;
+}
+/* The three end-states of the form, told apart by colour as well as position:
+   what you're about to send, what's stopping you, and what the server said. */
+.addtime-preview { margin-top: 12px; font-size: 12.5px; font-weight: 600; color: var(--brand); }
+.addtime-problem { margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+.addtime-error { margin-top: 12px; padding: 9px 11px; border-radius: 10px; font-size: 12.5px;
+  background: #fdeceb; color: #99231c; border: 1px solid #f7cfcc; line-height: 1.45; }
+.ts-addtime {
+  background: var(--brand); color: #fff; padding: 8px 14px; font-size: 12.5px;
+  border-radius: 999px; white-space: nowrap;
+}

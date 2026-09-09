@@ -157,10 +157,22 @@ export function DownloadApp() {
 
               {state.status === "ready" && (() => {
                 const data = state.data;
-                const primaryHref = primary === "windows" ? data.windows : data.linuxAppImage;
+                // Linux leads with the .deb, not the AppImage. Two reasons, both
+                // things members hit in the field: the AppImage has no
+                // uninstaller at all (the format has none — you are expected to
+                // know to delete the file and its data dir), and it declares no
+                // dependencies, so the X11/portal/glib packages the tracker needs
+                // for input and screenshots are simply absent unless the distro
+                // happened to ship them. The .deb states both.
+                const linuxPrimary = data.linuxDeb ?? data.linuxAppImage;
+                const primaryHref = primary === "windows" ? data.windows : linuxPrimary;
                 const primaryLabel = primary === "windows" ? "Download for Windows" : "Download for Linux";
                 const primaryHint =
-                  primary === "windows" ? ".exe installer · 64-bit" : ".AppImage · 64-bit, portable";
+                  primary === "windows"
+                    ? ".exe installer · 64-bit"
+                    : data.linuxDeb
+                      ? ".deb · Debian, Ubuntu, Zorin, Mint"
+                      : ".AppImage · 64-bit, portable";
                 const PrimaryIcon = primary === "windows" ? IconWindows : IconLinux;
 
                 return (
@@ -187,14 +199,26 @@ export function DownloadApp() {
                           No {primary === "windows" ? "Windows" : "Linux"} build attached to this release yet.
                         </div>
                       )}
-                      {primary === "linux" && data.linuxDeb && (
+                      {primary === "linux" && data.linuxDeb && data.linuxAppImage && (
                         <a
-                          href={data.linuxDeb}
+                          href={data.linuxAppImage}
                           rel="noopener noreferrer"
                           className="mt-1.5 inline-flex items-center gap-1 pl-1 text-xs font-medium text-brand hover:underline"
                         >
-                          or get the .deb package instead
+                          or get the portable .AppImage instead
                         </a>
+                      )}
+                      {primary === "linux" && (
+                        <p className="mt-2 text-xs text-muted">
+                          To remove it later:{" "}
+                          <code className="rounded bg-canvas px-1 py-0.5">sudo apt remove traxstaff</code>{" "}
+                          for the .deb, or delete the .AppImage file. Either way, your local
+                          settings and any unsynced captures live in{" "}
+                          <code className="rounded bg-canvas px-1 py-0.5">
+                            ~/.local/share/com.trax.tracker
+                          </code>
+                          .
+                        </p>
                       )}
                       {platform === "mac" && (
                         <p className="mt-2 text-xs text-muted">
@@ -216,8 +240,8 @@ export function DownloadApp() {
                           <PlatformRow
                             icon={<IconLinux />}
                             label="Linux"
-                            hint={data.linuxAppImage && data.linuxDeb ? "AppImage or .deb" : "AppImage · 64-bit"}
-                            href={data.linuxAppImage ?? data.linuxDeb}
+                            hint={data.linuxAppImage && data.linuxDeb ? ".deb or AppImage" : ".deb · 64-bit"}
+                            href={linuxPrimary}
                           />
                         )}
                         <PlatformRow icon={<IconApple />} label="macOS" hint="Not available yet" disabled />

@@ -154,8 +154,13 @@ export function DownloadCta() {
           {state.status === "ready" &&
             (() => {
               const data = state.data;
-              const primaryHref = primary === "windows" ? data.windows : data.linuxAppImage;
-              const otherHref = primary === "windows" ? data.linuxAppImage ?? data.linuxDeb : data.windows;
+              // Linux leads with the .deb — it is the only Linux artifact that
+              // declares the tracker's runtime dependencies and the only one
+              // that can be uninstalled. See DownloadApp.tsx for the long form.
+              const linuxHref = data.linuxDeb ?? data.linuxAppImage;
+              const linuxHint = data.linuxDeb ? ".deb · Debian, Ubuntu, Zorin" : ".AppImage · 64-bit";
+              const primaryHref = primary === "windows" ? data.windows : linuxHref;
+              const otherHref = primary === "windows" ? linuxHref : data.windows;
 
               return (
                 <div className="space-y-6">
@@ -168,7 +173,7 @@ export function DownloadCta() {
                         <DownloadButton
                           icon={primary === "windows" ? <IconWindows /> : <IconLinux />}
                           label={primary === "windows" ? "Download for Windows" : "Download for Linux"}
-                          hint={primary === "windows" ? ".exe installer · 64-bit" : ".AppImage · 64-bit"}
+                          hint={primary === "windows" ? ".exe installer · 64-bit" : linuxHint}
                           href={primaryHref}
                           primary
                         />
@@ -182,7 +187,7 @@ export function DownloadCta() {
                         <DownloadButton
                           icon={primary === "windows" ? <IconLinux /> : <IconWindows />}
                           label={primary === "windows" ? "Download for Linux" : "Download for Windows"}
-                          hint={primary === "windows" ? ".AppImage · 64-bit" : ".exe installer · 64-bit"}
+                          hint={primary === "windows" ? linuxHint : ".exe installer · 64-bit"}
                           href={otherHref}
                         />
                       ) : (
@@ -192,13 +197,13 @@ export function DownloadCta() {
                         />
                       )}
                     </div>
-                    {data.linuxDeb && (
+                    {data.linuxDeb && data.linuxAppImage && (
                       <a
-                        href={data.linuxDeb}
+                        href={data.linuxAppImage}
                         rel="noopener noreferrer"
                         className="mt-1 inline-block px-1 py-2.5 text-xs font-medium text-white/70 transition hover:text-white hover:underline"
                       >
-                        or get the .deb package instead
+                        or get the portable .AppImage instead
                       </a>
                     )}
                   </div>

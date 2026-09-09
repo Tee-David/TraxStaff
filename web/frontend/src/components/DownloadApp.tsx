@@ -211,7 +211,7 @@ export function DownloadApp() {
                       {primary === "linux" && (
                         <p className="mt-2 text-xs text-muted">
                           To remove it later:{" "}
-                          <code className="rounded bg-canvas px-1 py-0.5">sudo apt remove traxstaff</code>{" "}
+                          <code className="rounded bg-canvas px-1 py-0.5">sudo apt remove trax-staff</code>{" "}
                           for the .deb, or delete the .AppImage file. Either way, your local
                           settings and any unsynced captures live in{" "}
                           <code className="rounded bg-canvas px-1 py-0.5">

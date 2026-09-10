@@ -608,6 +608,15 @@ export default async function sessionRoutes(fastify: FastifyInstance) {
             }
           : {}),
       },
+      // Shaped like a row from GET /sessions, because that is what every client
+      // renders it as the moment this returns. Without the relations the desktop
+      // app read `session.project.name` off a bare row, threw, and unmounted its
+      // whole React tree — a blank window, on the one screen a member reaches
+      // for when tracking has already failed them.
+      include: {
+        project: { select: { id: true, name: true, clientTag: true } },
+        task: { select: { id: true, title: true } },
+      },
     });
 
     const facts = manualFacts({

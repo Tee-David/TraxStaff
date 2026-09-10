@@ -91,7 +91,15 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .stack button[type="submit"] { padding: 12px; background: var(--brand); color: #fff; font-size: 15px; }
 
 /* ---------- app shell (two-pane responsive) ---------- */
-.app-shell { display: flex; min-height: 100vh; }
+.app-shell { display: flex; flex-wrap: wrap; min-height: 100vh; }
+/* Banners (idle prompt, capture warnings, sync errors) are direct children of
+   the shell, which is a flex ROW — so each one became a COLUMN beside the panes
+   rather than a strip above them. Narrow, that squeezed them to nothing, which
+   is why nobody had seen one in months; wide, it turned the first banner into a
+   full-height slab that shoved the tracker sideways. Anything that is not a
+   pane takes a row of its own. */
+.app-shell > *:not(.widget-pane):not(.dash-pane) { flex: 0 0 100%; }
+.app-shell > .warn-banner, .app-shell > .idle-banner { margin: 10px 14px 0; }
 .widget-pane { width: 100%; flex-shrink: 0; }
 .dash-pane { display: none; flex: 1; }
 @media (min-width: 760px) {
@@ -668,3 +676,14 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   background: var(--brand); color: #fff; padding: 8px 14px; font-size: 12.5px;
   border-radius: 999px; white-space: nowrap;
 }
+
+/* ---------- crash screen (ErrorBoundary) ---------- */
+/* Deliberately plain: this renders when something else has already failed, so
+   it leans on nothing but the base tokens. */
+.crash-screen { padding: 28px 22px; max-width: 380px; margin: 0 auto; text-align: center; }
+.crash-title { font-family: var(--font-display); font-size: 18px; margin: 0 0 12px; color: var(--ink); }
+.crash-body { font-size: 13px; line-height: 1.55; color: var(--muted); margin: 0 0 10px; }
+.crash-body strong { color: var(--ink); }
+.crash-reload { background: var(--brand); color: #fff; padding: 10px 18px; font-size: 13px; border-radius: 999px; margin-top: 8px; }
+.crash-details { margin-top: 18px; text-align: left; font-size: 11.5px; color: var(--faint); }
+.crash-details pre { white-space: pre-wrap; word-break: break-word; margin-top: 6px; font-size: 11px; }

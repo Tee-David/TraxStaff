@@ -126,6 +126,19 @@ function canViewOwnCaptures(): boolean {
 const LOCAL_SESSIONS_KEY = "trax_local_sessions";
 const LOCAL_SESSIONS_OWNER_KEY = "trax_local_sessions_owner";
 
+/**
+ * A session's project name, tolerating a row that arrived without the relation.
+ *
+ * Every client treats `project` as guaranteed because GET /sessions includes it —
+ * but a row can also reach the UI straight from a POST response or the offline
+ * cache, and one of those (POST /sessions/manual) did not include it. Reading
+ * `.name` off undefined there unmounted the entire app. The relation is fixed
+ * server-side; this makes the same mistake survivable rather than fatal.
+ */
+function projectNameOf(s: Session): string {
+  return s.project?.name ?? "Unknown project";
+}
+
 /** Who the cached sessions belong to, or null if unknown/never set. */
 function localSessionsOwner(): string | null {
   try { return localStorage.getItem(LOCAL_SESSIONS_OWNER_KEY); } catch { return null; }
@@ -2046,7 +2059,7 @@ function DesktopDashboard({ projects, week, workedWeek, weekTarget, onViewActivi
     const weekStartMs = startOfWeek().getTime();
     const nowMs = Date.now();
     for (const s of week) {
-      const e = by.get(s.projectId) ?? { name: s.project.name, secs: 0, last: 0 };
+      const e = by.get(s.projectId) ?? { name: projectNameOf(s), secs: 0, last: 0 };
       // Only this week's share — `week` now includes sessions that began before
       // the week and ran into it, so whole-session totals would import last
       // week's hours into this week's breakdown.
@@ -2471,7 +2484,7 @@ function TimesheetsPage({ week }: { week: Session[] }) {
       <div className="ts-thead"><span>Project · Task</span><span>Type</span><span>Time</span><span>Duration</span></div>
       {list.map((s) => (
         <div className="ts-row" key={s.id}>
-          <span className="ts-proj">{s.project.name}{s.project.clientTag ? <em className="ts-client"> · {s.project.clientTag}</em> : ""}{s.task ? ` — ${s.task.title}` : ""}</span>
+          <span className="ts-proj">{projectNameOf(s)}{s.project?.clientTag ? <em className="ts-client"> · {s.project.clientTag}</em> : ""}{s.task ? ` — ${s.task.title}` : ""}</span>
           {/* A manual entry now says where it stands, not just that it is
               manual — "Manual" on a row an admin rejected reads as time that
               counts, and the totals above say otherwise. */}
@@ -2911,7 +2924,7 @@ function ReportsPage({ week }: { week: Session[] }) {
       }
     } else {
       for (const s of week) {
-        const key = s.task?.title ?? `${s.project.name} (no task)`;
+        const key = s.task?.title ?? `${projectNameOf(s)} (no task)`;
         const cur = g.get(key) ?? { seconds: 0, count: 0 };
         cur.seconds += overlapSecs(s, weekStartMs, nowMs); cur.count += 1;
         g.set(key, cur);

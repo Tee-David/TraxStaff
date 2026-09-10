@@ -1,3 +1,4 @@
+import { formatDate } from "@/lib/format";
 /**
  * Shared shape + labelling for the audit log, mirroring lib/notifications.ts.
  *
@@ -101,5 +102,5 @@ export function timeAgo(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return formatDate(iso);
 }

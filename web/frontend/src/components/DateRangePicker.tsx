@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { IconCalendar, IconChevron } from "./icons";
+import { formatDate } from "@/lib/format";
 
 // Basic date math utilities
 function getDaysInMonth(year: number, month: number) {
@@ -29,19 +30,18 @@ function isAfter(d1: Date, d2: Date) {
   return d1.getTime() > d2.getTime();
 }
 
-function formatDate(date: Date) {
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
+// dd/mm/yyyy, matching formatDate and the desktop tracker. This field and its
+// parser were the last mm/dd/yyyy holdouts, which meant the custom range someone
+// typed did not agree with the range the picker then displayed back to them.
 function formatInputDate(date: Date) {
-  return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
 }
 
 function parseInputDate(str: string): Date | null {
   const parts = str.split('/');
   if (parts.length !== 3) return null;
-  const m = parseInt(parts[0], 10);
-  const d = parseInt(parts[1], 10);
+  const d = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
   const y = parseInt(parts[2], 10);
   if (isNaN(m) || isNaN(d) || isNaN(y)) return null;
   const date = new Date(y, m - 1, d);
@@ -316,7 +316,7 @@ export function DateRangePicker({
               <div className="flex items-center gap-2 w-full md:w-auto">
                 <input 
                   className="w-full md:w-[6.5rem] px-2.5 py-1.5 text-[16px] md:text-[13px] rounded-md border border-border bg-surface outline-none focus:border-brand"
-                  placeholder="MM/DD/YYYY"
+                  placeholder="DD/MM/YYYY"
                   value={tempFrom ? formatInputDate(tempFrom) : ""}
                   onChange={(e) => {
                     const d = parseInputDate(e.target.value);
@@ -329,7 +329,7 @@ export function DateRangePicker({
                 <span className="text-muted text-sm">–</span>
                 <input 
                   className="w-full md:w-[6.5rem] px-2.5 py-1.5 text-[16px] md:text-[13px] rounded-md border border-border bg-surface outline-none focus:border-brand"
-                  placeholder="MM/DD/YYYY"
+                  placeholder="DD/MM/YYYY"
                   value={tempTo ? formatInputDate(tempTo) : ""}
                   onChange={(e) => {
                     const d = parseInputDate(e.target.value);

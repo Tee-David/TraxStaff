@@ -115,6 +115,21 @@ export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+/**
+ * dd/mm/yyyy, fixed rather than locale-derived.
+ *
+ * `toLocaleDateString()` follows the reader's machine, so the same timesheet
+ * row read 09/10/2026 for one person and 10/09/2026 for another, with nothing
+ * on screen to say which. These dates are evidence in a pay dispute, so the
+ * format is the product's decision, not the OS's — and it matches the desktop
+ * tracker, which now writes dates the same way.
+ *
+ * Prose dates ("Wednesday, 10 September") are deliberately NOT routed through
+ * here: a heading is not a data field, and numbers read worse there.
+ */
+export function formatDate(iso: string | Date): string {
+  const d = iso instanceof Date ? iso : new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
 }

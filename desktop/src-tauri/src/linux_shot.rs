@@ -41,9 +41,16 @@ impl ShotError {
     /// One sentence, addressed to the member, not to a log reader.
     pub fn message(&self) -> &'static str {
         match self {
+            // GNOME 41+ restricts org.gnome.Shell.Screenshot to callers it
+            // trusts, so this is the ordinary answer on a current GNOME/Wayland
+            // desktop, not an exotic failure. Silent capture there needs the
+            // ScreenCast portal over PipeWire, which is not built yet — so this
+            // names the one thing a member can actually do today, rather than
+            // describing a limitation they cannot act on.
             ShotError::NoScreenshotService => {
-                "This Wayland desktop doesn't offer a screenshot service TraxStaff can use. \
-                 Time and activity still record."
+                "Screenshots aren't available on this Wayland desktop. To turn them on, log out \
+                 and choose an Xorg session from the gear icon on the login screen. \
+                 Time and activity still record either way."
             }
             ShotError::ServiceRefused => {
                 "The desktop refused the screenshot request. Time and activity still record."

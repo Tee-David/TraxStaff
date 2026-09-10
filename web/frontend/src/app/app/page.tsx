@@ -13,7 +13,7 @@ import { Badge, EmptyState, PageHeader, Section, Skeleton, StatTile } from "@/co
 import { Donut } from "@/components/Donut";
 import { WorkHeatmap } from "@/components/WorkHeatmap";
 import CountUp from "@/components/CountUp";
-import { formatDurationShort, formatTime, overlapSeconds, ownerName, sessionEnd, sessionSeconds } from "@/lib/format";
+import { formatDate, formatDurationShort, formatTime, overlapSeconds, ownerName, sessionEnd, sessionSeconds } from "@/lib/format";
 
 function startOfToday(): Date {
   const d = new Date();
@@ -441,7 +441,7 @@ export default function DashboardPage() {
                           {ownerName(s.user)}
                         </Badge>
                       </td>
-                      <td className="px-5 py-3 text-muted">{new Date(s.startedAt).toLocaleDateString()}</td>
+                      <td className="px-5 py-3 text-muted">{formatDate(s.startedAt)}</td>
                       <td className="px-5 py-3 tnum text-muted">
                         {formatTime(s.startedAt)}
                         {s.endedAt ? ` – ${formatTime(s.endedAt)}` : ""}

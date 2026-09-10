@@ -11,6 +11,7 @@
  * and that page had their own copies and had already drifted by a word.
  */
 import { FLAG_LABELS } from "./flags";
+import { formatDate } from "@/lib/format";
 
 export interface AppNotification {
   id: string;
@@ -105,5 +106,5 @@ export function timeAgo(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.round(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return formatDate(iso);
 }

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { api, ApiError, type Project, type Session } from "./api";
 import { Select } from "./Select";
+import { DatePicker } from "./DatePicker";
+import { TimePicker } from "./TimePicker";
 
 /**
  * Request time the tracker didn't see — the desktop half of
@@ -97,6 +99,13 @@ export function AddTimeRequest({
   const [taskId, setTaskId] = useState(NO_TASK);
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
+  // What is already on this member's timesheet for the chosen date.
+  //
+  // The server refuses an overlapping entry with a 409, which was the entire
+  // feedback a member got: told their hours clashed with something, and given
+  // no way to see what. Showing the day's existing entries turns "that
+  // overlaps" into "that overlaps THIS, here is the gap".
+  const [dayEntries, setDayEntries] = useState<Session[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -109,6 +118,24 @@ export function AddTimeRequest({
       .catch(() => setProjects([]))
       .finally(() => setLoadingProjects(false));
   }, []);
+
+  useEffect(() => {
+    const [y, m, d] = date.split("-").map(Number);
+    if (![y, m, d].every(Number.isFinite)) return;
+    const from = new Date(y, m - 1, d, 0, 0, 0, 0);
+    const to = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
+    let cancelled = false;
+    setDayEntries(null);
+    api<Session[]>(`/sessions?from=${from.toISOString()}&to=${to.toISOString()}`)
+      .then((res) => {
+        if (cancelled) return;
+        // Rejected time is not on the timesheet, so it cannot be clashed with —
+        // and the server agrees: its overlap check excludes rejected rows too.
+        setDayEntries((Array.isArray(res) ? res : []).filter((x) => x.approvalState !== "rejected"));
+      })
+      .catch(() => !cancelled && setDayEntries([]));
+    return () => { cancelled = true; };
+  }, [date]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -146,6 +173,21 @@ export function AddTimeRequest({
     [tasks]
   );
 
+  /** When an existing row effectively ends. An open session runs until now. */
+  function entryEnd(e: Session): number {
+    const raw = e.endedAt ?? e.effectiveEndAt;
+    return raw ? new Date(raw).getTime() : Date.now();
+  }
+
+  function entryLabel(e: Session): string {
+    const t = (ms: number) => {
+      const d = new Date(ms);
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+    const name = e.project?.name ?? "Unknown project";
+    return `${t(new Date(e.startedAt).getTime())}–${t(entryEnd(e))} · ${name}${e.isManual ? " (manual)" : ""}`;
+  }
+
   const start = parseLocal(date, from);
   const sameDayEnd = parseLocal(date, to);
   // An end *earlier* than the start reads as an overnight stretch, and is shown
@@ -155,6 +197,15 @@ export function AddTimeRequest({
   const spansMidnight = !!start && !!sameDayEnd && sameDayEnd.getTime() < start.getTime();
   const end = spansMidnight ? parseLocal(date, to, 1) : sameDayEnd;
   const seconds = start && end ? Math.round((end.getTime() - start.getTime()) / 1000) : 0;
+
+  // The same rule the server applies: two intervals overlap when
+  // existing.start < new.end AND existing.end > new.start.
+  const clash =
+    start && end
+      ? (dayEntries ?? []).find(
+          (e) => new Date(e.startedAt).getTime() < end.getTime() && entryEnd(e) > start.getTime()
+        )
+      : undefined;
 
   const problem =
     !start || !end
@@ -236,42 +287,52 @@ export function AddTimeRequest({
           </div>
         ) : (
           <>
-            <label className="addtime-label" htmlFor="addtime-date">
-              Date
-            </label>
-            <input
-              id="addtime-date"
-              className="addtime-input"
-              type="date"
+            <label className="addtime-label">Date</label>
+            {/* The app's own picker, not input[type=date]: the native control
+                follows the OS locale, so it offered mm/dd/yyyy beside fields the
+                rest of the app writes as dd/mm/yyyy. */}
+            <DatePicker
               value={date}
               max={dateValue(new Date())}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={(iso) => iso && setDate(iso)}
             />
+
+            {/* What is already on the timesheet for this date. Shown BEFORE the
+                time fields, because it is the thing that decides what to type
+                into them. */}
+            {dayEntries === null ? (
+              <div className="addtime-day addtime-day-loading">Checking this day…</div>
+            ) : dayEntries.length === 0 ? (
+              <div className="addtime-day">Nothing logged on this day yet.</div>
+            ) : (
+              <div className="addtime-day">
+                <div className="addtime-day-head">Already logged</div>
+                {dayEntries
+                  .slice()
+                  .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())
+                  .map((e) => (
+                    <div
+                      key={e.id}
+                      className={`addtime-day-row ${clash && clash.id === e.id ? "is-clash" : ""}`}
+                    >
+                      {entryLabel(e)}
+                    </div>
+                  ))}
+              </div>
+            )}
 
             <div className="addtime-row">
               <div>
                 <label className="addtime-label" htmlFor="addtime-from">
                   From
                 </label>
-                <input
-                  id="addtime-from"
-                  className="addtime-input"
-                  type="time"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                />
+                <TimePicker id="addtime-from" value={from} onChange={setFrom} ariaLabel="From" />
               </div>
               <div>
                 <label className="addtime-label" htmlFor="addtime-to">
                   To
                 </label>
-                <input
-                  id="addtime-to"
-                  className="addtime-input"
-                  type="time"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                />
+                <TimePicker id="addtime-to" value={to} onChange={setTo} ariaLabel="To" />
               </div>
             </div>
 

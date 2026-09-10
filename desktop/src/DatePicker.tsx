@@ -42,9 +42,18 @@ function daysIn(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
 }
 
+/**
+ * dd/mm/yyyy, fixed rather than locale-derived.
+ *
+ * `toLocaleDateString` follows the machine, so the same timesheet read
+ * 09/10/2026 on one member's laptop and 10/09/2026 on another's — and neither
+ * could tell which. A tracker's dates are evidence in a pay dispute, so the
+ * format is the app's decision, not the OS's.
+ */
 function fmtLabel(d: Date | null, placeholder: string): string {
   if (!d) return placeholder;
-  return d.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
 export function DatePicker({

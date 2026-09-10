@@ -11,7 +11,7 @@ import { Badge, Card, PageHeader, Skeleton, StatTile } from "@/components/ui";
 import FlagBadge from "@/components/FlagBadge";
 import { IconClock, IconFlag, IconTrend, IconUsers } from "@/components/icons";
 import { DateRange, FilterBar, rangeToParams, type DateRangeValue } from "@/components/filters";
-import { formatDurationShort, ownerName } from "@/lib/format";
+import { formatDate, formatDurationShort, ownerName } from "@/lib/format";
 
 const PROJ_COLORS = ["var(--color-cat-focus)", "#ff6600", "#12b5a5", "#8a5cf6", "#e0457b", "#0ea5e9", "#84cc16"];
 
@@ -405,7 +405,7 @@ export default function InsightsPage() {
                             null user. Dereferencing it threw, and with no error
                             boundary that blanked the whole dashboard. */}
                         <div className="text-[12px] text-ink font-medium truncate">{ownerName(f.session.user)}</div>
-                        <div className="text-[11px] text-muted">{f.session.project.name} · {new Date(f.detectedAt).toLocaleDateString()}</div>
+                        <div className="text-[11px] text-muted">{f.session.project.name} · {formatDate(f.detectedAt)}</div>
                       </div>
                       <div className="shrink-0 pt-0.5">
                         {f.acknowledgedAt ? (

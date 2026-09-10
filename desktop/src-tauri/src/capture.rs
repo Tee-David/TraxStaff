@@ -138,6 +138,10 @@ static HOOK_SEEN_INPUT: AtomicBool = AtomicBool::new(false);
 // tick. The worker runs once a second; the slack absorbs scheduling jitter on a
 // busy machine, which would otherwise drop seconds a member actually worked.
 const OS_INPUT_FRESH_MS: i64 = 1_500;
+// How many times one due screenshot is attempted before the block gives up on
+// it. Three is enough to ride out a compositor that is briefly busy without
+// turning a genuinely unavailable one into a permanent retry loop.
+const MAX_SHOT_ATTEMPTS: u32 = 3;
 // How long a never-firing hook is given before we call it blind. Long enough
 // that a member who genuinely walked away before touching anything isn't
 // mislabelled, short enough to warn within the first block.
@@ -185,6 +189,13 @@ struct Capture {
     os_secs: HashSet<i64>,
     shot_offsets: Vec<i64>,
     shots_taken: HashSet<i64>,
+    /// How many times each due offset has been attempted.
+    ///
+    /// A due offset used to be marked taken BEFORE the capture ran, so a single
+    /// transient refusal — which GNOME's screenshot service does, on a session
+    /// still coming up or a locked screen — silently cost that block a
+    /// screenshot for good. Capture is now re-armed on failure, up to a bound.
+    shot_attempts: HashMap<i64, u32>,
     pending_shots: Vec<PendingShot>,
     app_secs: HashMap<String, i64>,
     url_secs: HashMap<String, i64>,
@@ -236,6 +247,7 @@ impl Capture {
             os_secs: HashSet::new(),
             shot_offsets: Vec::new(),
             shots_taken: HashSet::new(),
+            shot_attempts: HashMap::new(),
             pending_shots: Vec::new(),
             app_secs: HashMap::new(),
             url_secs: HashMap::new(),
@@ -259,6 +271,7 @@ impl Capture {
     fn plan_shots(&mut self) {
         self.shot_offsets.clear();
         self.shots_taken.clear();
+        self.shot_attempts.clear();
         if self.screenshots_per_block == 0 {
             return;
         }
@@ -641,6 +654,23 @@ pub fn tick() {
     if !due.is_empty() {
         let attempt = capture_all_monitors();
         let shots = attempt.frames;
+        if shots.is_empty() {
+            // Put the slots back so a later tick tries again, unless this offset
+            // has already had its go. Giving up quietly after MAX_SHOT_ATTEMPTS
+            // keeps a permanently unavailable desktop from spending ten seconds
+            // of gdbus timeout every second for the rest of the block.
+            if let Ok(mut guard) = CAPTURE.lock() {
+                if let Some(c) = guard.as_mut() {
+                    for off in &due {
+                        let tries = c.shot_attempts.entry(*off).or_insert(0);
+                        *tries += 1;
+                        if *tries < MAX_SHOT_ATTEMPTS {
+                            c.shots_taken.remove(off);
+                        }
+                    }
+                }
+            }
+        }
         // Screen capture can fail for reasons the member can act on, and used to
         // report all of them as silence. Surface transitions, with the reason.
         let ok = !shots.is_empty();

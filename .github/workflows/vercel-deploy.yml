@@ -122,7 +122,9 @@ jobs:
           payload=$(jq -n --arg name "$PROJECT_NAME" --arg project "$PROJECT_ID" \
             --argjson repo "$REPO_ID" --arg sha "$SHA" \
             '{name:$name, project:$project, target:"production", gitSource:{type:"github", repoId:$repo, ref:$sha, sha:$sha}}')
-          response=$(curl -fsS -X POST \
+          # Vercel uses HTTP 402 for the daily Hobby deployment allowance.
+          # Keep the response body so the branch below can schedule a retry.
+          response=$(curl -sS -X POST \
             "https://api.vercel.com/v13/deployments?teamId=${TEAM_ID}&forceNew=1" \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
             -H "Content-Type: application/json" \

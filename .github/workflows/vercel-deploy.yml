@@ -1,0 +1,175 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "43 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-production-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check deployment configuration
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+          PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          PROJECT_NAME: ${{ vars.VERCEL_PROJECT_NAME }}
+          REPO_ID: ${{ vars.VERCEL_REPO_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "$VERCEL_TOKEN" ] || missing+=(VERCEL_TOKEN)
+          [ -n "$TEAM_ID" ] || missing+=(VERCEL_TEAM_ID)
+          [ -n "$PROJECT_ID" ] || missing+=(VERCEL_PROJECT_ID)
+          [ -n "$PROJECT_NAME" ] || missing+=(VERCEL_PROJECT_NAME)
+          [ -n "$REPO_ID" ] || missing+=(VERCEL_REPO_ID)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing GitHub Actions configuration: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Resolve the current production commit
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tip=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)
+          echo "sha=$tip" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$PUSH_SHA" != "$tip" ]; then
+            echo "main has moved on to ${tip}; that newer push will deploy."
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Reuse a native deployment when possible
+        id: existing
+        if: steps.commit.outputs.skip != '1'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+          PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ready=$(curl -fsS \
+            "https://api.vercel.com/v6/deployments?teamId=${TEAM_ID}&projectId=${PROJECT_ID}&target=production&sha=${SHA}&state=READY&limit=1" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" | jq -r '.deployments[0]?.uid // empty')
+          if [ -n "$ready" ]; then
+            echo "Production already has ${SHA} (${ready}); nothing to do."
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          tries=18
+          if [ "$GITHUB_EVENT_NAME" != "push" ]; then
+            tries=1
+          else
+            project=$(curl -fsS \
+              "https://api.vercel.com/v9/projects/${PROJECT_ID}?teamId=${TEAM_ID}" \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}")
+            native=$(printf '%s' "$project" | jq -r '.gitProviderOptions.createDeployments // "enabled"')
+            if [ "$native" = "disabled" ]; then
+              echo "Native Git deployments are disabled for this project; using the API deployment path."
+              tries=1
+            fi
+          fi
+
+          for _ in $(seq 1 "$tries"); do
+            list=$(curl -fsS \
+              "https://api.vercel.com/v6/deployments?teamId=${TEAM_ID}&projectId=${PROJECT_ID}&target=production&sha=${SHA}&limit=10" \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}")
+            active=$(printf '%s' "$list" | jq -r '[.deployments[]? | select(.state == "READY" or .state == "BUILDING" or .state == "QUEUED" or .state == "INITIALIZING")][0].uid // empty')
+            blocked=$(printf '%s' "$list" | jq -r '[.deployments[]? | select(.state == "BLOCKED")] | length')
+            if [ -n "$active" ]; then
+              echo "Vercel is already deploying ${SHA} as ${active}; monitoring that deployment."
+              echo "id=$active" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$blocked" != "0" ]; then
+              echo "The native Git deployment was BLOCKED; using the owner-token API path."
+              exit 0
+            fi
+            if [ "$tries" -gt 1 ]; then
+              sleep 10
+            fi
+          done
+          echo "No usable native deployment was found; using the owner-token API path."
+
+      - name: Create the production deployment
+        id: create
+        if: steps.commit.outputs.skip != '1' && steps.existing.outputs.skip != '1' && steps.existing.outputs.id == ''
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+          PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          PROJECT_NAME: ${{ vars.VERCEL_PROJECT_NAME }}
+          REPO_ID: ${{ vars.VERCEL_REPO_ID }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          payload=$(jq -n --arg name "$PROJECT_NAME" --arg project "$PROJECT_ID" \
+            --argjson repo "$REPO_ID" --arg sha "$SHA" \
+            '{name:$name, project:$project, target:"production", gitSource:{type:"github", repoId:$repo, ref:$sha, sha:$sha}}')
+          response=$(curl -fsS -X POST \
+            "https://api.vercel.com/v13/deployments?teamId=${TEAM_ID}&forceNew=1" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$payload")
+          id=$(printf '%s' "$response" | jq -r '.id // empty')
+          if [ -z "$id" ] && printf '%s' "$response" | jq -e '.error.code == "payment_required" or .error.limit != null' >/dev/null 2>&1; then
+            reset=$(printf '%s' "$response" | jq -r '.error.limit.reset // empty')
+            when=$([ -n "$reset" ] && date -u -d "@$((reset / 1000))" '+%Y-%m-%d %H:%M UTC' || echo "within 24 hours")
+            message="Vercel's daily deployment allowance is spent. ${SHA} is not live yet; the hourly catch-up will retry after the reset (${when})."
+            echo "::warning::${message}"
+            echo "### Not deployed yet" >> "$GITHUB_STEP_SUMMARY"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+            echo "quota=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$id" ]; then
+            echo "::error::Vercel refused to create the deployment."
+            printf '%s' "$response" | jq -r '.error // {message:"Unknown Vercel API error"}'
+            exit 1
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "Created ${id} for ${SHA}."
+
+      - name: Wait for production readiness
+        if: steps.commit.outputs.skip != '1' && steps.existing.outputs.skip != '1' && steps.create.outputs.quota != '1'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+          ID: ${{ steps.create.outputs.id || steps.existing.outputs.id }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 75); do
+            deployment=$(curl -fsS \
+              "https://api.vercel.com/v13/deployments/${ID}?teamId=${TEAM_ID}" \
+              -H "Authorization: Bearer ${VERCEL_TOKEN}")
+            state=$(printf '%s' "$deployment" | jq -r '.status // .readyState // "UNKNOWN"')
+            echo "$(date -u +%H:%M:%S) ${state}"
+            case "$state" in
+              READY)
+                echo "Deployment ${ID} is READY."
+                exit 0 ;;
+              ERROR|CANCELED|BLOCKED)
+                reason=$(printf '%s' "$deployment" | jq -r '.readyStateReason // .errorMessage // "No reason provided"')
+                echo "::error::Deployment ${ID} finished as ${state}: ${reason}"
+                exit 1 ;;
+            esac
+            sleep 20
+          done
+          echo "::error::Deployment ${ID} did not finish within 25 minutes."
+          exit 1
